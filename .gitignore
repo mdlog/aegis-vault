@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.env
+*.log
+
+# Contracts folder
+contracts/
+
+# Hardhat
+contracts/cache/
+contracts/artifacts/
+contracts/typechain-types/
+
+# Orchestrator local data
+orchestrator/data/
+
+# Temp files
+*.tmp
+.DS_Store

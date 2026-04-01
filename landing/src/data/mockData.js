@@ -1,0 +1,228 @@
+// ── Vault Overview ──
+export const vaultOverview = {
+  name: 'Aegis Primary Vault',
+  address: '0x7a3b...e4f2',
+  network: '0G Testnet',
+  status: 'active', // active | paused | emergency
+  sealedMode: true,
+  mandateType: 'Balanced',
+  baseAsset: 'USDC',
+  createdAt: '2025-02-14',
+  nav: 128420.52,
+  navChange24h: 1842.30,
+  navChangePct24h: 1.45,
+  allTimeReturn: 14.28,
+  allTimeReturnUsd: 16052.30,
+  riskScore: 28,
+  riskLevel: 'Low',
+  deposited: 112368.22,
+  pnlRealized: 9842.10,
+  pnlUnrealized: 6210.20,
+  maxDrawdown: 3.2,
+  sharpeRatio: 1.84,
+  totalExecutions: 142,
+  policyCompliance: 99.7,
+  policyViolations: 0,
+  lastExecution: '2025-03-31T08:42:00Z',
+  executorAddress: '0x3f1a...9c7d',
+};
+
+// ── Allocation ──
+export const allocation = [
+  { asset: 'BTC', symbol: 'BTC', amount: 0.842, value: 58940.00, pct: 45.9, color: '#f7931a' },
+  { asset: 'ETH', symbol: 'ETH', amount: 12.4, value: 27280.00, pct: 21.2, color: '#627eea' },
+  { asset: 'USDC', symbol: 'USDC', amount: 32200.52, value: 32200.52, pct: 25.1, color: '#2775ca' },
+  { asset: '0G', symbol: '0G', amount: 50000, value: 10000.00, pct: 7.8, color: '#4cc9f0' },
+];
+
+export const exposureSummary = {
+  deployed: 96220.00,
+  idle: 32200.52,
+  deployedPct: 74.9,
+  idlePct: 25.1,
+  concentrationRisk: 'Moderate',
+  largestPosition: 'BTC at 45.9%',
+  posture: 'Growth-Weighted',
+};
+
+// ── NAV History (30 days) ──
+export const navHistory = [
+  { date: 'Mar 1', nav: 112368 },
+  { date: 'Mar 3', nav: 113200 },
+  { date: 'Mar 5', nav: 111800 },
+  { date: 'Mar 7', nav: 114500 },
+  { date: 'Mar 9', nav: 116200 },
+  { date: 'Mar 11', nav: 115100 },
+  { date: 'Mar 13', nav: 117800 },
+  { date: 'Mar 15', nav: 118600 },
+  { date: 'Mar 17', nav: 116900 },
+  { date: 'Mar 19', nav: 119400 },
+  { date: 'Mar 21', nav: 121200 },
+  { date: 'Mar 23', nav: 120100 },
+  { date: 'Mar 25', nav: 123500 },
+  { date: 'Mar 27', nav: 125800 },
+  { date: 'Mar 29', nav: 126400 },
+  { date: 'Mar 31', nav: 128420 },
+];
+
+export const drawdownHistory = [
+  { date: 'Mar 1', dd: 0 },
+  { date: 'Mar 3', dd: -0.2 },
+  { date: 'Mar 5', dd: -1.4 },
+  { date: 'Mar 7', dd: -0.1 },
+  { date: 'Mar 9', dd: 0 },
+  { date: 'Mar 11', dd: -0.9 },
+  { date: 'Mar 13', dd: -0.1 },
+  { date: 'Mar 15', dd: 0 },
+  { date: 'Mar 17', dd: -1.8 },
+  { date: 'Mar 19', dd: -0.3 },
+  { date: 'Mar 21', dd: 0 },
+  { date: 'Mar 23', dd: -1.1 },
+  { date: 'Mar 25', dd: -0.2 },
+  { date: 'Mar 27', dd: 0 },
+  { date: 'Mar 29', dd: -0.4 },
+  { date: 'Mar 31', dd: -0.1 },
+];
+
+// ── AI Actions Feed ──
+export const aiActions = [
+  {
+    id: 'act-001',
+    timestamp: '2025-03-31T08:42:00Z',
+    type: 'rebalance',
+    action: 'Reduced BTC exposure by 12%',
+    asset: 'BTC',
+    direction: 'sell',
+    sizePct: 12,
+    sizeUsd: 7072.80,
+    confidence: 0.87,
+    riskScore: 0.22,
+    reason: 'Elevated volatility detected on 4H timeframe. BTC concentration exceeded 50% threshold. Rebalancing to maintain mandate compliance.',
+    outcome: 'executed',
+    txHash: '0x8f2a...3d1c',
+    policyCheck: 'passed',
+  },
+  {
+    id: 'act-002',
+    timestamp: '2025-03-30T14:18:00Z',
+    type: 'buy',
+    action: 'Increased ETH allocation',
+    asset: 'ETH',
+    direction: 'buy',
+    sizePct: 8,
+    sizeUsd: 5120.00,
+    confidence: 0.79,
+    riskScore: 0.31,
+    reason: 'ETH showing momentum continuation on daily chart with decreasing volatility. Position within mandate limits.',
+    outcome: 'executed',
+    txHash: '0x4b7e...a92f',
+    policyCheck: 'passed',
+  },
+  {
+    id: 'act-003',
+    timestamp: '2025-03-29T22:05:00Z',
+    type: 'hold',
+    action: 'No action — high uncertainty',
+    asset: null,
+    direction: 'hold',
+    sizePct: 0,
+    sizeUsd: 0,
+    confidence: 0.42,
+    riskScore: 0.58,
+    reason: 'Market conditions ambiguous. Multiple conflicting signals across timeframes. Confidence below execution threshold (0.60).',
+    outcome: 'skipped',
+    txHash: null,
+    policyCheck: 'n/a',
+  },
+  {
+    id: 'act-004',
+    timestamp: '2025-03-28T10:30:00Z',
+    type: 'buy',
+    action: 'Entered 0G position',
+    asset: '0G',
+    direction: 'buy',
+    sizePct: 5,
+    sizeUsd: 6200.00,
+    confidence: 0.73,
+    riskScore: 0.35,
+    reason: 'Ecosystem growth catalyst identified. Position sized conservatively within 10% single-asset cap. Risk-adjusted entry.',
+    outcome: 'executed',
+    txHash: '0xc91d...7e4a',
+    policyCheck: 'passed',
+  },
+  {
+    id: 'act-005',
+    timestamp: '2025-03-27T16:55:00Z',
+    type: 'blocked',
+    action: 'BTC buy blocked by policy',
+    asset: 'BTC',
+    direction: 'buy',
+    sizePct: 15,
+    sizeUsd: 18400.00,
+    confidence: 0.81,
+    riskScore: 0.44,
+    reason: 'AI recommended increasing BTC position by 15%. Blocked: position size would exceed max single-asset allocation of 50%.',
+    outcome: 'blocked',
+    txHash: null,
+    policyCheck: 'failed — max position exceeded',
+  },
+  {
+    id: 'act-006',
+    timestamp: '2025-03-26T09:12:00Z',
+    type: 'sell',
+    action: 'Trimmed ETH on drawdown signal',
+    asset: 'ETH',
+    direction: 'sell',
+    sizePct: 6,
+    sizeUsd: 3840.00,
+    confidence: 0.76,
+    riskScore: 0.39,
+    reason: 'Consecutive drawdown detected on ETH. Reducing exposure proactively to protect capital within drawdown limits.',
+    outcome: 'executed',
+    txHash: '0xa42f...1b8e',
+    policyCheck: 'passed',
+  },
+];
+
+// ── Policy / Guardrails ──
+export const policy = {
+  mandateType: 'Balanced',
+  maxDrawdownPct: 10,
+  maxPositionPct: 50,
+  dailyLossLimitPct: 5,
+  cooldownMinutes: 15,
+  leverageCap: 1.0,
+  allowedAssets: ['BTC', 'ETH', 'USDC', '0G'],
+  sealedMode: true,
+  autoExecution: true,
+  globalStopLoss: 15,
+  confidenceThreshold: 0.60,
+  maxActionsPerDay: 6,
+  paused: false,
+};
+
+// ── Risk Events ──
+export const riskEvents = [
+  { id: 'evt-001', timestamp: '2025-03-31T08:42:00Z', type: 'execution', severity: 'normal', message: 'BTC rebalance executed — reduced by 12%', details: 'Policy compliant. Within all guardrails.' },
+  { id: 'evt-002', timestamp: '2025-03-30T14:18:00Z', type: 'execution', severity: 'normal', message: 'ETH buy executed — +$5,120', details: 'Confidence: 0.79. Risk score: 0.31.' },
+  { id: 'evt-003', timestamp: '2025-03-29T22:05:00Z', type: 'skip', severity: 'info', message: 'Execution skipped — confidence below threshold', details: 'Confidence 0.42 < 0.60 threshold.' },
+  { id: 'evt-004', timestamp: '2025-03-27T16:55:00Z', type: 'blocked', severity: 'warning', message: 'BTC buy blocked — max position exceeded', details: 'Requested 15% increase would push BTC to 62.4%, exceeding 50% cap.' },
+  { id: 'evt-005', timestamp: '2025-03-25T11:20:00Z', type: 'policy_update', severity: 'info', message: 'Policy updated — max drawdown changed to 10%', details: 'User adjusted from 8% to 10%.' },
+  { id: 'evt-006', timestamp: '2025-03-22T07:45:00Z', type: 'execution', severity: 'normal', message: 'Portfolio rebalanced to mandate targets', details: 'All positions realigned within ±2% of mandate.' },
+  { id: 'evt-007', timestamp: '2025-03-20T15:30:00Z', type: 'warning', severity: 'elevated', message: 'Drawdown approaching 60% of limit', details: 'Current drawdown: 5.8% / 10% limit. Monitoring closely.' },
+];
+
+// ── Performance Snapshots ──
+export const performanceSnapshots = {
+  '24h': { returnPct: 1.45, returnUsd: 1842.30 },
+  '7d': { returnPct: 4.2, returnUsd: 5173.80 },
+  '30d': { returnPct: 14.28, returnUsd: 16052.30 },
+  'all': { returnPct: 14.28, returnUsd: 16052.30 },
+};
+
+// ── Vault List (for switcher / overview) ──
+export const vaultList = [
+  { id: 'vault-001', name: 'Aegis Primary Vault', nav: 128420.52, status: 'active', mandate: 'Balanced', risk: 28 },
+  { id: 'vault-002', name: 'Conservative Reserve', nav: 45200.00, status: 'active', mandate: 'Defensive', risk: 12 },
+  { id: 'vault-003', name: 'Tactical Alpha', nav: 0, status: 'paused', mandate: 'Tactical', risk: 0 },
+];

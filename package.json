@@ -1,0 +1,17 @@
+{
+  "name": "aegis-vault",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "setup": "bash setup.sh",
+    "demo": "node demo.js",
+    "dev:node": "cd contracts && npx hardhat node",
+    "dev:deploy": "cd contracts && npx hardhat run scripts/deploy.js --network localhost && node scripts/gen-env.js && node scripts/sync-frontend.js",
+    "dev:orchestrator": "cd orchestrator && npm start",
+    "dev:frontend": "cd landing && npm run dev"
+  },
+  "dependencies": {
+    "ethers": "^6.16.0"
+  }
+}
