@@ -31,7 +31,7 @@
 
 ```bash
 # Install dependencies
-cd landing
+cd frontend
 npm install
 
 # Run development server
