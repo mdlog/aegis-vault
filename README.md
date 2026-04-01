@@ -1,6 +1,10 @@
-# Aegis Vault
+<p align="center">
+  <img src="aegis-vault-logo.png" alt="Aegis Vault" width="480" />
+</p>
 
-**Verifiable AI Risk Manager with Autonomous Execution Guardrails on 0G**
+<p align="center">
+  <strong>Verifiable AI Risk Manager with Autonomous Execution Guardrails on 0G</strong>
+</p>
 
 > Aegis Vault is an AI-managed, risk-controlled trading vault built on the 0G stack. Users deposit assets, define strict on-chain risk mandates, and let an AI agent manage execution within those limits. The AI proposes. The contract enforces. Every action is auditable.
 
@@ -322,7 +326,7 @@ node scripts/sync-frontend.js
 cd orchestrator && npm install --legacy-peer-deps && npm start
 
 # Terminal 3: Start frontend (port 5173)
-cd landing && npm install && npm run dev
+cd frontend && npm install && npm run dev
 ```
 
 Open `http://localhost:5173`
@@ -411,7 +415,7 @@ Switch from MockDEX to Jaine: `vault.setVenue(jaineAdapterAddress)`
 |  |  |- api.js                     Express server (16 endpoints)
 |  |  |- index.js                   Entry point + cron scheduler
 |
-|- landing/                      React Frontend (Vite + Tailwind)
+|- frontend/                     React Frontend (Vite + Tailwind)
 |  |- src/
 |  |  |- pages/
 |  |  |  |- LandingPage.jsx         Marketing page (8 sections)

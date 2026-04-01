@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/aegis-vault-logo.png" alt="Aegis Vault" width="320" />
+  <img src="src/assets/aegis-vault-logo.png" alt="Aegis Vault" width="480" />
 </p>
 
 <h1 align="center">Aegis Vault</h1>
