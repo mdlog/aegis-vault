@@ -50,11 +50,15 @@ const ABI = {
 
 // ── Provider + Signer ──
 // Auto-detect network from deployments.json
-const isTestnet = D.network === 'og_testnet';
-const RPC_URL = isTestnet ? 'https://evmrpc-testnet.0g.ai' : 'http://127.0.0.1:8545';
-const PRIVATE_KEY = isTestnet
-  ? (process.env.DEPLOYER_PRIVATE_KEY || '0xec40c43709b7dc4dbe39c1ae6717c17e17393b192606a0d4a6ff599a18ad7f60')
-  : '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+const isTestnet = D.network === 'og_testnet' || D.network === 'og_mainnet';
+const RPC_URL = isTestnet ? (D.network === 'og_mainnet' ? 'https://evmrpc.0g.ai' : 'https://evmrpc-testnet.0g.ai') : 'http://127.0.0.1:8545';
+
+// NEVER hardcode private keys — always use environment variables
+const PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY;
+if (!PRIVATE_KEY) {
+  console.error('\n✗ DEPLOYER_PRIVATE_KEY not set. Run with:\n  DEPLOYER_PRIVATE_KEY=0x... node demo.js\n');
+  process.exit(1);
+}
 
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 const signer = new ethers.Wallet(PRIVATE_KEY, provider);

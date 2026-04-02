@@ -277,8 +277,33 @@ export default function DashboardPage() {
                       <StatusPill label={kvState.lastSignal.action} variant={kvState.lastSignal.action === 'hold' ? 'info' : 'executed'} />
                       <span className="text-[10px] font-mono text-cyan/40">Conf: {(kvState.lastSignal.confidence * 100).toFixed(0)}%</span>
                     </div>
+
+                    {/* v1: Regime + Scores */}
+                    {kvState.lastSignal.regime && (
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded border ${
+                          kvState.lastSignal.regime?.includes('UP') ? 'text-emerald-soft/70 bg-emerald-soft/5 border-emerald-soft/10' :
+                          kvState.lastSignal.regime?.includes('DOWN') || kvState.lastSignal.regime?.includes('PANIC') ? 'text-red-warn/60 bg-red-warn/5 border-red-warn/10' :
+                          'text-steel/40 bg-white/[0.02] border-white/[0.05]'
+                        }`}>{kvState.lastSignal.regime?.replace(/_/g, ' ')}</span>
+                        {kvState.lastSignal.final_edge_score !== undefined && (
+                          <span className="text-[9px] font-mono text-steel/35">Edge: {kvState.lastSignal.final_edge_score}</span>
+                        )}
+                        {kvState.lastSignal.trade_quality_score !== undefined && (
+                          <span className="text-[9px] font-mono text-steel/35">Q: {kvState.lastSignal.trade_quality_score}</span>
+                        )}
+                        {kvState.lastSignal.hard_veto && (
+                          <span className="text-[8px] font-mono text-red-warn/50 px-1 py-0.5 rounded bg-red-warn/5 border border-red-warn/10">VETO</span>
+                        )}
+                      </div>
+                    )}
+
                     <p className="text-[11px] text-steel/50 leading-relaxed">{kvState.lastSignal.reason}</p>
-                    <span className="text-[9px] font-mono text-steel/30 mt-1 block">Source: {kvState.lastSignal.source || 'orchestrator'}</span>
+                    <span className={`text-[9px] font-mono mt-1 block ${
+                      kvState.lastSignal.source?.includes('0g-compute') ? 'text-cyan/40' : 'text-steel/30'
+                    }`}>
+                      Source: {kvState.lastSignal.source || 'orchestrator'}
+                    </span>
                   </div>
                 </div>
               ) : (

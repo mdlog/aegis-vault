@@ -33,27 +33,66 @@ function resolveAssetAddress(symbol) {
  * @param {object} vaultState - Current vault state
  * @returns {object} ExecutionIntent struct ready for contract call
  */
-export function buildExecutionIntent(decision, vaultState) {
+/**
+ * Default slippage tolerance in basis points (0.5% = 50 bps)
+ */
+const DEFAULT_SLIPPAGE_BPS = 50;
+
+export function buildExecutionIntent(decision, vaultState, oraclePrices = null) {
   const now = Math.floor(Date.now() / 1000);
   const ttl = 300; // 5 minute TTL
 
   // Determine assetIn / assetOut based on action
   let assetIn, assetOut, amountIn;
+  let expectedOutputUsd = 0;
 
   if (decision.action === 'buy') {
     // Buying: spend base asset (USDC) to get target asset
     assetIn = resolveAssetAddress('USDC');
     assetOut = resolveAssetAddress(decision.asset);
     amountIn = calculateAmountFromBps(decision.size_bps, vaultState.nav, 6); // USDC decimals
+    // Expected output in USD = amountIn (since USDC ≈ $1)
+    expectedOutputUsd = (vaultState.nav * decision.size_bps) / 10000;
   } else if (decision.action === 'sell') {
     // Selling: spend target asset to get base asset (USDC)
     assetIn = resolveAssetAddress(decision.asset);
     assetOut = resolveAssetAddress('USDC');
-    // L-3 fix: Use the correct decimals for the asset being sold
     const assetDecimals = config.assets[decision.asset]?.decimals || 18;
     amountIn = calculateAmountFromBps(decision.size_bps, vaultState.nav, assetDecimals);
+    expectedOutputUsd = (vaultState.nav * decision.size_bps) / 10000;
   } else {
     return null; // hold — no intent needed
+  }
+
+  // ── Calculate minAmountOut with slippage protection ──
+  let minAmountOut = 0n;
+
+  if (oraclePrices && expectedOutputUsd > 0) {
+    // Use Pyth oracle price to calculate expected output
+    const outAssetSymbol = decision.action === 'buy' ? decision.asset : 'USDC';
+    const outDecimals = decision.action === 'buy'
+      ? (config.assets[decision.asset]?.decimals || 18)
+      : 6;
+
+    if (outAssetSymbol === 'USDC') {
+      // Selling to USDC: expected output ≈ expectedOutputUsd
+      const minUsd = expectedOutputUsd * (1 - DEFAULT_SLIPPAGE_BPS / 10000);
+      minAmountOut = ethers.parseUnits(minUsd.toFixed(outDecimals > 6 ? 6 : outDecimals), outDecimals);
+    } else {
+      // Buying asset: calculate expected token amount from oracle price
+      const priceKey = outAssetSymbol === 'BTC' || outAssetSymbol === 'WBTC' ? 'BTC' : 'ETH';
+      const assetPrice = oraclePrices[priceKey]?.price || oraclePrices[priceKey] || 0;
+      if (assetPrice > 0) {
+        const expectedTokens = expectedOutputUsd / assetPrice;
+        const minTokens = expectedTokens * (1 - DEFAULT_SLIPPAGE_BPS / 10000);
+        minAmountOut = ethers.parseUnits(
+          minTokens.toFixed(outDecimals > 8 ? 8 : outDecimals),
+          outDecimals
+        );
+      }
+    }
+
+    logger.info(`  Slippage protection: minAmountOut = ${minAmountOut.toString()} (${DEFAULT_SLIPPAGE_BPS / 100}% tolerance)`);
   }
 
   const intent = {
@@ -62,7 +101,7 @@ export function buildExecutionIntent(decision, vaultState) {
     assetIn,
     assetOut,
     amountIn,
-    minAmountOut: 0n, // Simplified for MVP — in production, use oracle price * slippage
+    minAmountOut,
     createdAt: now,
     expiresAt: now + ttl,
     confidenceBps: Math.round(decision.confidence * 10000),

@@ -66,8 +66,8 @@ export default function CreateVaultPage() {
     dailyLossLimit: 5,
     cooldown: 15,
     confidenceThreshold: 60,
-    leverage: 1.0,
     stopLoss: 15,
+    maxActionsPerDay: 20,
     allowedAssets: ['BTC', 'ETH', 'USDC', '0G'],
     sealedMode: false,
     autoExecution: true,
@@ -89,12 +89,18 @@ export default function CreateVaultPage() {
 
   const selectProfile = (id) => {
     const profile = riskProfiles.find((p) => p.id === id);
+    const presets = {
+      defensive: { maxActionsPerDay: 10, cooldown: 20, dailyLossLimit: 3, stopLoss: 10 },
+      balanced: { maxActionsPerDay: 20, cooldown: 15, dailyLossLimit: 5, stopLoss: 15 },
+      tactical: { maxActionsPerDay: 30, cooldown: 10, dailyLossLimit: 10, stopLoss: 20 },
+    };
     setConfig((prev) => ({
       ...prev,
       riskProfile: id,
       maxDrawdown: profile.maxDrawdown,
       maxPosition: profile.maxPosition,
       confidenceThreshold: profile.confidence * 100,
+      ...(presets[id] || {}),
     }));
   };
 
@@ -240,15 +246,16 @@ export default function CreateVaultPage() {
               <GlassPanel className="p-6 max-w-lg mx-auto">
                 <div className="space-y-5">
                   {[
-                    { label: 'Max Drawdown', key: 'maxDrawdown', min: 1, max: 30, suffix: '%', icon: <TrendingDown className="w-3.5 h-3.5" /> },
-                    { label: 'Max Position Size', key: 'maxPosition', min: 10, max: 80, suffix: '%', icon: <Target className="w-3.5 h-3.5" /> },
-                    { label: 'Daily Loss Limit', key: 'dailyLossLimit', min: 1, max: 15, suffix: '%', icon: <AlertTriangle className="w-3.5 h-3.5" /> },
-                    { label: 'Cooldown Period', key: 'cooldown', min: 5, max: 60, suffix: 'min', icon: <Clock className="w-3.5 h-3.5" /> },
-                    { label: 'Confidence Threshold', key: 'confidenceThreshold', min: 30, max: 95, suffix: '%', icon: <Zap className="w-3.5 h-3.5" /> },
-                    { label: 'Global Stop-Loss', key: 'stopLoss', min: 5, max: 30, suffix: '%', icon: <Shield className="w-3.5 h-3.5" /> },
+                    { label: 'Max Drawdown', key: 'maxDrawdown', min: 1, max: 30, suffix: '%', icon: <TrendingDown className="w-3.5 h-3.5" />, desc: 'Maximum allowed daily loss' },
+                    { label: 'Max Position Size', key: 'maxPosition', min: 10, max: 80, suffix: '%', icon: <Target className="w-3.5 h-3.5" />, desc: 'Maximum single trade size' },
+                    { label: 'Daily Loss Limit', key: 'dailyLossLimit', min: 1, max: 15, suffix: '%', icon: <AlertTriangle className="w-3.5 h-3.5" />, desc: 'Stop trading if daily loss exceeds this' },
+                    { label: 'Cooldown Period', key: 'cooldown', min: 1, max: 60, suffix: 'min', icon: <Clock className="w-3.5 h-3.5" />, desc: 'Minimum wait between trades' },
+                    { label: 'Confidence Threshold', key: 'confidenceThreshold', min: 30, max: 95, suffix: '%', icon: <Zap className="w-3.5 h-3.5" />, desc: 'AI must be at least this confident to trade' },
+                    { label: 'Global Stop-Loss', key: 'stopLoss', min: 5, max: 30, suffix: '%', icon: <Shield className="w-3.5 h-3.5" />, desc: 'Halt all trading if total loss exceeds this' },
+                    { label: 'Max Trades Per Day', key: 'maxActionsPerDay', min: 1, max: 50, suffix: '', icon: <Layers className="w-3.5 h-3.5" />, desc: 'Maximum number of trades per day' },
                   ].map((param) => (
                     <div key={param.key}>
-                      <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-2 text-xs text-steel/70">
                           <span className="text-steel/40">{param.icon}</span>
                           {param.label}
@@ -257,6 +264,9 @@ export default function CreateVaultPage() {
                           {config[param.key]}{param.suffix}
                         </span>
                       </div>
+                      {param.desc && (
+                        <p className="text-[9px] text-steel/35 mb-2">{param.desc}</p>
+                      )}
                       <input
                         type="range"
                         min={param.min}
@@ -402,6 +412,10 @@ export default function CreateVaultPage() {
                     <span className="text-sm font-mono text-white">{config.confidenceThreshold}%</span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-white/[0.04]">
+                    <span className="text-xs text-steel/60">Max Trades Per Day</span>
+                    <span className="text-sm font-mono text-white">{config.maxActionsPerDay}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-white/[0.04]">
                     <span className="text-xs text-steel/60">Allowed Assets</span>
                     <span className="text-sm font-mono text-white">{config.allowedAssets.join(', ')}</span>
                   </div>
@@ -445,7 +459,7 @@ export default function CreateVaultPage() {
                     stopLossBps: config.stopLoss * 100,
                     cooldownSeconds: config.cooldown * 60,
                     confidenceThresholdBps: config.confidenceThreshold * 100,
-                    maxActionsPerDay: 20,
+                    maxActionsPerDay: config.maxActionsPerDay,
                     autoExecution: config.autoExecution,
                     paused: false,
                   };

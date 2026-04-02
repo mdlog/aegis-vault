@@ -1,53 +1,58 @@
 /**
- * PromptBuilder
- * Constructs a structured prompt for the AI inference engine.
- * The prompt instructs the model to output a strict JSON decision.
+ * PromptBuilder v1
+ * Constructs structured prompts for the AI inference engine.
+ * Supports both simple (legacy) and v1 (decision matrix) output formats.
  */
 
 /**
- * Build the system prompt for the AI risk agent
+ * Build the system prompt for the AI risk agent (v1)
  */
 export function buildSystemPrompt() {
   return `You are Aegis Vault AI — a disciplined, risk-aware autonomous trading agent.
 
-Your role is to analyze market conditions and propose a single trading action for the vault.
+Your role is to analyze market conditions, regime, and technical indicators, then provide your assessment as structured JSON.
 
 RULES:
-- You must be conservative. Capital preservation is the top priority.
+- Capital preservation is the top priority.
 - Never recommend a trade if conditions are ambiguous or volatile.
 - Your confidence score must honestly reflect uncertainty.
-- If in doubt, recommend "hold" with low confidence.
+- If in doubt, set confidence low and recommend hold.
 - Your output MUST be valid JSON only. No explanation text outside JSON.
 
 OUTPUT FORMAT (strict JSON):
 {
   "action": "buy" | "sell" | "hold",
   "asset": "BTC" | "ETH" | "USDC",
-  "size_bps": <number 0-2000>,
+  "size_bps": <number 0-5000>,
   "confidence": <number 0.0-1.0>,
   "risk_score": <number 0.0-1.0>,
-  "reason": "<one sentence explanation>"
+  "reason": "<one sentence explanation>",
+  "ai_context_score": <number 0-100>,
+  "timing_score": <number 0-100>
 }
 
 FIELD DEFINITIONS:
 - action: what to do. "hold" means no trade.
-- asset: which asset to trade. For "hold", use the largest position.
-- size_bps: position size in basis points of vault NAV (100 = 1%, 2000 = 20% max)
+- asset: which asset to trade. For "hold", use "USDC".
+- size_bps: position size in basis points of vault NAV (100 = 1%, max 2000 = 20%)
 - confidence: how confident you are (0.0 = no confidence, 1.0 = very confident)
 - risk_score: assessed market risk (0.0 = very safe, 1.0 = very risky)
 - reason: one-sentence explanation of your decision
+- ai_context_score: your assessment of setup clarity and signal quality (0-100)
+- timing_score: how good the entry timing is right now (0-100)
 
 CONSTRAINTS:
 - size_bps must not exceed 2000 (20%)
-- If risk_score > 0.7, you SHOULD recommend "hold"
-- If confidence < 0.5, you SHOULD recommend "hold"
-- Never trade more than one asset at a time`;
+- If risk_score > 0.45, you SHOULD recommend "hold"
+- If confidence < 0.55, you SHOULD recommend "hold"
+- Never trade more than one asset at a time
+- Consider the regime classification when making decisions`;
 }
 
 /**
- * Build the user prompt with current market data and vault state
+ * Build the user prompt with current market data, indicators, regime, and vault state
  */
-export function buildUserPrompt(marketSummary, vaultState) {
+export function buildUserPrompt(marketSummary, vaultState, indicators = null, regime = null) {
   const lines = [
     '=== CURRENT MARKET DATA ===',
     `Timestamp: ${new Date(marketSummary.timestamp).toISOString()}`,
@@ -69,6 +74,29 @@ export function buildUserPrompt(marketSummary, vaultState) {
     lines.push(`${sym}: ${vol}`);
   }
 
+  // Technical indicators (v1)
+  if (indicators) {
+    lines.push('');
+    lines.push('=== TECHNICAL INDICATORS ===');
+    lines.push(`EMA 20: $${indicators.ema_20?.toFixed(2)}`);
+    lines.push(`EMA 50: $${indicators.ema_50?.toFixed(2)}`);
+    lines.push(`EMA 200: $${indicators.ema_200?.toFixed(2)}`);
+    lines.push(`RSI-14: ${indicators.rsi_14?.toFixed(1)}`);
+    lines.push(`MACD Histogram: ${indicators.macd_histogram?.toFixed(2)}`);
+    lines.push(`ATR-14 (%): ${indicators.atr_14_pct?.toFixed(2)}%`);
+    lines.push(`Realized Vol 1h: ${indicators.realized_vol_1h_pct?.toFixed(2)}%`);
+    lines.push(`Volume Z-Score: ${indicators.volume_zscore?.toFixed(2)}`);
+    lines.push(`Price vs VWAP: ${indicators.price_vs_vwap_pct?.toFixed(2)}%`);
+    lines.push(`MTF Alignment: ${indicators.mtf_alignment}`);
+  }
+
+  // Regime classification (v1)
+  if (regime) {
+    lines.push('');
+    lines.push(`=== REGIME CLASSIFICATION ===`);
+    lines.push(`Current Regime: ${regime}`);
+  }
+
   // Vault state
   lines.push('');
   lines.push('=== VAULT STATE ===');
@@ -80,6 +108,16 @@ export function buildUserPrompt(marketSummary, vaultState) {
   lines.push(`Confidence Threshold: ${vaultState.confidenceThreshold}%`);
   lines.push(`Daily Actions Used: ${vaultState.dailyActionsUsed}/${vaultState.maxActionsPerDay}`);
   lines.push(`Last Execution: ${vaultState.lastExecution || 'Never'}`);
+  lines.push(`Position: ${vaultState.current_position_side || 'flat'}`);
+  if (vaultState.current_position_pnl_pct) {
+    lines.push(`Position PnL: ${vaultState.current_position_pnl_pct.toFixed(2)}%`);
+  }
+  if (vaultState.consecutive_losses) {
+    lines.push(`Consecutive Losses: ${vaultState.consecutive_losses}`);
+  }
+  if (vaultState.rolling_drawdown_pct) {
+    lines.push(`Rolling Drawdown: ${vaultState.rolling_drawdown_pct.toFixed(2)}%`);
+  }
 
   if (vaultState.allocation && vaultState.allocation.length > 0) {
     lines.push('');
@@ -101,12 +139,17 @@ export function buildUserPrompt(marketSummary, vaultState) {
  */
 export function parseAIResponse(responseText) {
   try {
-    // Extract JSON from response (handle cases where model wraps in markdown)
     let jsonStr = responseText.trim();
 
     // Remove markdown code fences if present
     if (jsonStr.startsWith('```')) {
       jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    }
+
+    // Try to extract JSON from mixed text
+    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[0];
     }
 
     const decision = JSON.parse(jsonStr);
@@ -130,6 +173,14 @@ export function parseAIResponse(responseText) {
     decision.confidence = Math.min(Math.max(0, decision.confidence), 1.0);
     decision.risk_score = decision.risk_score > 1 ? decision.risk_score / 100 : decision.risk_score;
     decision.risk_score = Math.min(Math.max(0, decision.risk_score), 1.0);
+
+    // Normalize optional v1 fields
+    if (decision.ai_context_score !== undefined) {
+      decision.ai_context_score = Math.min(Math.max(0, Math.round(decision.ai_context_score)), 100);
+    }
+    if (decision.timing_score !== undefined) {
+      decision.timing_score = Math.min(Math.max(0, Math.round(decision.timing_score)), 100);
+    }
 
     // If hold, zero out size
     if (decision.action === 'hold') {

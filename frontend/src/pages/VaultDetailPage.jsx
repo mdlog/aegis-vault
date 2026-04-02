@@ -172,6 +172,11 @@ export default function VaultDetailPage() {
         reason: d.reason || '', timestamp: d.timestamp,
         asset: d.asset, confidence: d.confidence || 0, riskScore: d.risk_score || 0,
         txHash: null, source: d.source || 'orchestrator',
+        // v1 fields
+        regime: d.regime, v1Action: d.v1_action,
+        finalEdgeScore: d.final_edge_score, tradeQualityScore: d.trade_quality_score,
+        hardVeto: d.hard_veto, hardVetoReasons: d.hard_veto_reasons,
+        entryTrigger: d.entry_trigger,
       }))
     : mockAiActions.slice(0, 5);
 
@@ -425,10 +430,42 @@ export default function VaultDetailPage() {
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-sm font-display font-medium text-white">{action.action}</span>
                         <StatusPill label={action.outcome} variant={action.outcome} />
-                        {action.source === 'orchestrator' && (
-                          <span className="text-[8px] font-mono text-cyan/40 px-1 py-0.5 rounded bg-cyan/5 border border-cyan/10">LIVE</span>
+                        {action.source?.includes('0g-compute') && (
+                          <span className="text-[8px] font-mono text-cyan/40 px-1 py-0.5 rounded bg-cyan/5 border border-cyan/10">0G Compute</span>
+                        )}
+                        {action.source?.includes('engine-v1') && (
+                          <span className="text-[8px] font-mono text-gold/40 px-1 py-0.5 rounded bg-gold/5 border border-gold/10">Engine v1</span>
                         )}
                       </div>
+
+                      {/* v1: Regime + scores */}
+                      {action.regime && (
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded border ${
+                            action.regime?.includes('UP') ? 'text-emerald-soft/70 bg-emerald-soft/5 border-emerald-soft/10' :
+                            action.regime?.includes('DOWN') || action.regime?.includes('PANIC') ? 'text-red-warn/60 bg-red-warn/5 border-red-warn/10' :
+                            'text-steel/40 bg-white/[0.02] border-white/[0.05]'
+                          }`}>{action.regime?.replace(/_/g, ' ')}</span>
+                          {action.finalEdgeScore !== undefined && (
+                            <span className="text-[9px] font-mono text-steel/35">Edge: {action.finalEdgeScore}</span>
+                          )}
+                          {action.tradeQualityScore !== undefined && (
+                            <span className="text-[9px] font-mono text-steel/35">Q: {action.tradeQualityScore}</span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* v1: Veto */}
+                      {action.hardVeto && action.hardVetoReasons?.length > 0 && (
+                        <div className="flex items-center gap-1 mb-1 flex-wrap">
+                          {action.hardVetoReasons.map((r, ri) => (
+                            <span key={ri} className="text-[8px] font-mono text-red-warn/40 px-1 py-0.5 rounded bg-red-warn/5 border border-red-warn/10">
+                              {r.replace(/_/g, ' ')}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
                       <p className="text-[11px] text-steel/60 leading-relaxed mb-2">{action.reason}</p>
                       <div className="flex items-center gap-4 text-[10px] font-mono text-steel/40">
                         {action.timestamp && <span>{formatTime(action.timestamp)}</span>}
@@ -488,6 +525,106 @@ export default function VaultDetailPage() {
           <div className="flex justify-center py-4">
             <DashboardShield size={200} riskScore={riskScore} riskLevel={riskLevel} />
           </div>
+
+          {/* Current Regime + AI Status (from orchestrator) */}
+          {kvState?.lastSignal && (
+            <div>
+              <SectionLabel color="text-cyan/60">AI Agent Status</SectionLabel>
+              <GlassPanel className="p-5">
+                <div className="space-y-3">
+                  {/* Regime */}
+                  {kvState.lastSignal.regime && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-steel/50">Regime</span>
+                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                        kvState.lastSignal.regime?.includes('UP_STRONG') ? 'text-emerald-soft bg-emerald-soft/10 border-emerald-soft/20' :
+                        kvState.lastSignal.regime?.includes('UP_WEAK') ? 'text-emerald-soft/70 bg-emerald-soft/5 border-emerald-soft/10' :
+                        kvState.lastSignal.regime?.includes('DOWN') ? 'text-red-warn/80 bg-red-warn/10 border-red-warn/20' :
+                        kvState.lastSignal.regime?.includes('PANIC') ? 'text-red-warn bg-red-warn/10 border-red-warn/30' :
+                        'text-steel/60 bg-white/[0.03] border-white/[0.06]'
+                      }`}>
+                        {kvState.lastSignal.regime?.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Edge Score */}
+                  {kvState.lastSignal.final_edge_score !== undefined && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] text-steel/50">Edge Score</span>
+                        <span className={`text-xs font-mono font-semibold ${
+                          kvState.lastSignal.final_edge_score >= 72 ? 'text-emerald-soft' :
+                          kvState.lastSignal.final_edge_score >= 58 ? 'text-amber-warn' : 'text-steel/60'
+                        }`}>{kvState.lastSignal.final_edge_score}/100</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-white/[0.04] overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${
+                          kvState.lastSignal.final_edge_score >= 72 ? 'bg-emerald-soft/60' :
+                          kvState.lastSignal.final_edge_score >= 58 ? 'bg-amber-warn/60' : 'bg-steel/30'
+                        }`} style={{ width: `${kvState.lastSignal.final_edge_score}%` }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Trade Quality */}
+                  {kvState.lastSignal.trade_quality_score !== undefined && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] text-steel/50">Trade Quality</span>
+                        <span className={`text-xs font-mono font-semibold ${
+                          kvState.lastSignal.trade_quality_score >= 78 ? 'text-emerald-soft' :
+                          kvState.lastSignal.trade_quality_score >= 60 ? 'text-amber-warn' : 'text-steel/60'
+                        }`}>{kvState.lastSignal.trade_quality_score}/100</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-white/[0.04] overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${
+                          kvState.lastSignal.trade_quality_score >= 78 ? 'bg-emerald-soft/60' :
+                          kvState.lastSignal.trade_quality_score >= 60 ? 'bg-amber-warn/60' : 'bg-steel/30'
+                        }`} style={{ width: `${kvState.lastSignal.trade_quality_score}%` }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* V1 Action */}
+                  {kvState.lastSignal.v1_action && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-steel/50">Last Action</span>
+                      <span className="text-[10px] font-mono text-white/60">{kvState.lastSignal.v1_action}</span>
+                    </div>
+                  )}
+
+                  {/* Hard Veto */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-steel/50">Hard Veto</span>
+                    <StatusPill
+                      label={kvState.lastSignal.hard_veto ? 'Active' : 'Clear'}
+                      variant={kvState.lastSignal.hard_veto ? 'blocked' : 'active'}
+                    />
+                  </div>
+
+                  {/* Veto Reasons */}
+                  {kvState.lastSignal.hard_veto_reasons?.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {kvState.lastSignal.hard_veto_reasons.map((r, i) => (
+                        <span key={i} className="text-[8px] font-mono text-red-warn/40 px-1.5 py-0.5 rounded bg-red-warn/5 border border-red-warn/10">
+                          {r.replace(/_/g, ' ')}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Source */}
+                  <div className="flex items-center justify-between pt-2 border-t border-white/[0.04]">
+                    <span className="text-[10px] text-steel/50">Source</span>
+                    <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                      kvState.lastSignal.source?.includes('0g-compute') ? 'text-cyan/60 bg-cyan/5 border border-cyan/10' : 'text-steel/40'
+                    }`}>{kvState.lastSignal.source || 'unknown'}</span>
+                  </div>
+                </div>
+              </GlassPanel>
+            </div>
+          )}
 
           {/* Current Policy (REAL from chain or mock) */}
           <div>

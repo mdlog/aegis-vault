@@ -147,6 +147,14 @@ export function logDecision(decision, marketPrices) {
     risk_score: decision.risk_score,
     reason: decision.reason,
     source: decision.source || 'unknown',
+    // v1 extended fields
+    regime: decision.regime,
+    v1_action: decision.v1_action,
+    final_edge_score: decision.final_edge_score,
+    trade_quality_score: decision.trade_quality_score,
+    hard_veto: decision.hard_veto,
+    hard_veto_reasons: decision.hard_veto_reasons,
+    entry_trigger: decision.entry_trigger,
     market_snapshot: Object.entries(marketPrices).map(([sym, d]) => ({
       symbol: sym,
       price: d.price,
