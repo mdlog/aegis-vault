@@ -5,6 +5,7 @@ dist/
 !.env.example
 *.log
 .claude/
+demo.js
 
 # Contracts folder
 contracts/
