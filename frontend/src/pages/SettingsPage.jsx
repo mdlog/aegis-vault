@@ -1,15 +1,15 @@
 import { useAccount, useChainId } from 'wagmi';
-import { useVaultSummary, useVaultPolicy, useAllowedAssets } from '../hooks/useVault';
+import { useParams } from 'react-router-dom';
+import { useVaultPolicy, useAllowedAssets, useVaultList } from '../hooks/useVault';
 import { useOGStorageStatus, useOrchestratorStatus } from '../hooks/useOrchestrator';
 import { getDeployments } from '../lib/contracts';
 import GlassPanel from '../components/ui/GlassPanel';
 import StatusPill from '../components/ui/StatusPill';
 import SectionLabel from '../components/ui/SectionLabel';
 import PolicyChip from '../components/ui/PolicyChip';
-import ControlButton from '../components/ui/ControlButton';
 import {
   Shield, TrendingDown, Target, Clock, AlertTriangle,
-  Layers, Lock, Zap, Globe, Database, Cpu, ExternalLink, Copy
+  Layers, Lock, Zap, Globe, Database, Cpu, ExternalLink
 } from 'lucide-react';
 
 function AddressRow({ label, address, explorer }) {
@@ -31,12 +31,13 @@ function AddressRow({ label, address, explorer }) {
 }
 
 export default function SettingsPage() {
-  const { isConnected } = useAccount();
+  const { isConnected, address } = useAccount();
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
-  const vaultAddr = deployments.demoVault;
+  const { vaultAddress: routeVaultAddress } = useParams();
+  const { vaults: myVaults } = useVaultList(deployments.aegisVaultFactory, address);
+  const vaultAddr = routeVaultAddress || myVaults[0]?.address || deployments.demoVault;
 
-  const { data: vault } = useVaultSummary(vaultAddr);
   const { data: policy } = useVaultPolicy(vaultAddr);
   const { data: assets } = useAllowedAssets(vaultAddr);
   const { data: ogStatus } = useOGStorageStatus();
@@ -54,7 +55,7 @@ export default function SettingsPage() {
         <div>
           <SectionLabel color="text-cyan/60">Contract Addresses</SectionLabel>
           <GlassPanel className="p-5">
-            <AddressRow label="Vault" address={deployments.demoVault} explorer={explorer} />
+            <AddressRow label="Vault" address={vaultAddr} explorer={explorer} />
             <AddressRow label="Factory" address={deployments.aegisVaultFactory} explorer={explorer} />
             <AddressRow label="Registry" address={deployments.executionRegistry} explorer={explorer} />
             <AddressRow label="MockDEX" address={deployments.mockDEX} explorer={explorer} />
@@ -94,11 +95,11 @@ export default function SettingsPage() {
                 <PolicyChip label="Auto-Execution" value={policy.autoExecution ? 'Enabled' : 'Disabled'} icon={<Zap className="w-3.5 h-3.5" />} />
                 <PolicyChip label="Sealed Mode" value="Roadmap" icon={<Lock className="w-3.5 h-3.5" />} />
 
-                {assets?.data && (
+                {assets && (
                   <div className="mt-3 pt-2 border-t border-white/[0.04]">
-                    <span className="text-[10px] font-mono text-steel/40 block mb-1.5">Allowed Assets ({assets.data.length})</span>
+                    <span className="text-[10px] font-mono text-steel/40 block mb-1.5">Allowed Assets ({assets.length})</span>
                     <div className="flex flex-wrap gap-1">
-                      {assets.data.map((a, i) => (
+                      {assets.map((a, i) => (
                         <span key={i} className="px-2 py-0.5 rounded text-[9px] font-mono text-white/50 bg-white/[0.03] border border-white/[0.05]">
                           {a.slice(0, 8)}...
                         </span>
@@ -120,10 +121,22 @@ export default function SettingsPage() {
             {orchStatus ? (
               <>
                 <PolicyChip label="Status" value={orchStatus.running ? 'Running' : 'Idle'} icon={<Cpu className="w-3.5 h-3.5" />} />
+                <PolicyChip
+                  label="Executor Wallet"
+                  value={orchStatus.executorAddress ? `${orchStatus.executorAddress.slice(0, 8)}...${orchStatus.executorAddress.slice(-6)}` : 'Not configured'}
+                  icon={<Shield className="w-3.5 h-3.5" />}
+                />
+                <PolicyChip
+                  label="Mutation Auth"
+                  value={orchStatus.mutationAuthMode === 'api-key' ? 'API Key' : 'Localhost Only'}
+                  icon={<Lock className="w-3.5 h-3.5" />}
+                />
                 <PolicyChip label="Total Cycles" value={orchStatus.cycleCount || 0} icon={<Clock className="w-3.5 h-3.5" />} />
                 <PolicyChip label="Executions" value={orchStatus.totalExecutions || 0} icon={<Shield className="w-3.5 h-3.5" />} />
                 <PolicyChip label="Blocked" value={orchStatus.totalBlocked || 0} icon={<AlertTriangle className="w-3.5 h-3.5" />} />
                 <PolicyChip label="Skipped (Hold)" value={orchStatus.totalSkipped || 0} icon={<Clock className="w-3.5 h-3.5" />} />
+                <PolicyChip label="Pending Approvals" value={orchStatus.pendingApprovalCount || 0} icon={<Lock className="w-3.5 h-3.5" />} />
+                <PolicyChip label="Managed Vaults" value={orchStatus.managedVaultCount || 0} icon={<Layers className="w-3.5 h-3.5" />} />
                 {orchStatus.lastSignal && (
                   <div className="mt-3 pt-2 border-t border-white/[0.04]">
                     <span className="text-[10px] font-mono text-steel/40 block mb-1">Last Signal</span>
@@ -152,6 +165,41 @@ export default function SettingsPage() {
             ) : (
               <p className="text-xs text-steel/40">0G Storage status unavailable. Start orchestrator first.</p>
             )}
+          </GlassPanel>
+        </div>
+
+        <div className="lg:col-span-2">
+          <SectionLabel color="text-gold/60">Bring Your Own Orchestrator</SectionLabel>
+          <GlassPanel gold className="p-5">
+            <div className="grid lg:grid-cols-3 gap-4">
+              <div className="rounded-lg border border-white/[0.05] bg-white/[0.02] px-4 py-4">
+                <div className="text-[10px] font-mono tracking-[0.12em] uppercase text-gold/50 mb-2">1. Run It</div>
+                <p className="text-xs text-white/70 leading-relaxed">
+                  Start your orchestrator with the wallet you want to trust as executor.
+                </p>
+                <p className="text-[11px] font-mono text-cyan/55 mt-2">
+                  {orchStatus?.executorAddress || 'Executor wallet not detected yet'}
+                </p>
+              </div>
+              <div className="rounded-lg border border-white/[0.05] bg-white/[0.02] px-4 py-4">
+                <div className="text-[10px] font-mono tracking-[0.12em] uppercase text-gold/50 mb-2">2. Point The Vault</div>
+                <p className="text-xs text-white/70 leading-relaxed">
+                  Set the vault executor to the same address from the vault detail page or at creation time.
+                </p>
+                <p className="text-[11px] text-steel/45 mt-2">
+                  Current vault: {vaultAddr ? `${vaultAddr.slice(0, 8)}...${vaultAddr.slice(-6)}` : 'No vault selected'}
+                </p>
+              </div>
+              <div className="rounded-lg border border-white/[0.05] bg-white/[0.02] px-4 py-4">
+                <div className="text-[10px] font-mono tracking-[0.12em] uppercase text-gold/50 mb-2">3. Verify Sync</div>
+                <p className="text-xs text-white/70 leading-relaxed">
+                  When the API executor and vault executor match, that orchestrator can manage the vault within its on-chain policy.
+                </p>
+                <p className="text-[11px] text-steel/45 mt-2">
+                  Auth mode: {orchStatus?.mutationAuthMode === 'api-key' ? 'API key protected' : 'Localhost-only mutations'}
+                </p>
+              </div>
+            </div>
           </GlassPanel>
         </div>
       </div>

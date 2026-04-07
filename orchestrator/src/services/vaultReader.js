@@ -1,6 +1,10 @@
 import { ethers } from 'ethers';
-import { getVaultContract, getERC20Contract } from '../config/contracts.js';
-import config from '../config/index.js';
+import {
+  getVaultContract, getERC20Contract,
+  getOperatorStakingContract, getOperatorReputationContract,
+} from '../config/contracts.js';
+import { calculateMultiAssetNAV } from './pythPrice.js';
+import { getAllowedAssetSymbols, getTokenAddresses } from './assets.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -21,7 +25,6 @@ export async function readVaultState(vaultAddress) {
     const summary = await vault.getVaultSummary();
     const policy = await vault.getPolicy();
     const allowedAssets = await vault.getAllowedAssets();
-    const balance = await vault.getBalance();
 
     // Parse the summary tuple
     const [
@@ -39,7 +42,33 @@ export async function readVaultState(vaultAddress) {
     // Get base asset info
     const baseToken = getERC20Contract(baseAsset);
     const baseDecimals = await baseToken.decimals();
-    const balanceFormatted = parseFloat(ethers.formatUnits(vaultBalance, baseDecimals));
+    const baseBalanceFormatted = parseFloat(ethers.formatUnits(vaultBalance, baseDecimals));
+
+    let navData = null;
+    try {
+      navData = await calculateMultiAssetNAV(vaultAddress, getTokenAddresses());
+    } catch (navErr) {
+      logger.warn(`Failed to calculate multi-asset NAV for ${vaultAddress}: ${navErr.message}`);
+    }
+
+    const breakdown = navData?.breakdown || [];
+    const assetBalances = Object.fromEntries(
+      breakdown.flatMap((asset) => ([
+        [asset.symbol, asset.balance],
+        [asset.tradeSymbol, asset.balance],
+      ]))
+    );
+    const assetBalancesRaw = Object.fromEntries(
+      breakdown.flatMap((asset) => ([
+        [asset.symbol, asset.rawBalance || '0'],
+        [asset.tradeSymbol, asset.rawBalance || '0'],
+      ]))
+    );
+    const nonBaseAssets = breakdown.filter((asset) => asset.tradeSymbol !== 'USDC' && asset.valueUsd > 0);
+    const primaryPositionAsset = nonBaseAssets.length > 0
+      ? [...nonBaseAssets].sort((a, b) => b.valueUsd - a.valueUsd)[0].tradeSymbol
+      : null;
+    const totalNav = navData?.totalNav ?? baseBalanceFormatted;
 
     return {
       address: vaultAddress,
@@ -47,9 +76,12 @@ export async function readVaultState(vaultAddress) {
       executor,
       baseAsset,
       baseDecimals: Number(baseDecimals),
-      nav: balanceFormatted,
+      nav: totalNav,
+      navSource: navData?.source || 'base-asset-balance',
       totalDeposited: parseFloat(ethers.formatUnits(totalDeposited, baseDecimals)),
-      balance: balanceFormatted,
+      balance: baseBalanceFormatted,
+      baseBalance: baseBalanceFormatted,
+      baseBalanceRaw: vaultBalance.toString(),
       lastExecutionTimestamp: Number(lastExecution),
       lastExecution: Number(lastExecution) > 0
         ? new Date(Number(lastExecution) * 1000).toISOString()
@@ -58,7 +90,7 @@ export async function readVaultState(vaultAddress) {
       paused,
       autoExecution,
 
-      // Policy
+      // Policy (including Phase 1 fee fields)
       policy: {
         maxPositionBps: Number(policy.maxPositionBps),
         maxDailyLossBps: Number(policy.maxDailyLossBps),
@@ -68,6 +100,12 @@ export async function readVaultState(vaultAddress) {
         maxActionsPerDay: Number(policy.maxActionsPerDay),
         autoExecution: policy.autoExecution,
         paused: policy.paused,
+        // Phase 1: fees
+        performanceFeeBps: Number(policy.performanceFeeBps || 0),
+        managementFeeBps: Number(policy.managementFeeBps || 0),
+        entryFeeBps: Number(policy.entryFeeBps || 0),
+        exitFeeBps: Number(policy.exitFeeBps || 0),
+        feeRecipient: policy.feeRecipient || ethers.ZeroAddress,
       },
 
       // Derived for prompts
@@ -78,9 +116,20 @@ export async function readVaultState(vaultAddress) {
       maxActionsPerDay: Number(policy.maxActionsPerDay),
 
       allowedAssets: allowedAssets.map(a => a.toLowerCase()),
+      allowedAssetSymbols: getAllowedAssetSymbols(allowedAssets),
 
-      // Placeholder allocation — in production, read from token balances
-      allocation: [],
+      allocation: breakdown.map((asset) => ({
+        symbol: asset.symbol,
+        tradeSymbol: asset.tradeSymbol,
+        balance: asset.balance,
+        valueUsd: asset.valueUsd,
+        pct: asset.pct,
+      })),
+      breakdown,
+      assetBalances,
+      assetBalancesRaw,
+      primaryPositionAsset,
+      nonBasePositionValueUsd: nonBaseAssets.reduce((sum, asset) => sum + asset.valueUsd, 0),
       currentDailyLossPct: 0,
     };
 

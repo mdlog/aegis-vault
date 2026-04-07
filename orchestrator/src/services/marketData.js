@@ -50,6 +50,10 @@ export async function fetchMarketData() {
     return result;
 
   } catch (err) {
+    if (config.strictMode) {
+      logger.error(`CoinGecko fetch failed in STRICT_MODE: ${err.message}. Aborting cycle.`);
+      throw new Error(`market_data_unavailable: ${err.message}`);
+    }
     logger.warn(`CoinGecko fetch failed: ${err.message}. Using fallback data.`);
     return getFallbackData();
   }

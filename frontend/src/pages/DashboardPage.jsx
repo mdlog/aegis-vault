@@ -1,5 +1,5 @@
 import { useAccount, useChainId } from 'wagmi';
-import { getDeployments } from '../lib/contracts';
+import { getDeployments, getSettingsRoute, getVaultRoute } from '../lib/contracts';
 import { useVaultList, useAllPlatformVaults } from '../hooks/useVault';
 import { useOrchestratorStatus, useKVState, useMultiAssetNAV, usePythPrices, usePlatformTVL } from '../hooks/useOrchestrator';
 import MetricCard from '../components/ui/MetricCard';
@@ -9,6 +9,7 @@ import SectionLabel from '../components/ui/SectionLabel';
 import WalletButton from '../components/ui/WalletButton';
 import ControlButton from '../components/ui/ControlButton';
 import DashboardShield from '../components/dashboard/DashboardShield';
+import ProtocolHealthPanel from '../components/dashboard/ProtocolHealthPanel';
 import { Link } from 'react-router-dom';
 import TokenIcon from '../components/ui/TokenIcon';
 import {
@@ -27,7 +28,7 @@ function VaultCard({ vault, isOwned }) {
   const isPaused = vault.loaded ? vault.paused : false;
 
   return (
-    <Link to="/app/vault">
+    <Link to={getVaultRoute(vault.address)}>
       <GlassPanel
         gold={isOwned}
         className={`p-5 group transition-all ${isOwned ? 'hover:border-gold/30' : 'hover:border-white/[0.1]'}`}
@@ -97,6 +98,7 @@ export default function DashboardPage() {
   const allVaultAddrs = allVaults.map(v => v.address).filter(Boolean);
   const { tvl: platformTVL, source: tvlSource } = usePlatformTVL(allVaultAddrs);
   const runningCount = allVaults.filter(v => v.loaded && !v.paused).length;
+  const primaryVaultAddress = myVaults[0]?.address || allVaults[0]?.address || deployments.demoVault;
 
   // Risk score (from last AI signal confidence)
   const risk = { score: 0, level: 'Unknown' };
@@ -189,11 +191,14 @@ export default function DashboardPage() {
         <MetricCard
           label="AI Cycles"
           value={orchStatus?.cycleCount || 0}
-          subValue={`${orchStatus?.totalSkipped || 0} skipped`}
+          subValue={`${orchStatus?.pendingApprovalCount || 0} approvals pending`}
           accent="text-steel"
           icon={<Zap className="w-4 h-4" />}
         />
       </div>
+
+      {/* ── Protocol Health (Phase 1-4 stack) ── */}
+      <ProtocolHealthPanel />
 
       {/* ── Main grid: Vaults list + Market + AI status ── */}
       <div className="grid lg:grid-cols-3 gap-6 lg:gap-8">
@@ -275,6 +280,12 @@ export default function DashboardPage() {
                         {kvState.lastSignal.action.toUpperCase()} {kvState.lastSignal.asset}
                       </span>
                       <StatusPill label={kvState.lastSignal.action} variant={kvState.lastSignal.action === 'hold' ? 'info' : 'executed'} />
+                      {kvState.lastSignal.approval_tier && kvState.lastSignal.approval_tier !== 'not_required' && (
+                        <StatusPill
+                          label={kvState.lastSignal.approval_tier.replace(/_/g, ' ')}
+                          variant={kvState.lastSignal.approval_tier === 'auto_execute' ? 'active' : 'warning'}
+                        />
+                      )}
                       <span className="text-[10px] font-mono text-cyan/40">Conf: {(kvState.lastSignal.confidence * 100).toFixed(0)}%</span>
                     </div>
 
@@ -393,10 +404,10 @@ export default function DashboardPage() {
             <SectionLabel color="text-steel/40">Quick Access</SectionLabel>
             <div className="space-y-1.5">
               {[
-                { to: '/app/vault', label: 'Vault Detail', desc: 'Charts & analysis', icon: BarChart3, color: 'text-cyan/50' },
+                { to: getVaultRoute(primaryVaultAddress), label: 'Vault Detail', desc: 'Charts & analysis', icon: BarChart3, color: 'text-cyan/50' },
                 { to: '/app/actions', label: 'AI Actions', desc: 'Intelligence feed', icon: Activity, color: 'text-emerald-soft/50' },
                 { to: '/app/journal', label: 'Journal', desc: 'Audit trail', icon: Target, color: 'text-gold/50' },
-                { to: '/app/settings', label: 'Settings', desc: 'System config', icon: Eye, color: 'text-steel/50' },
+                { to: getSettingsRoute(primaryVaultAddress), label: 'Settings', desc: 'System config', icon: Eye, color: 'text-steel/50' },
               ].map(item => (
                 <Link key={item.to} to={item.to}>
                   <GlassPanel className="px-4 py-2.5 flex items-center gap-3 group" hover>

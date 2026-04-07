@@ -5,19 +5,30 @@ dist/
 !.env.example
 *.log
 .claude/
+.codex/
+.codex
 demo.js
 
-# Contracts folder
-contracts/
-
-# Hardhat
+# Hardhat build artifacts only — DO NOT ignore the entire contracts/ folder
 contracts/cache/
 contracts/artifacts/
 contracts/typechain-types/
+contracts/deployments-mainnet.json
+contracts/deployments.json
 
-# Orchestrator local data
+# Orchestrator local data + logs
 orchestrator/data/
+orchestrator/logs/
+
+# Frontend build output
+frontend/dist/
+frontend/.vite/
+
+# Coverage
+coverage/
 
 # Temp files
 *.tmp
 .DS_Store
+.idea/
+.vscode/

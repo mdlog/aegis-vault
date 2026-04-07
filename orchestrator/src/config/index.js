@@ -19,6 +19,13 @@ const config = {
     usdc: process.env.USDC_ADDRESS || '',
     wbtc: process.env.WBTC_ADDRESS || '',
     weth: process.env.WETH_ADDRESS || '',
+    // Phase 1-5 production stack
+    protocolTreasury: process.env.PROTOCOL_TREASURY_ADDRESS || '',
+    operatorRegistry: process.env.OPERATOR_REGISTRY_ADDRESS || '',
+    operatorStaking: process.env.OPERATOR_STAKING_ADDRESS || '',
+    insurancePool: process.env.INSURANCE_POOL_ADDRESS || '',
+    operatorReputation: process.env.OPERATOR_REPUTATION_ADDRESS || '',
+    aegisGovernor: process.env.AEGIS_GOVERNOR_ADDRESS || '',
   },
 
   // 0G Compute (uses mainnet for inference — more models, better availability)
@@ -39,8 +46,29 @@ const config = {
 
   // Orchestrator
   cycleIntervalMinutes: parseInt(process.env.CYCLE_INTERVAL_MINUTES || '5'),
-  port: parseInt(process.env.PORT || '3001'),
+  port: parseInt(process.env.PORT || '4002'),
   logLevel: process.env.LOG_LEVEL || 'info',
+  apiKey: process.env.ORCHESTRATOR_API_KEY || '',
+
+  // ── Fail-safe mode (production) ──
+  // When STRICT_MODE=1, the orchestrator refuses to operate on stale or fallback data:
+  //   - CoinGecko / Pyth fetch failures throw instead of returning hardcoded prices
+  //   - 0G Compute failures abort the cycle instead of falling back to local heuristics
+  //   - Missing operator/staking contracts cause the cycle to skip the vault, not run unrestricted
+  //
+  // Recommended for any deployment custodying real funds. Default off to keep
+  // dev/testnet ergonomics smooth.
+  strictMode: process.env.STRICT_MODE === '1',
+
+  // CORS allowlist (comma-separated origins). Empty = allow all (dev only).
+  corsAllowedOrigins: (process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean),
+
+  // File log path (optional). When set, logger writes structured JSON to this file
+  // in addition to console output.
+  logFile: process.env.LOG_FILE || '',
 
   // Asset mapping (symbol → coingecko id & contract address)
   assets: {

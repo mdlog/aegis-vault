@@ -1,17 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
+import { isAddress } from 'viem';
 import GlassPanel from '../components/ui/GlassPanel';
 import ControlButton from '../components/ui/ControlButton';
 import StatusPill from '../components/ui/StatusPill';
 import WalletButton from '../components/ui/WalletButton';
 import Logo from '../components/ui/Logo';
-import { useCreateVault, useApprove } from '../hooks/useVault';
+import { useCreateVault } from '../hooks/useVault';
+import { useOrchestratorStatus } from '../hooks/useOrchestrator';
+import { useOperatorList, MandateLabel } from '../hooks/useOperatorRegistry';
+import { formatBps, estimateAnnualFees } from '../hooks/useVaultFees';
+import {
+  useOperatorTiers, TIER_LABELS, TIER_COLORS, formatVaultCap,
+} from '../hooks/useOperatorStaking';
 import { getDeployments } from '../lib/contracts';
 import TokenIcon from '../components/ui/TokenIcon';
 import {
-  ArrowLeft, ArrowRight, Check, Shield, Lock, Zap,
-  TrendingDown, Target, Clock, AlertTriangle, Layers, Wallet
+  ArrowLeft, ArrowRight, Check, Shield, Lock, Zap, Cpu,
+  TrendingDown, Target, Clock, AlertTriangle, Layers, Wallet,
+  TrendingUp, Percent, DollarSign, Info, Award
 } from 'lucide-react';
 
 const steps = [
@@ -53,10 +61,11 @@ const availableAssets = [
 
 export default function CreateVaultPage() {
   const navigate = useNavigate();
-  const { isConnected, address } = useAccount();
+  const { isConnected } = useAccount();
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
-  const { createVault, isPending: createPending, isSuccess: createSuccess } = useCreateVault();
+  const { createVault, isPending: createPending } = useCreateVault();
+  const { data: orchStatus } = useOrchestratorStatus();
   const [step, setStep] = useState(0);
   const [config, setConfig] = useState({
     depositAmount: 50000,
@@ -72,11 +81,53 @@ export default function CreateVaultPage() {
     sealedMode: false,
     autoExecution: true,
   });
+  const [executorMode, setExecutorMode] = useState('marketplace');
+  const [customExecutor, setCustomExecutor] = useState('');
+  const [selectedMarketplaceOperator, setSelectedMarketplaceOperator] = useState('');
+
+  const { operators: marketplaceOperators } = useOperatorList(deployments.operatorRegistry);
+  const activeMarketplaceOperators = marketplaceOperators.filter((op) => op.loaded && op.active);
+
+  // Phase 2: tier data for all marketplace operators
+  const allOperatorAddrs = activeMarketplaceOperators.map((op) => op.wallet);
+  const { tiersByAddress } = useOperatorTiers(deployments.operatorStaking, allOperatorAddrs);
 
   const currentStep = steps[step];
   const selectedProfile = riskProfiles.find((p) => p.id === config.riskProfile);
+  const detectedExecutor = orchStatus?.executorAddress || '';
+  const canUseDetectedExecutor = Boolean(detectedExecutor);
+
+  // Selected operator full metadata (for fee preview + recommended policy preset)
+  const selectedOperatorData =
+    executorMode === 'marketplace' && selectedMarketplaceOperator
+      ? activeMarketplaceOperators.find(
+          (op) => op.wallet?.toLowerCase() === selectedMarketplaceOperator.toLowerCase()
+        )
+      : null;
+  const selectedOperatorTier = selectedOperatorData
+    ? tiersByAddress[selectedOperatorData.wallet?.toLowerCase()]
+    : null;
+  // Cap exceeded if selected operator's tier doesn't allow this deposit size
+  const exceedsTierCap = selectedOperatorTier && !selectedOperatorTier.isUnlimited
+    && config.depositAmount > selectedOperatorTier.maxVaultSize;
+
+  let resolvedExecutor = '';
+  if (executorMode === 'orchestrator') resolvedExecutor = detectedExecutor.trim();
+  else if (executorMode === 'marketplace') resolvedExecutor = selectedMarketplaceOperator.trim();
+  else resolvedExecutor = customExecutor.trim();
+
+  const executorReady = Boolean(resolvedExecutor) && isAddress(resolvedExecutor);
+  const shortExecutor = executorReady
+    ? `${resolvedExecutor.slice(0, 8)}...${resolvedExecutor.slice(-6)}`
+    : 'Not configured';
 
   const updateConfig = (key, value) => setConfig((prev) => ({ ...prev, [key]: value }));
+
+  useEffect(() => {
+    if (canUseDetectedExecutor && !customExecutor) {
+      setExecutorMode('orchestrator');
+    }
+  }, [canUseDetectedExecutor, customExecutor]);
 
   const toggleAsset = (symbol) => {
     setConfig((prev) => ({
@@ -102,6 +153,27 @@ export default function CreateVaultPage() {
       confidenceThreshold: profile.confidence * 100,
       ...(presets[id] || {}),
     }));
+  };
+
+  // Pick a marketplace operator and apply their recommended policy as a starting point
+  const pickMarketplaceOperator = (op) => {
+    setSelectedMarketplaceOperator(op.wallet);
+    if (
+      op.recommendedMaxPositionBps ||
+      op.recommendedConfidenceMinBps ||
+      op.recommendedStopLossBps ||
+      op.recommendedCooldownSeconds ||
+      op.recommendedMaxActionsPerDay
+    ) {
+      setConfig((prev) => ({
+        ...prev,
+        maxPosition: Math.round((op.recommendedMaxPositionBps || prev.maxPosition * 100) / 100),
+        confidenceThreshold: Math.round((op.recommendedConfidenceMinBps || prev.confidenceThreshold * 100) / 100),
+        stopLoss: Math.round((op.recommendedStopLossBps || prev.stopLoss * 100) / 100),
+        cooldown: Math.round((op.recommendedCooldownSeconds || prev.cooldown * 60) / 60),
+        maxActionsPerDay: op.recommendedMaxActionsPerDay || prev.maxActionsPerDay,
+      }));
+    }
   };
 
   return (
@@ -427,6 +499,325 @@ export default function CreateVaultPage() {
                     <span className="text-xs text-steel/60">Auto-Execution</span>
                     <StatusPill label={config.autoExecution ? 'Active' : 'Off'} variant={config.autoExecution ? 'active' : 'paused'} />
                   </div>
+
+                  {/* Fee Preview from selected operator */}
+                  {selectedOperatorData && (
+                    <div className="pt-4 border-t border-white/[0.04]">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-[10px] font-mono uppercase tracking-wider text-gold/70">
+                          Operator Fees · {selectedOperatorData.name}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 mb-3">
+                        <div className="rounded-md bg-gold/[0.04] border border-gold/15 px-2 py-1.5">
+                          <div className="flex items-center gap-1 mb-0.5">
+                            <TrendingUp className="w-2.5 h-2.5 text-gold/60" />
+                            <span className="text-[8px] font-mono uppercase text-steel/45">Perf</span>
+                          </div>
+                          <div className="text-[11px] font-mono text-gold tabular-nums">
+                            {formatBps(selectedOperatorData.performanceFeeBps)}
+                          </div>
+                        </div>
+                        <div className="rounded-md bg-cyan/[0.04] border border-cyan/15 px-2 py-1.5">
+                          <div className="flex items-center gap-1 mb-0.5">
+                            <Percent className="w-2.5 h-2.5 text-cyan/60" />
+                            <span className="text-[8px] font-mono uppercase text-steel/45">Mgmt</span>
+                          </div>
+                          <div className="text-[11px] font-mono text-cyan tabular-nums">
+                            {formatBps(selectedOperatorData.managementFeeBps)}
+                          </div>
+                        </div>
+                        <div className="rounded-md bg-white/[0.02] border border-white/[0.06] px-2 py-1.5">
+                          <div className="flex items-center gap-1 mb-0.5">
+                            <DollarSign className="w-2.5 h-2.5 text-steel/45" />
+                            <span className="text-[8px] font-mono uppercase text-steel/45">Entry</span>
+                          </div>
+                          <div className="text-[11px] font-mono text-white/80 tabular-nums">
+                            {formatBps(selectedOperatorData.entryFeeBps)}
+                          </div>
+                        </div>
+                        <div className="rounded-md bg-white/[0.02] border border-white/[0.06] px-2 py-1.5">
+                          <div className="flex items-center gap-1 mb-0.5">
+                            <DollarSign className="w-2.5 h-2.5 text-steel/45" />
+                            <span className="text-[8px] font-mono uppercase text-steel/45">Exit</span>
+                          </div>
+                          <div className="text-[11px] font-mono text-white/80 tabular-nums">
+                            {formatBps(selectedOperatorData.exitFeeBps)}
+                          </div>
+                        </div>
+                      </div>
+                      {(() => {
+                        const est = estimateAnnualFees(
+                          config.depositAmount,
+                          selectedOperatorData.performanceFeeBps,
+                          selectedOperatorData.managementFeeBps,
+                          10
+                        );
+                        const entryCost = (config.depositAmount * (selectedOperatorData.entryFeeBps || 0)) / 10000;
+                        return (
+                          <div className="rounded-md bg-white/[0.02] border border-white/[0.05] p-3 text-[11px]">
+                            <div className="flex items-center gap-1.5 mb-2 text-steel/55">
+                              <Info className="w-3 h-3" />
+                              <span>
+                                Estimated cost on ${config.depositAmount.toLocaleString()} @ 10% expected return
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-4 gap-2 font-mono">
+                              <div>
+                                <div className="text-[9px] uppercase text-steel/40">Entry</div>
+                                <div className="text-white/70 tabular-nums">${entryCost.toFixed(0)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[9px] uppercase text-steel/40">Mgmt/yr</div>
+                                <div className="text-cyan/70 tabular-nums">${est.managementCost.toFixed(0)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[9px] uppercase text-steel/40">Perf/yr</div>
+                                <div className="text-gold/70 tabular-nums">${est.performanceCost.toFixed(0)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[9px] uppercase text-steel/40">Total/yr</div>
+                                <div className="text-white/85 tabular-nums">
+                                  ${(entryCost + est.totalEstimated).toFixed(0)}
+                                </div>
+                              </div>
+                            </div>
+                            <p className="text-[9px] text-steel/40 mt-2">
+                              80/20 split between operator and protocol treasury · HWM-protected performance fee
+                            </p>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  <div className="pt-4 border-t border-white/[0.04] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-steel/60">Executor</span>
+                      <span className="text-sm font-mono text-white">{shortExecutor}</span>
+                    </div>
+
+                    <div className="grid gap-2">
+                      {/* Marketplace option (recommended) */}
+                      <button
+                        type="button"
+                        onClick={() => setExecutorMode('marketplace')}
+                        className={`text-left rounded-lg border px-3 py-3 transition-all ${
+                          executorMode === 'marketplace'
+                            ? 'border-gold/30 bg-gold/10'
+                            : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex gap-3">
+                            <div className="w-9 h-9 rounded-lg bg-gold/10 flex items-center justify-center">
+                              <Cpu className="w-4 h-4 text-gold" />
+                            </div>
+                            <div>
+                              <div className="text-sm font-display font-medium text-white flex items-center gap-2">
+                                Pick from Marketplace
+                                <span className="text-[8px] font-mono text-gold/70 bg-gold/10 border border-gold/20 px-1 py-0.5 rounded">RECOMMENDED</span>
+                              </div>
+                              <div className="text-[11px] text-steel/45">
+                                {activeMarketplaceOperators.length > 0
+                                  ? `${activeMarketplaceOperators.length} registered operator${activeMarketplaceOperators.length === 1 ? '' : 's'} available`
+                                  : 'No operators registered yet — others can register from /operator/register'}
+                              </div>
+                            </div>
+                          </div>
+                          <StatusPill
+                            label={activeMarketplaceOperators.length > 0 ? 'Available' : 'Empty'}
+                            variant={activeMarketplaceOperators.length > 0 ? 'active' : 'paused'}
+                          />
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={!canUseDetectedExecutor}
+                        onClick={() => setExecutorMode('orchestrator')}
+                        className={`text-left rounded-lg border px-3 py-3 transition-all ${
+                          executorMode === 'orchestrator'
+                            ? 'border-cyan/30 bg-cyan/10'
+                            : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]'
+                        } ${!canUseDetectedExecutor ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex gap-3">
+                            <div className="w-9 h-9 rounded-lg bg-cyan/10 flex items-center justify-center">
+                              <Cpu className="w-4 h-4 text-cyan" />
+                            </div>
+                            <div>
+                              <div className="text-sm font-display font-medium text-white">Use active orchestrator</div>
+                              <div className="text-[11px] text-steel/45">
+                                {canUseDetectedExecutor
+                                  ? `${detectedExecutor} · ${orchStatus?.mutationAuthMode === 'api-key' ? 'API key secured' : 'Localhost-only mutations'}`
+                                  : 'Start your orchestrator and expose its status API to auto-detect the executor wallet.'}
+                              </div>
+                            </div>
+                          </div>
+                          <StatusPill
+                            label={canUseDetectedExecutor ? 'Detected' : 'Offline'}
+                            variant={canUseDetectedExecutor ? 'active' : 'paused'}
+                          />
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setExecutorMode('custom')}
+                        className={`text-left rounded-lg border px-3 py-3 transition-all ${
+                          executorMode === 'custom'
+                            ? 'border-gold/30 bg-gold/10'
+                            : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex gap-3">
+                            <div className="w-9 h-9 rounded-lg bg-gold/10 flex items-center justify-center">
+                              <Wallet className="w-4 h-4 text-gold" />
+                            </div>
+                            <div>
+                              <div className="text-sm font-display font-medium text-white">Bring your own executor</div>
+                              <div className="text-[11px] text-steel/45">
+                                Paste the wallet address used by your self-hosted orchestrator.
+                              </div>
+                            </div>
+                          </div>
+                          <StatusPill label="Custom" variant="gold" />
+                        </div>
+                      </button>
+                    </div>
+
+                    {executorMode === 'marketplace' && (
+                      <div>
+                        <label className="text-[10px] font-mono tracking-[0.12em] uppercase text-steel/40 block mb-2">
+                          Choose an Operator
+                        </label>
+                        {activeMarketplaceOperators.length === 0 ? (
+                          <div className="px-3 py-4 rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] text-center">
+                            <p className="text-[11px] text-steel/45 mb-2">No active operators registered yet.</p>
+                            <Link to="/operator/register" className="text-[11px] text-gold/60 hover:text-gold inline-flex items-center gap-1">
+                              Register one →
+                            </Link>
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5 max-h-[260px] overflow-y-auto pr-1">
+                            {activeMarketplaceOperators.map((op) => {
+                              const selected = selectedMarketplaceOperator.toLowerCase() === op.wallet.toLowerCase();
+                              const tierData = tiersByAddress[op.wallet?.toLowerCase()];
+                              const tier = tierData?.tier || 0;
+                              const opExceedsCap = tierData && !tierData.isUnlimited && config.depositAmount > tierData.maxVaultSize;
+                              return (
+                                <button
+                                  key={op.wallet}
+                                  type="button"
+                                  onClick={() => pickMarketplaceOperator(op)}
+                                  className={`w-full text-left px-3 py-2.5 rounded-md border transition-all ${
+                                    selected
+                                      ? 'border-gold/30 bg-gold/5'
+                                      : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-2 mb-0.5">
+                                    <div className="flex items-center gap-2">
+                                      <Cpu className="w-3.5 h-3.5 text-gold/60" />
+                                      <span className="text-xs font-display font-medium text-white">{op.name}</span>
+                                      {tier > 0 && (
+                                        <span className={`text-[8px] font-mono px-1 py-0.5 rounded border bg-white/[0.03] border-white/[0.06] flex items-center gap-0.5 ${TIER_COLORS[tier]}`}>
+                                          <Award className="w-2 h-2" />
+                                          {TIER_LABELS[tier]}
+                                        </span>
+                                      )}
+                                      {tierData?.frozen && (
+                                        <span className="text-[8px] font-mono text-red-warn/80 px-1 py-0.5 rounded bg-red-warn/10 border border-red-warn/20">FROZEN</span>
+                                      )}
+                                    </div>
+                                    <span className="text-[8px] font-mono text-steel/45 px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/[0.06]">
+                                      {op.mandateLabel}
+                                    </span>
+                                  </div>
+                                  <div className="text-[10px] font-mono text-steel/35 truncate">
+                                    {op.wallet}
+                                  </div>
+                                  {op.description && (
+                                    <p className="text-[10px] text-steel/45 mt-1 line-clamp-2">{op.description}</p>
+                                  )}
+                                  {/* Fee preview row */}
+                                  <div className="flex items-center gap-3 mt-2 text-[9px] font-mono">
+                                    <span className="text-gold/70">Perf {formatBps(op.performanceFeeBps)}</span>
+                                    <span className="text-cyan/70">Mgmt {formatBps(op.managementFeeBps)}</span>
+                                    <span className="text-steel/45">Entry {formatBps(op.entryFeeBps)}</span>
+                                    <span className="text-steel/45">Exit {formatBps(op.exitFeeBps)}</span>
+                                    {tierData && (
+                                      <span className={opExceedsCap ? 'text-red-warn ml-auto' : 'text-emerald-soft/60 ml-auto'}>
+                                        Cap {formatVaultCap(tierData.maxVaultSize, tierData.isUnlimited)}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {opExceedsCap && (
+                                    <div className="mt-2 text-[9px] text-red-warn/70 flex items-center gap-1">
+                                      <AlertTriangle className="w-2.5 h-2.5" />
+                                      Deposit exceeds this operator's tier cap
+                                    </div>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {executorMode === 'custom' && (
+                      <div>
+                        <label className="text-[10px] font-mono tracking-[0.12em] uppercase text-steel/40 block mb-2">
+                          Executor Address
+                        </label>
+                        <input
+                          type="text"
+                          value={customExecutor}
+                          onChange={(e) => setCustomExecutor(e.target.value.trim())}
+                          placeholder="0x..."
+                          spellCheck="false"
+                          className="w-full bg-obsidian/60 border border-white/[0.08] rounded-lg px-3 py-2.5
+                            text-sm font-mono text-white
+                            focus:outline-none focus:border-gold/30 transition-colors"
+                        />
+                        <p className="mt-2 text-[11px] text-steel/45">
+                          Owner keeps custody. The executor can only submit intents that still pass on-chain policy checks.
+                        </p>
+                      </div>
+                    )}
+
+                    {!executorReady && (
+                      <p className="text-[11px] text-red-warn/70">
+                        Set a valid executor address before deploying the vault.
+                      </p>
+                    )}
+
+                    {exceedsTierCap && (
+                      <div className="rounded-md bg-red-warn/5 border border-red-warn/20 px-3 py-2 flex items-start gap-2">
+                        <AlertTriangle className="w-3.5 h-3.5 text-red-warn/70 flex-shrink-0 mt-0.5" />
+                        <div className="text-[11px] text-red-warn/80">
+                          <strong>Tier cap exceeded.</strong> {selectedOperatorData?.name} is{' '}
+                          <span className={TIER_COLORS[selectedOperatorTier?.tier || 0]}>
+                            {TIER_LABELS[selectedOperatorTier?.tier || 0]}
+                          </span>{' '}
+                          tier with a cap of {formatVaultCap(selectedOperatorTier?.maxVaultSize || 0, selectedOperatorTier?.isUnlimited)}.
+                          Reduce your deposit, choose a higher-tier operator, or wait for them to stake more.
+                        </div>
+                      </div>
+                    )}
+                    {selectedOperatorTier?.frozen && (
+                      <div className="rounded-md bg-red-warn/5 border border-red-warn/20 px-3 py-2 flex items-start gap-2">
+                        <AlertTriangle className="w-3.5 h-3.5 text-red-warn/70 flex-shrink-0 mt-0.5" />
+                        <div className="text-[11px] text-red-warn/80">
+                          This operator is currently <strong>FROZEN</strong> pending arbitration. Pick a different operator.
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </GlassPanel>
             </div>
@@ -451,17 +842,24 @@ export default function CreateVaultPage() {
               <ControlButton
                 variant="primary"
                 size="lg"
-                disabled={createPending}
+                disabled={createPending || !executorReady || exceedsTierCap || selectedOperatorTier?.frozen}
                 onClick={() => {
                   const policyStruct = {
-                    maxPositionBps: config.maxPosition * 100,
-                    maxDailyLossBps: config.dailyLossLimit * 100,
-                    stopLossBps: config.stopLoss * 100,
-                    cooldownSeconds: config.cooldown * 60,
-                    confidenceThresholdBps: config.confidenceThreshold * 100,
-                    maxActionsPerDay: config.maxActionsPerDay,
+                    maxPositionBps: BigInt(config.maxPosition * 100),
+                    maxDailyLossBps: BigInt(config.dailyLossLimit * 100),
+                    stopLossBps: BigInt(config.stopLoss * 100),
+                    cooldownSeconds: BigInt(config.cooldown * 60),
+                    confidenceThresholdBps: BigInt(config.confidenceThreshold * 100),
+                    maxActionsPerDay: BigInt(config.maxActionsPerDay),
                     autoExecution: config.autoExecution,
                     paused: false,
+                    // Phase 1: Fees — pulled from selected operator (or zero if custom executor)
+                    performanceFeeBps: BigInt(selectedOperatorData?.performanceFeeBps || 0),
+                    managementFeeBps: BigInt(selectedOperatorData?.managementFeeBps || 0),
+                    entryFeeBps: BigInt(selectedOperatorData?.entryFeeBps || 0),
+                    exitFeeBps: BigInt(selectedOperatorData?.exitFeeBps || 0),
+                    // Operator wallet receives the 80% share; treasury gets 20% on claim
+                    feeRecipient: selectedOperatorData?.wallet || resolvedExecutor,
                   };
                   const assetAddrs = config.allowedAssets.map(s => {
                     if (s === 'BTC') return deployments.mockWBTC;
@@ -469,13 +867,9 @@ export default function CreateVaultPage() {
                     if (s === 'USDC') return deployments.mockUSDC;
                     return deployments.mockUSDC;
                   }).filter(Boolean);
-                  // Executor = orchestrator server wallet (NOT user wallet)
-                  // This allows the AI orchestrator to submit intents on-chain
-                  // User remains Owner with full control (withdraw, pause, policy)
-                  const executorAddr = deployments.orchestratorWallet || address;
                   createVault(
                     deployments.mockUSDC,
-                    executorAddr,
+                    resolvedExecutor,
                     deployments.mockDEX,
                     policyStruct,
                     assetAddrs

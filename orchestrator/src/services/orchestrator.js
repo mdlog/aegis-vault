@@ -1,16 +1,19 @@
 import { buildMarketSummary } from './marketData.js';
 import { requestInference } from './inference.js';
 import { preCheckPolicy } from './policyCheck.js';
-import { buildExecutionIntent, submitIntent, recordExecutionResult, setAssetAddresses } from './executor.js';
+import { buildExecutionIntent, submitIntent, setAssetAddresses } from './executor.js';
 import { readVaultState } from './vaultReader.js';
+import { readOperatorState, checkOperatorEligibility } from './operatorReader.js';
 import {
   readKVState, updateKVState,
-  logCycle, logDecision, logPolicyCheck, logExecution,
+  logCycle, logDecision, logPolicyCheck, logExecution, logAlert,
   syncKVToOGStorage, appendToOGStorage,
   syncDecisionToOG, syncExecutionToOG,
 } from './storage.js';
 import { initOGStorage } from './ogStorage.js';
 import { initOGCompute, getOGComputeStatus } from './ogCompute.js';
+import { evaluateApprovalTier } from './approvalTier.js';
+import { buildAssetAddressMap } from './assets.js';
 import { getFactoryContract, getSigner } from '../config/contracts.js';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
@@ -21,34 +24,103 @@ let running = false;
 // ── Per-vault position tracking (persists across cycles) ──
 const vaultPositions = {}; // vaultAddress → positionState
 
+function buildDefaultPositionState() {
+  return {
+    current_position_side: 'flat',
+    current_position_asset: null,
+    current_position_notional_usd: 0,
+    current_position_pnl_pct: 0,
+    position_cost_basis_usd: 0,
+    last_action: 'HOLD_FLAT',
+    daily_pnl_pct: 0,
+    rolling_drawdown_pct: 0,
+    consecutive_losses: 0,
+    actions_last_60m: 0,
+    last_actions_timestamps: [],
+  };
+}
+
+function normalizePositionState(state = {}) {
+  return {
+    ...buildDefaultPositionState(),
+    ...state,
+    last_actions_timestamps: Array.isArray(state.last_actions_timestamps)
+      ? state.last_actions_timestamps.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+      : [],
+  };
+}
+
 function getPositionState(vaultAddr) {
   if (!vaultPositions[vaultAddr]) {
-    vaultPositions[vaultAddr] = {
-      current_position_side: 'flat',
-      current_position_notional_usd: 0,
-      current_position_pnl_pct: 0,
-      last_action: 'HOLD_FLAT',
-      daily_pnl_pct: 0,
-      rolling_drawdown_pct: 0,
-      consecutive_losses: 0,
-      actions_last_60m: 0,
-      last_actions_timestamps: [],
-    };
+    vaultPositions[vaultAddr] = buildDefaultPositionState();
   }
+  vaultPositions[vaultAddr] = normalizePositionState(vaultPositions[vaultAddr]);
   return vaultPositions[vaultAddr];
+}
+
+function restorePositionState(serialized = {}) {
+  for (const [vaultAddress, state] of Object.entries(serialized || {})) {
+    vaultPositions[vaultAddress] = normalizePositionState(state);
+  }
+}
+
+function syncPositionStateFromHoldings(positionState, vaultState) {
+  const nonBaseAssets = (vaultState.breakdown || [])
+    .filter((asset) => asset.tradeSymbol !== 'USDC' && asset.valueUsd > 0.01)
+    .sort((a, b) => b.valueUsd - a.valueUsd);
+
+  if (nonBaseAssets.length === 0) {
+    positionState.current_position_side = 'flat';
+    positionState.current_position_asset = null;
+    positionState.current_position_notional_usd = 0;
+    positionState.current_position_pnl_pct = 0;
+    positionState.position_cost_basis_usd = 0;
+    return positionState;
+  }
+
+  const totalPositionValue = nonBaseAssets.reduce((sum, asset) => sum + asset.valueUsd, 0);
+  const primaryAsset = nonBaseAssets[0].tradeSymbol;
+  const costBasis = positionState.position_cost_basis_usd > 0
+    ? positionState.position_cost_basis_usd
+    : totalPositionValue;
+
+  positionState.current_position_side = 'long';
+  positionState.current_position_asset = primaryAsset;
+  positionState.current_position_notional_usd = totalPositionValue;
+  positionState.current_position_pnl_pct = costBasis > 0
+    ? ((totalPositionValue - costBasis) / costBasis) * 100
+    : 0;
+  positionState.position_cost_basis_usd = costBasis;
+
+  return positionState;
+}
+
+function updatePendingApproval(vaultAddress, approvalRequest = null) {
+  const currentState = readKVState();
+  const pendingApprovals = { ...(currentState.pendingApprovals || {}) };
+
+  if (approvalRequest) {
+    pendingApprovals[vaultAddress] = {
+      ...approvalRequest,
+      updatedAt: new Date().toISOString(),
+    };
+  } else {
+    delete pendingApprovals[vaultAddress];
+  }
+
+  updateKVState({
+    pendingApprovals,
+    positionState: vaultPositions,
+  });
+
+  return pendingApprovals;
 }
 
 /**
  * Initialize the orchestrator
  */
 export async function initialize() {
-  setAssetAddresses({
-    USDC: config.contracts.usdc,
-    BTC: config.contracts.wbtc,
-    WBTC: config.contracts.wbtc,
-    ETH: config.contracts.weth,
-    WETH: config.contracts.weth,
-  });
+  setAssetAddresses(buildAssetAddressMap());
 
   // Initialize 0G Compute (non-blocking)
   await initOGCompute().catch((e) => {
@@ -60,6 +132,7 @@ export async function initialize() {
 
   const state = readKVState();
   cycleCount = state.totalCycles || 0;
+  restorePositionState(state.positionState);
   logger.info(`Orchestrator initialized. Previous cycles: ${cycleCount}`);
 }
 
@@ -139,10 +212,11 @@ async function runVaultCycle(vaultAddress, marketSummary) {
 
     // Merge position tracking
     const now = Math.floor(Date.now() / 1000);
+    syncPositionStateFromHoldings(positionState, vaultState);
     positionState.actions_last_60m = positionState.last_actions_timestamps.filter(t => now - t < 3600).length;
     Object.assign(vaultState, positionState);
 
-    logger.info(`    NAV: $${vaultState.nav.toLocaleString()} | Paused: ${vaultState.paused} | Actions: ${vaultState.dailyActionsUsed} | Position: ${positionState.current_position_side}`);
+    logger.info(`    NAV: $${vaultState.nav.toLocaleString()} | Base: $${vaultState.baseBalance.toLocaleString()} | Paused: ${vaultState.paused} | Actions: ${vaultState.dailyActionsUsed} | Position: ${positionState.current_position_side}${positionState.current_position_asset ? ` ${positionState.current_position_asset}` : ''}`);
 
     if (vaultState.paused) {
       logger.info(`    Paused — skipping`);
@@ -162,6 +236,29 @@ async function runVaultCycle(vaultAddress, marketSummary) {
       return vaultResult;
     }
 
+    // Phase 2-5: check operator eligibility (tier cap, frozen state, active flag)
+    // Graceful degradation: if staking/registry not deployed, operatorState is null
+    // and eligibility check passes through.
+    const operatorState = await readOperatorState(vaultState.executor);
+    const eligibility = checkOperatorEligibility(vaultState, operatorState);
+    if (!eligibility.eligible) {
+      logger.warn(`    Operator ineligible: ${eligibility.reason} — ${eligibility.detail}`);
+      vaultResult.status = 'skipped_operator_ineligible';
+      vaultResult.reason = eligibility.reason;
+      vaultResult.detail = eligibility.detail;
+      return vaultResult;
+    }
+    if (operatorState) {
+      const tierInfo = operatorState.stake
+        ? `${operatorState.stake.tierLabel} · stake $${operatorState.stake.amountUsd.toFixed(0)}`
+        : 'stake:?';
+      const repInfo = operatorState.reputation
+        ? `rep ${operatorState.reputation.totalExecutions}x (${operatorState.reputation.successRatePct.toFixed(0)}% success)${operatorState.reputation.verified ? ' ✓' : ''}`
+        : 'rep:?';
+      logger.info(`    Operator: ${operatorState.name || 'unnamed'} · ${tierInfo} · ${repInfo}`);
+      vaultState.operator = operatorState;
+    }
+
     // AI inference (uses shared market data, vault-specific state & policy)
     const decision = await requestInference(marketSummary, vaultState);
 
@@ -170,20 +267,28 @@ async function runVaultCycle(vaultAddress, marketSummary) {
       return vaultResult;
     }
 
+    const approval = evaluateApprovalTier(decision, vaultState);
+    decision.approval_tier = approval.tier;
+    decision.approval_reasons = approval.reasons;
+    decision.position_asset = vaultState.current_position_asset || vaultState.primaryPositionAsset || null;
+    decision.position_value_usd = vaultState.current_position_notional_usd || vaultState.nonBasePositionValueUsd || 0;
+
     vaultResult.decision = decision;
-    logDecision(decision, marketSummary.prices);
+    logDecision(decision, marketSummary.prices, { vault: vaultAddress });
     syncDecisionToOG(decision, marketSummary, vaultState).catch(() => {});
 
-    logger.info(`    Decision: ${decision.action.toUpperCase()} ${decision.asset} | Regime: ${decision.regime || '-'} | Edge: ${decision.final_edge_score || '-'} | Source: ${decision.source}`);
+    logger.info(`    Decision: ${decision.action.toUpperCase()} ${decision.asset} | Regime: ${decision.regime || '-'} | Edge: ${decision.final_edge_score || '-'} | Approval: ${approval.tier} | Source: ${decision.source}`);
 
     // Hold — no execution
     if (decision.action === 'hold') {
+      updatePendingApproval(vaultAddress, null);
       vaultResult.status = 'hold';
       updateKVState({
         lastSignal: decision,
         totalCycles: cycleCount,
         totalSkipped: (readKVState().totalSkipped || 0) + 1,
         [`vault_${shortAddr}_lastSignal`]: decision,
+        positionState: vaultPositions,
       });
       return vaultResult;
     }
@@ -191,20 +296,62 @@ async function runVaultCycle(vaultAddress, marketSummary) {
     // Policy pre-check
     const policyResult = preCheckPolicy(decision, vaultState, vaultState.policy);
     vaultResult.policyResult = policyResult;
-    logPolicyCheck(decision, policyResult);
+    logPolicyCheck(decision, policyResult, { vault: vaultAddress });
 
     if (!policyResult.valid) {
       logger.warn(`    Policy blocked: ${policyResult.reason}`);
+      logAlert('warning', 'policy_blocked', `Policy blocked ${decision.action.toUpperCase()} ${decision.asset}`, {
+        vault: vaultAddress,
+        action: decision.action,
+        asset: decision.asset,
+        reason: policyResult.reason,
+      });
+      updatePendingApproval(vaultAddress, null);
       vaultResult.status = 'blocked';
       updateKVState({
         lastSignal: decision,
         totalCycles: cycleCount,
         totalBlocked: (readKVState().totalBlocked || 0) + 1,
+        positionState: vaultPositions,
       });
       return vaultResult;
     }
 
     logger.info('    Policy checks passed ✓');
+
+    if (!approval.execute) {
+      logger.warn(`    ${approval.label}`);
+      updatePendingApproval(vaultAddress, {
+        vault: vaultAddress,
+        action: decision.action,
+        asset: decision.asset,
+        approval_tier: approval.tier,
+        approval_reasons: approval.reasons,
+        reason: decision.reason,
+      });
+      logAlert(
+        approval.tier === 'owner_confirmation' ? 'warning' : 'info',
+        'approval_required',
+        `${approval.label} for ${decision.action.toUpperCase()} ${decision.asset}`,
+        {
+          vault: vaultAddress,
+          action: decision.action,
+          asset: decision.asset,
+          approval_tier: approval.tier,
+          approval_reasons: approval.reasons,
+        }
+      );
+      vaultResult.status = 'approval_required';
+      vaultResult.approval = approval;
+      updateKVState({
+        lastSignal: decision,
+        totalCycles: cycleCount,
+        positionState: vaultPositions,
+      });
+      return vaultResult;
+    }
+
+    updatePendingApproval(vaultAddress, null);
 
     // Build + submit intent
     const oraclePrices = marketSummary.prices;
@@ -219,7 +366,7 @@ async function runVaultCycle(vaultAddress, marketSummary) {
 
     const execResult = await submitIntent(intent);
     vaultResult.executionResult = execResult;
-    logExecution(intent, execResult);
+    logExecution(intent, execResult, decision, { vault: vaultAddress });
     syncExecutionToOG(intent, execResult, decision).catch(() => {});
 
     if (execResult.success) {
@@ -229,13 +376,28 @@ async function runVaultCycle(vaultAddress, marketSummary) {
       // Update position tracking
       if (decision.action === 'buy') {
         positionState.current_position_side = 'long';
+        positionState.current_position_asset = decision.asset;
         positionState.current_position_notional_usd = (decision.size_bps / 10000) * vaultState.nav;
+        positionState.position_cost_basis_usd = positionState.current_position_notional_usd;
         positionState.current_position_pnl_pct = 0;
         positionState.consecutive_losses = 0;
       } else if (decision.action === 'sell') {
-        positionState.current_position_side = 'flat';
-        positionState.current_position_notional_usd = 0;
-        positionState.current_position_pnl_pct = 0;
+        const sellFraction = decision.sell_fraction_bps || decision.size_bps || 10000;
+        if (sellFraction >= 10000) {
+          positionState.current_position_side = 'flat';
+          positionState.current_position_asset = null;
+          positionState.current_position_notional_usd = 0;
+          positionState.current_position_pnl_pct = 0;
+          positionState.position_cost_basis_usd = 0;
+        } else {
+          const fractionRemaining = 1 - (sellFraction / 10000);
+          positionState.current_position_side = 'long';
+          positionState.current_position_notional_usd = Math.max(0, positionState.current_position_notional_usd * fractionRemaining);
+          positionState.position_cost_basis_usd = Math.max(0, positionState.position_cost_basis_usd * fractionRemaining);
+          positionState.current_position_pnl_pct = positionState.position_cost_basis_usd > 0
+            ? ((positionState.current_position_notional_usd - positionState.position_cost_basis_usd) / positionState.position_cost_basis_usd) * 100
+            : 0;
+        }
       }
       positionState.last_action = decision.v1_action || decision.action.toUpperCase();
       positionState.last_actions_timestamps.push(now);
@@ -252,6 +414,7 @@ async function runVaultCycle(vaultAddress, marketSummary) {
           asset: decision.asset,
           regime: decision.regime,
           final_edge_score: decision.final_edge_score,
+          approval_tier: decision.approval_tier,
           timestamp: new Date().toISOString(),
         },
         totalCycles: cycleCount,
@@ -260,9 +423,15 @@ async function runVaultCycle(vaultAddress, marketSummary) {
       });
     } else {
       logger.error(`    ✗ Failed: ${execResult.error}`);
+      logAlert('critical', 'execution_failed', `Execution failed for ${decision.action.toUpperCase()} ${decision.asset}`, {
+        vault: vaultAddress,
+        action: decision.action,
+        asset: decision.asset,
+        error: execResult.error,
+      });
       vaultResult.status = 'failed';
       positionState.consecutive_losses += 1;
-      updateKVState({ lastSignal: decision, totalCycles: cycleCount });
+      updateKVState({ lastSignal: decision, totalCycles: cycleCount, positionState: vaultPositions });
     }
 
     return vaultResult;
@@ -332,11 +501,20 @@ export async function runCycle() {
     const executed = cycleResult.vaultResults.filter(r => r.status === 'executed').length;
     const held = cycleResult.vaultResults.filter(r => r.status === 'hold').length;
     const blocked = cycleResult.vaultResults.filter(r => r.status === 'blocked').length;
+    const approvalRequired = cycleResult.vaultResults.filter(r => r.status === 'approval_required').length;
     const skipped = cycleResult.vaultResults.filter(r => r.status?.startsWith('skipped')).length;
 
-    cycleResult.status = executed > 0 ? 'executed' : held > 0 ? 'hold' : blocked > 0 ? 'blocked' : 'skipped';
+    cycleResult.status = executed > 0
+      ? 'executed'
+      : approvalRequired > 0
+        ? 'approval_required'
+        : held > 0
+          ? 'hold'
+          : blocked > 0
+            ? 'blocked'
+            : 'skipped';
 
-    logger.info(`  Summary: ${managedVaults.length} vaults — ${executed} executed, ${held} hold, ${blocked} blocked, ${skipped} skipped`);
+    logger.info(`  Summary: ${managedVaults.length} vaults — ${executed} executed, ${approvalRequired} approval, ${held} hold, ${blocked} blocked, ${skipped} skipped`);
 
     return cycleResult;
 
@@ -365,15 +543,30 @@ export async function runCycle() {
  */
 export function getStatus() {
   const kvState = readKVState();
+  let executorAddress = null;
+
+  try {
+    executorAddress = getSigner().address;
+  } catch {
+    executorAddress = null;
+  }
+
   return {
     running,
     cycleCount,
+    executorAddress,
+    signerConfigured: Boolean(executorAddress),
+    mutationAuthMode: config.apiKey ? 'api-key' : 'localhost-only',
+    configuredVault: config.contracts.vault || null,
     lastSignal: kvState.lastSignal,
     lastExecution: kvState.lastExecutionSummary,
     totalExecutions: kvState.totalExecutions || 0,
     totalBlocked: kvState.totalBlocked || 0,
     totalSkipped: kvState.totalSkipped || 0,
+    pendingApprovals: kvState.pendingApprovals || {},
+    pendingApprovalCount: Object.keys(kvState.pendingApprovals || {}).length,
     ogCompute: getOGComputeStatus(),
     managedVaults: Object.keys(vaultPositions),
+    managedVaultCount: Object.keys(vaultPositions).length,
   };
 }

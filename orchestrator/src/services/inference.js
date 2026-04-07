@@ -1,10 +1,11 @@
-import config from '../config/index.js';
 import logger from '../utils/logger.js';
+import config from '../config/index.js';
 import { buildSystemPrompt, buildUserPrompt, parseAIResponse } from './promptBuilder.js';
 import { chatCompletion, isOGComputeAvailable, initOGCompute } from './ogCompute.js';
 import { computeAllIndicators } from './indicators.js';
 import { classifyRegime } from './regimeClassifier.js';
 import { runDecisionEngine, toSimpleDecision } from './decisionEngine.js';
+import { normalizeTradeSymbol } from './assets.js';
 
 /**
  * InferenceService v1
@@ -28,21 +29,18 @@ import { runDecisionEngine, toSimpleDecision } from './decisionEngine.js';
  */
 export async function requestInference(marketSummary, vaultState) {
   // ── Step 1: Build price history for indicators ──
-  const btcPrice = marketSummary.prices?.BTC?.price || 69000;
-  const ethPrice = marketSummary.prices?.ETH?.price || 2100;
+  const contextAsset = selectContextAsset(vaultState);
+  const contextMarket = getAssetMarketView(marketSummary, contextAsset);
 
   // Use price history if available, otherwise build minimal array from current data
-  const priceHistory = vaultState._priceHistory || {
-    prices: buildMinimalPriceArray(btcPrice, marketSummary.prices?.BTC?.change24h || 0),
-    volumes: [],
-  };
+  const promptPriceHistory = buildPriceHistory(vaultState, contextMarket.symbol, contextMarket.price, contextMarket.change24h);
 
   // ── Step 2: Compute indicators ──
-  const indicators = computeAllIndicators(priceHistory, btcPrice, marketSummary.prices?.BTC?.volume24h || 0);
+  const indicators = computeAllIndicators(promptPriceHistory, contextMarket.price, contextMarket.volume24h);
 
   // ── Step 3: Classify regime ──
   const regime = classifyRegime(indicators);
-  logger.info(`  Regime: ${regime} | RSI: ${indicators.rsi_14.toFixed(1)} | ATR: ${indicators.atr_14_pct.toFixed(2)}% | MACD: ${indicators.macd_histogram.toFixed(2)}`);
+  logger.info(`  Context asset: ${contextMarket.symbol} | Regime: ${regime} | RSI: ${indicators.rsi_14.toFixed(1)} | ATR: ${indicators.atr_14_pct.toFixed(2)}% | MACD: ${indicators.macd_histogram.toFixed(2)}`);
 
   // ── Step 4: Get AI assessment from 0G Compute ──
   let aiView = { confidence: 0.5, risk_score: 0.5, ai_context_score: 50, timing_score: 50 };
@@ -71,7 +69,7 @@ export async function requestInference(marketSummary, vaultState) {
             risk_score: parsed.risk_score,
             ai_context_score: parsed.ai_context_score ?? 60,
             timing_score: parsed.timing_score ?? 65,
-            asset: parsed.asset,
+            asset: normalizeTradeSymbol(parsed.asset),
             action_hint: parsed.action,
             reason_hint: parsed.reason,
             provider: result.provider,
@@ -84,14 +82,26 @@ export async function requestInference(marketSummary, vaultState) {
       }
     }
   } catch (err) {
+    if (config.strictMode) {
+      logger.error(`0G Compute failed in STRICT_MODE: ${err.message}. Aborting inference.`);
+      throw new Error(`og_compute_unavailable: ${err.message}`);
+    }
     logger.warn(`0G Compute failed: ${err.message}. Using default AI view.`);
   }
 
-  // If AI didn't run, use local assessment
+  // If AI didn't run, use local assessment (forbidden in strict mode)
   if (!aiView.provider) {
+    if (config.strictMode) {
+      logger.error('AI inference unavailable in STRICT_MODE — refusing to fall back to local heuristic.');
+      throw new Error('ai_inference_unavailable');
+    }
     aiView = localAssessment(marketSummary, vaultState, indicators, regime);
     logger.info(`  Local assessment: conf=${(aiView.confidence * 100).toFixed(0)}% risk=${(aiView.risk_score * 100).toFixed(0)}% ctx=${aiView.ai_context_score}`);
   }
+
+  const decisionAsset = selectDecisionAsset(vaultState, aiView, contextMarket.symbol);
+  const decisionMarket = getAssetMarketView(marketSummary, decisionAsset);
+  const priceHistory = buildPriceHistory(vaultState, decisionMarket.symbol, decisionMarket.price, decisionMarket.change24h);
 
   // ── Step 5: Run Decision Engine v1 ──
   const v1Policy = buildV1Policy(vaultState);
@@ -99,19 +109,37 @@ export async function requestInference(marketSummary, vaultState) {
 
   const v1Decision = runDecisionEngine({
     priceHistory,
-    currentPrice: btcPrice,
-    currentVolume: marketSummary.prices?.BTC?.volume24h || 0,
+    currentPrice: decisionMarket.price,
+    currentVolume: decisionMarket.volume24h,
     vaultState: v1VaultState,
     policy: v1Policy,
-    aiView,
-    symbol: `${aiView.asset || 'BTC'}/USDC`,
+    aiView: {
+      ...aiView,
+      asset: decisionAsset,
+    },
+    symbol: `${decisionAsset}/USDC`,
   });
 
   // ── Step 6: Convert to simple format for executor ──
   const decision = toSimpleDecision(v1Decision);
   decision.source = aiView.provider ? '0g-compute + engine-v1' : 'local + engine-v1';
+  decision.market_symbol = decisionAsset;
+  decision.context_symbol = contextMarket.symbol;
+  decision.context_price = decisionMarket.price;
 
   return decision;
+}
+
+function buildPriceHistory(vaultState, assetSymbol, currentPrice, change24h) {
+  const stored = vaultState._priceHistory?.[assetSymbol] || vaultState._priceHistory;
+  if (stored?.prices?.length) {
+    return stored;
+  }
+
+  return {
+    prices: buildMinimalPriceArray(currentPrice, change24h || 0),
+    volumes: [],
+  };
 }
 
 /**
@@ -177,11 +205,44 @@ function localAssessment(marketSummary, vaultState, indicators, regime) {
     risk_score: riskScore,
     ai_context_score: aiContextScore,
     timing_score: timingScore,
-    asset,
+    asset: normalizeTradeSymbol(asset),
     action_hint: action,
     reason_hint: action === 'hold'
       ? 'Market conditions neutral. No clear signal.'
       : `${asset} ${action === 'buy' ? 'momentum' : 'weakness'} detected.`,
+  };
+}
+
+function selectContextAsset(vaultState) {
+  return normalizeTradeSymbol(
+    vaultState.current_position_asset ||
+    vaultState.primaryPositionAsset ||
+    'BTC'
+  );
+}
+
+function selectDecisionAsset(vaultState, aiView, fallbackAsset = 'BTC') {
+  return normalizeTradeSymbol(
+    vaultState.current_position_asset ||
+    vaultState.primaryPositionAsset ||
+    aiView.asset ||
+    fallbackAsset ||
+    'BTC'
+  );
+}
+
+function getAssetMarketView(marketSummary, assetSymbol) {
+  const symbol = normalizeTradeSymbol(assetSymbol) || 'BTC';
+  const fallback = symbol === 'ETH'
+    ? { price: 2100, change24h: 0, volume24h: 0 }
+    : { price: 69000, change24h: 0, volume24h: 0 };
+  const data = marketSummary.prices?.[symbol] || fallback;
+
+  return {
+    symbol,
+    price: data.price || fallback.price,
+    change24h: data.change24h || 0,
+    volume24h: data.volume24h || 0,
   };
 }
 
@@ -228,8 +289,9 @@ function buildV1VaultState(vaultState) {
  */
 function buildV1Policy(vaultState) {
   const p = vaultState.policy || {};
+  const allowedAssets = (vaultState.allowedAssetSymbols || []).filter((symbol) => symbol !== 'USDC');
   return {
-    allowed_assets: ['BTC', 'ETH'],
+    allowed_assets: allowedAssets.length > 0 ? allowedAssets : ['BTC', 'ETH'],
     max_position_bps: p.maxPositionBps || 5000,
     max_daily_loss_bps: p.maxDailyLossBps || 500,
     stop_loss_bps: p.stopLossBps || 220,

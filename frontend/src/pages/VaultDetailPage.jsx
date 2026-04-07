@@ -1,9 +1,20 @@
 import { useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
-import { vaultOverview, allocation as mockAllocation, aiActions as mockAiActions, policy as mockPolicy, riskEvents } from '../data/mockData';
+import { isAddress } from 'viem';
+// Mock data is no longer mixed into the live vault page. We render explicit empty
+// states when on-chain data is unavailable so users can never mistake stale demo
+// numbers for real performance.
 import { getDeployments } from '../lib/contracts';
-import { useVaultSummary, useVaultPolicy, usePause, useUnpause, useWithdraw, useApprove, useDeposit, useUpdatePolicy, useTokenBalance, useVaultList, useTransferToken } from '../hooks/useVault';
+import { Link } from 'react-router-dom';
+import { useVaultSummary, useVaultPolicy, usePause, useUnpause, useWithdraw, useApprove, useDeposit, useUpdatePolicy, useTokenBalance, useVaultList, useTransferToken, useSetExecutor } from '../hooks/useVault';
+import { useOperatorList, MandateLabel } from '../hooks/useOperatorRegistry';
 import { useMultiAssetNAV, useOrchestratorStatus, useKVState, useDecisions, useJournal, useExecutions } from '../hooks/useOrchestrator';
+import {
+  useVaultFeeState, useVaultNav, useClaimFees, useAccrueFees,
+  useQueueFeeChange, useApplyFeeChange, useSetFeeRecipient,
+  formatBps, estimateAnnualFees,
+} from '../hooks/useVaultFees';
 import GlassPanel from '../components/ui/GlassPanel';
 import StatusPill from '../components/ui/StatusPill';
 import SectionLabel from '../components/ui/SectionLabel';
@@ -16,9 +27,9 @@ import DashboardShield from '../components/dashboard/DashboardShield';
 import TokenIcon from '../components/ui/TokenIcon';
 import {
   Shield, TrendingUp, TrendingDown, Activity, Clock, Target,
-  AlertTriangle, Lock, Zap, Layers, Eye,
+  AlertTriangle, Lock, Zap, Layers, Eye, Cpu,
   PauseCircle, PlayCircle, Settings, ArrowDownToLine, ArrowUpToLine, Download,
-  CheckCircle, XCircle, Info
+  CheckCircle, XCircle, Info, DollarSign, Percent, Wallet, Hourglass
 } from 'lucide-react';
 
 function formatTime(ts) {
@@ -46,10 +57,12 @@ export default function VaultDetailPage() {
   const { isConnected, address } = useAccount();
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
+  const { vaultAddress: routeVaultAddress } = useParams();
 
-  // Use the connected wallet's first vault, fallback to demo vault
   const { vaults: myVaults } = useVaultList(deployments.aegisVaultFactory, address);
-  const vaultAddr = myVaults.length > 0 ? myVaults[0].address : deployments.demoVault;
+  const vaultAddr = routeVaultAddress || myVaults[0]?.address || deployments.demoVault;
+  const { operators: marketplaceOps } = useOperatorList(deployments.operatorRegistry);
+  const activeMarketplaceOps = marketplaceOps.filter((op) => op.loaded && op.active);
 
   // ── Live data ──
   const { data: liveVault, refetch } = useVaultSummary(vaultAddr);
@@ -57,9 +70,9 @@ export default function VaultDetailPage() {
   const { data: navData } = useMultiAssetNAV(vaultAddr);
   const { data: orchStatus } = useOrchestratorStatus();
   const { data: kvState } = useKVState();
-  const { data: liveDecisions } = useDecisions(10);
-  const { data: journalData } = useJournal(100);
-  const { data: liveExecutions } = useExecutions(20);
+  const { data: liveDecisions } = useDecisions(10, { vaultAddress: vaultAddr });
+  const { data: journalData } = useJournal(100, { vaultAddress: vaultAddr });
+  const { data: liveExecutions } = useExecutions(20, { vaultAddress: vaultAddr });
 
   // ── Contract write hooks ──
   const { pause, isPending: pausePending } = usePause();
@@ -69,6 +82,13 @@ export default function VaultDetailPage() {
   const { deposit, isPending: depositPending, isSuccess: depositSuccess } = useDeposit();
   const { transfer: transferToken, isPending: transferPending, isSuccess: transferSuccess } = useTransferToken();
   const { updatePolicy, isPending: policyPending, isSuccess: policySuccess } = useUpdatePolicy();
+  const { setExecutor, isPending: executorPending, isSuccess: executorSuccess } = useSetExecutor();
+
+  // ── Fee state + write hooks ──
+  const { state: feeState, refetch: refetchFees } = useVaultFeeState(vaultAddr, 6);
+  const { navUsd: liveNavUsd, refetch: refetchNav } = useVaultNav(vaultAddr, 6);
+  const { claim: claimFees, isPending: claimPending, isSuccess: claimSuccess } = useClaimFees();
+  const { accrue: accrueFees, isPending: accruePending, isSuccess: accrueSuccess } = useAccrueFees();
 
   // Wallet token balances
   const { address: walletAddress } = useAccount();
@@ -89,41 +109,39 @@ export default function VaultDetailPage() {
   const [depositStep, setDepositStep] = useState('input'); // 'input' | 'approve' | 'deposit' | 'done'
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [showExecutorModal, setShowExecutorModal] = useState(false);
+  const [executorForm, setExecutorForm] = useState('');
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [policyForm, setPolicyForm] = useState(null);
 
   const hasLive = isConnected && !!liveVault;
+  const latestSignal = liveDecisions?.[0] || (!routeVaultAddress ? kvState?.lastSignal : null) || null;
 
-  // ── Merge: real where available, mock fallback ──
-  const nav = navData?.totalNav || (hasLive ? parseFloat(liveVault.balance) : vaultOverview.nav);
+  // ── Live data only — no mock fallback ──
+  // Anything that doesn't exist on-chain renders as zero / empty state.
+  const nav = navData?.totalNav || (hasLive ? parseFloat(liveVault.balance) : 0);
   const isPaused = hasLive ? liveVault.paused : false;
-  const totalDeposited = hasLive ? parseFloat(liveVault.totalDeposited) : vaultOverview.deposited;
-  const executions = orchStatus?.totalExecutions ?? vaultOverview.totalExecutions;
+  const totalDeposited = hasLive ? parseFloat(liveVault.totalDeposited) : 0;
+  const executions = liveExecutions?.length ?? orchStatus?.totalExecutions ?? 0;
   const dailyActions = hasLive ? liveVault.dailyActions : 0;
-  const lastExecTs = hasLive ? liveVault.lastExecution : vaultOverview.lastExecution;
+  const lastExecTs = hasLive ? liveVault.lastExecution : 0;
 
-  // ── All-Time Return (REAL if on-chain data available) ──
+  // ── All-Time Return ──
   const hasRealReturn = hasLive && totalDeposited > 0;
-  const allTimeReturnPct = hasRealReturn
-    ? ((nav - totalDeposited) / totalDeposited) * 100
-    : vaultOverview.allTimeReturn;
-  const allTimeReturnUsd = hasRealReturn
-    ? nav - totalDeposited
-    : vaultOverview.allTimeReturnUsd;
+  const allTimeReturnPct = hasRealReturn ? ((nav - totalDeposited) / totalDeposited) * 100 : 0;
+  const allTimeReturnUsd = hasRealReturn ? nav - totalDeposited : 0;
   const returnIsPositive = allTimeReturnPct >= 0;
 
-  // ── PnL (REAL unrealized from NAV vs deposited, realized from executions) ──
+  // ── PnL ──
   const realizedPnl = liveExecutions && liveExecutions.length > 0
     ? liveExecutions.reduce((sum, ex) => sum + (ex.pnl || 0), 0)
-    : null;
-  const pnlRealized = realizedPnl !== null ? realizedPnl : vaultOverview.pnlRealized;
-  const pnlUnrealized = hasRealReturn
-    ? nav - totalDeposited - (realizedPnl || 0)
-    : vaultOverview.pnlUnrealized;
+    : 0;
+  const pnlRealized = realizedPnl;
+  const pnlUnrealized = hasRealReturn ? nav - totalDeposited - realizedPnl : 0;
 
-  // Risk score (real calc if navData available)
-  let riskScore = vaultOverview.riskScore;
-  let riskLevel = vaultOverview.riskLevel;
+  // Risk score (real calc only when navData available)
+  let riskScore = 0;
+  let riskLevel = 'Unknown';
   if (navData?.breakdown) {
     let score = 0;
     const maxPct = Math.max(...navData.breakdown.map(a => a.pct || 0));
@@ -132,39 +150,44 @@ export default function VaultDetailPage() {
       const ddPct = ((totalDeposited - nav) / totalDeposited) * 100;
       score += ddPct > 10 ? 30 : ddPct > 5 ? 20 : ddPct > 2 ? 10 : 5;
     }
-    const lastConf = kvState?.lastSignal?.confidence;
+    const lastConf = latestSignal?.confidence;
     if (lastConf !== undefined) score += lastConf < 0.4 ? 20 : lastConf < 0.6 ? 12 : lastConf < 0.8 ? 5 : 0;
     riskScore = Math.min(100, Math.max(0, score));
     riskLevel = riskScore < 30 ? 'Low' : riskScore < 60 ? 'Moderate' : riskScore < 80 ? 'Elevated' : 'Critical';
   }
 
-  // ── Sharpe / Max Drawdown (mock — needs historical time-series) ──
-  const sharpeRatio = vaultOverview.sharpeRatio;
-  const maxDrawdown = vaultOverview.maxDrawdown;
+  // ── Sharpe / Max Drawdown ──
+  // Requires historical NAV time-series. Display "—" until 0G Storage backend lands.
+  const sharpeRatio = null;
+  const maxDrawdown = null;
 
-  // Policy (real or mock)
+  // Policy — must be live; show neutral defaults that render as "—" if missing
   const pol = livePolicy || {
-    maxPositionPct: mockPolicy.maxPositionPct,
-    maxDailyLossPct: mockPolicy.dailyLossLimitPct,
-    stopLossPct: mockPolicy.globalStopLoss,
-    cooldownSeconds: mockPolicy.cooldownMinutes * 60,
-    confidenceThresholdPct: mockPolicy.confidenceThreshold * 100,
-    maxActionsPerDay: mockPolicy.maxActionsPerDay,
-    autoExecution: mockPolicy.autoExecution,
-    paused: mockPolicy.paused,
+    maxPositionPct: 0,
+    maxDailyLossPct: 0,
+    stopLossPct: 0,
+    cooldownSeconds: 0,
+    confidenceThresholdPct: 0,
+    maxActionsPerDay: 0,
+    autoExecution: false,
+    paused: false,
   };
-  const mandateType = pol.maxPositionPct <= 30 ? 'Defensive' : pol.maxPositionPct <= 50 ? 'Balanced' : 'Tactical';
+  const mandateType = !livePolicy
+    ? 'Unknown'
+    : pol.maxPositionPct <= 30 ? 'Defensive'
+    : pol.maxPositionPct <= 50 ? 'Balanced'
+    : 'Tactical';
 
-  // Allocation (real from Pyth NAV or mock)
+  // Allocation — empty array when no NAV data
   const allocationData = navData?.breakdown
     ? navData.breakdown.map(a => ({
         asset: a.symbol, symbol: a.symbol, amount: a.balance,
         value: a.valueUsd, pct: a.pct,
         color: ASSET_COLORS[a.symbol] || '#8a8a9a',
       }))
-    : mockAllocation;
+    : [];
 
-  // AI Journal (real decisions from orchestrator or mock)
+  // AI Journal — empty when no live decisions
   const journalEntries = liveDecisions && liveDecisions.length > 0
     ? liveDecisions.map((d, i) => ({
         id: d.id || `live-${i}`, action: `${(d.action || '').toUpperCase()} ${d.asset || ''}`,
@@ -178,7 +201,7 @@ export default function VaultDetailPage() {
         hardVeto: d.hard_veto, hardVetoReasons: d.hard_veto_reasons,
         entryTrigger: d.entry_trigger,
       }))
-    : mockAiActions.slice(0, 5);
+    : [];
 
   // ── Risk Timeline (REAL from journal or mock fallback) ──
   const hasRealTimeline = journalData && journalData.length > 0;
@@ -226,12 +249,22 @@ export default function VaultDetailPage() {
           isLive: true,
         };
       })
-    : riskEvents;
+    : [];
 
-  // Vault info (real or mock)
-  const vaultAddress = hasLive ? vaultAddr : vaultOverview.address;
-  const executorAddress = hasLive ? liveVault.executor : vaultOverview.executorAddress;
-  const networkName = chainId === 16602 ? '0G Galileo Testnet' : chainId === 31337 ? 'Hardhat Local' : vaultOverview.network;
+  // Vault info — live only, empty when disconnected
+  const vaultAddress = hasLive ? vaultAddr : (vaultAddr || '');
+  const executorAddress = hasLive ? liveVault.executor : '';
+  const activeOrchestratorExecutor = orchStatus?.executorAddress || '';
+  const executorMatchesActiveOrchestrator = hasLive &&
+    Boolean(activeOrchestratorExecutor) &&
+    activeOrchestratorExecutor.toLowerCase() === liveVault.executor.toLowerCase();
+  const networkName = chainId === 16661 ? '0G Aristotle Mainnet'
+    : chainId === 16602 ? '0G Galileo Testnet'
+    : chainId === 31337 ? 'Hardhat Local'
+    : `Chain ${chainId || '—'}`;
+  const vaultTitle = vaultAddress
+    ? `Vault ${vaultAddress.slice(0, 6)}...${vaultAddress.slice(-4)}`
+    : 'Aegis Primary Vault';
 
   const handlePause = () => {
     if (isPaused) { unpause(vaultAddr); } else { pause(vaultAddr); }
@@ -244,7 +277,7 @@ export default function VaultDetailPage() {
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
         <div>
           <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-2xl font-display font-semibold text-white tracking-tight">Aegis Primary Vault</h1>
+            <h1 className="text-2xl font-display font-semibold text-white tracking-tight">{vaultTitle}</h1>
             <StatusPill label={isPaused ? 'Paused' : 'Active'} variant={isPaused ? 'paused' : 'active'} pulse={!isPaused} />
             {navData && <StatusPill label="Pyth NAV" variant="gold" />}
           </div>
@@ -275,6 +308,17 @@ export default function VaultDetailPage() {
             size="sm"
             disabled={!isConnected}
             onClick={() => {
+              setExecutorForm(hasLive ? liveVault.executor : '');
+              setShowExecutorModal(true);
+            }}
+          >
+            <Shield className="w-3.5 h-3.5" /> Set Executor
+          </ControlButton>
+          <ControlButton
+            variant="secondary"
+            size="sm"
+            disabled={!isConnected}
+            onClick={() => {
               if (livePolicy) {
                 setPolicyForm({
                   maxPositionBps: livePolicy.maxPositionBps,
@@ -285,6 +329,12 @@ export default function VaultDetailPage() {
                   maxActionsPerDay: livePolicy.maxActionsPerDay,
                   autoExecution: livePolicy.autoExecution,
                   paused: livePolicy.paused,
+                  // Phase 1: preserve fees + recipient (use queueFeeChange to modify)
+                  performanceFeeBps: livePolicy.performanceFeeBps || 0,
+                  managementFeeBps: livePolicy.managementFeeBps || 0,
+                  entryFeeBps: livePolicy.entryFeeBps || 0,
+                  exitFeeBps: livePolicy.exitFeeBps || 0,
+                  feeRecipient: livePolicy.feeRecipient || '0x0000000000000000000000000000000000000000',
                 });
               }
               setShowPolicyModal(true);
@@ -334,8 +384,8 @@ export default function VaultDetailPage() {
         />
         <MetricCard
           label="Sharpe Ratio"
-          value={sharpeRatio}
-          subValue={`Max DD: ${maxDrawdown}%`}
+          value={sharpeRatio !== null ? sharpeRatio : '—'}
+          subValue={maxDrawdown !== null ? `Max DD: ${maxDrawdown}%` : 'Awaiting history'}
           accent="text-white"
           icon={<TrendingDown className="w-4 h-4" />}
         />
@@ -527,70 +577,80 @@ export default function VaultDetailPage() {
           </div>
 
           {/* Current Regime + AI Status (from orchestrator) */}
-          {kvState?.lastSignal && (
+          {latestSignal && (
             <div>
               <SectionLabel color="text-cyan/60">AI Agent Status</SectionLabel>
               <GlassPanel className="p-5">
                 <div className="space-y-3">
                   {/* Regime */}
-                  {kvState.lastSignal.regime && (
+                  {latestSignal.regime && (
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] text-steel/50">Regime</span>
                       <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
-                        kvState.lastSignal.regime?.includes('UP_STRONG') ? 'text-emerald-soft bg-emerald-soft/10 border-emerald-soft/20' :
-                        kvState.lastSignal.regime?.includes('UP_WEAK') ? 'text-emerald-soft/70 bg-emerald-soft/5 border-emerald-soft/10' :
-                        kvState.lastSignal.regime?.includes('DOWN') ? 'text-red-warn/80 bg-red-warn/10 border-red-warn/20' :
-                        kvState.lastSignal.regime?.includes('PANIC') ? 'text-red-warn bg-red-warn/10 border-red-warn/30' :
+                        latestSignal.regime?.includes('UP_STRONG') ? 'text-emerald-soft bg-emerald-soft/10 border-emerald-soft/20' :
+                        latestSignal.regime?.includes('UP_WEAK') ? 'text-emerald-soft/70 bg-emerald-soft/5 border-emerald-soft/10' :
+                        latestSignal.regime?.includes('DOWN') ? 'text-red-warn/80 bg-red-warn/10 border-red-warn/20' :
+                        latestSignal.regime?.includes('PANIC') ? 'text-red-warn bg-red-warn/10 border-red-warn/30' :
                         'text-steel/60 bg-white/[0.03] border-white/[0.06]'
                       }`}>
-                        {kvState.lastSignal.regime?.replace(/_/g, ' ')}
+                        {latestSignal.regime?.replace(/_/g, ' ')}
                       </span>
                     </div>
                   )}
 
                   {/* Edge Score */}
-                  {kvState.lastSignal.final_edge_score !== undefined && (
+                  {latestSignal.final_edge_score !== undefined && (
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[10px] text-steel/50">Edge Score</span>
                         <span className={`text-xs font-mono font-semibold ${
-                          kvState.lastSignal.final_edge_score >= 72 ? 'text-emerald-soft' :
-                          kvState.lastSignal.final_edge_score >= 58 ? 'text-amber-warn' : 'text-steel/60'
-                        }`}>{kvState.lastSignal.final_edge_score}/100</span>
+                          latestSignal.final_edge_score >= 72 ? 'text-emerald-soft' :
+                          latestSignal.final_edge_score >= 58 ? 'text-amber-warn' : 'text-steel/60'
+                        }`}>{latestSignal.final_edge_score}/100</span>
                       </div>
                       <div className="h-1.5 rounded-full bg-white/[0.04] overflow-hidden">
                         <div className={`h-full rounded-full transition-all ${
-                          kvState.lastSignal.final_edge_score >= 72 ? 'bg-emerald-soft/60' :
-                          kvState.lastSignal.final_edge_score >= 58 ? 'bg-amber-warn/60' : 'bg-steel/30'
-                        }`} style={{ width: `${kvState.lastSignal.final_edge_score}%` }} />
+                          latestSignal.final_edge_score >= 72 ? 'bg-emerald-soft/60' :
+                          latestSignal.final_edge_score >= 58 ? 'bg-amber-warn/60' : 'bg-steel/30'
+                        }`} style={{ width: `${latestSignal.final_edge_score}%` }} />
                       </div>
                     </div>
                   )}
 
                   {/* Trade Quality */}
-                  {kvState.lastSignal.trade_quality_score !== undefined && (
+                  {latestSignal.trade_quality_score !== undefined && (
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[10px] text-steel/50">Trade Quality</span>
                         <span className={`text-xs font-mono font-semibold ${
-                          kvState.lastSignal.trade_quality_score >= 78 ? 'text-emerald-soft' :
-                          kvState.lastSignal.trade_quality_score >= 60 ? 'text-amber-warn' : 'text-steel/60'
-                        }`}>{kvState.lastSignal.trade_quality_score}/100</span>
+                          latestSignal.trade_quality_score >= 78 ? 'text-emerald-soft' :
+                          latestSignal.trade_quality_score >= 60 ? 'text-amber-warn' : 'text-steel/60'
+                        }`}>{latestSignal.trade_quality_score}/100</span>
                       </div>
                       <div className="h-1.5 rounded-full bg-white/[0.04] overflow-hidden">
                         <div className={`h-full rounded-full transition-all ${
-                          kvState.lastSignal.trade_quality_score >= 78 ? 'bg-emerald-soft/60' :
-                          kvState.lastSignal.trade_quality_score >= 60 ? 'bg-amber-warn/60' : 'bg-steel/30'
-                        }`} style={{ width: `${kvState.lastSignal.trade_quality_score}%` }} />
+                          latestSignal.trade_quality_score >= 78 ? 'bg-emerald-soft/60' :
+                          latestSignal.trade_quality_score >= 60 ? 'bg-amber-warn/60' : 'bg-steel/30'
+                        }`} style={{ width: `${latestSignal.trade_quality_score}%` }} />
                       </div>
                     </div>
                   )}
 
                   {/* V1 Action */}
-                  {kvState.lastSignal.v1_action && (
+                  {latestSignal.v1_action && (
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] text-steel/50">Last Action</span>
-                      <span className="text-[10px] font-mono text-white/60">{kvState.lastSignal.v1_action}</span>
+                      <span className="text-[10px] font-mono text-white/60">{latestSignal.v1_action}</span>
+                    </div>
+                  )}
+
+                  {latestSignal.approval_tier && latestSignal.approval_tier !== 'not_required' && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-steel/50">Approval Tier</span>
+                      <StatusPill
+                        label={latestSignal.approval_tier.replace(/_/g, ' ')}
+                        variant={latestSignal.approval_tier === 'auto_execute' ? 'active' : 'warning'}
+                      />
                     </div>
                   )}
 
@@ -598,17 +658,27 @@ export default function VaultDetailPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-steel/50">Hard Veto</span>
                     <StatusPill
-                      label={kvState.lastSignal.hard_veto ? 'Active' : 'Clear'}
-                      variant={kvState.lastSignal.hard_veto ? 'blocked' : 'active'}
+                      label={latestSignal.hard_veto ? 'Active' : 'Clear'}
+                      variant={latestSignal.hard_veto ? 'blocked' : 'active'}
                     />
                   </div>
 
                   {/* Veto Reasons */}
-                  {kvState.lastSignal.hard_veto_reasons?.length > 0 && (
+                  {latestSignal.hard_veto_reasons?.length > 0 && (
                     <div className="flex flex-wrap gap-1">
-                      {kvState.lastSignal.hard_veto_reasons.map((r, i) => (
+                      {latestSignal.hard_veto_reasons.map((r, i) => (
                         <span key={i} className="text-[8px] font-mono text-red-warn/40 px-1.5 py-0.5 rounded bg-red-warn/5 border border-red-warn/10">
                           {r.replace(/_/g, ' ')}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {latestSignal.approval_reasons?.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {latestSignal.approval_reasons.map((reason, i) => (
+                        <span key={i} className="text-[8px] font-mono text-amber-warn/50 px-1.5 py-0.5 rounded bg-amber-warn/5 border border-amber-warn/10">
+                          {reason.replace(/_/g, ' ')}
                         </span>
                       ))}
                     </div>
@@ -618,8 +688,8 @@ export default function VaultDetailPage() {
                   <div className="flex items-center justify-between pt-2 border-t border-white/[0.04]">
                     <span className="text-[10px] text-steel/50">Source</span>
                     <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
-                      kvState.lastSignal.source?.includes('0g-compute') ? 'text-cyan/60 bg-cyan/5 border border-cyan/10' : 'text-steel/40'
-                    }`}>{kvState.lastSignal.source || 'unknown'}</span>
+                      latestSignal.source?.includes('0g-compute') ? 'text-cyan/60 bg-cyan/5 border border-cyan/10' : 'text-steel/40'
+                    }`}>{latestSignal.source || 'unknown'}</span>
                   </div>
                 </div>
               </GlassPanel>
@@ -647,6 +717,179 @@ export default function VaultDetailPage() {
               </div>
             </GlassPanel>
           </div>
+
+          {/* ── Operator Fees ── */}
+          {livePolicy && (livePolicy.performanceFeeBps || livePolicy.managementFeeBps || livePolicy.entryFeeBps || livePolicy.exitFeeBps || feeState?.accruedTotal > 0) && (
+            <div>
+              <SectionLabel color="text-gold/60">Operator Fees</SectionLabel>
+              <GlassPanel className="p-5">
+                {/* Fee schedule (read from policy) */}
+                <div className="grid grid-cols-4 gap-1.5 mb-4">
+                  <div className="rounded-md bg-gold/[0.04] border border-gold/15 px-2 py-1.5">
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <TrendingUp className="w-2.5 h-2.5 text-gold/60" />
+                      <span className="text-[8px] font-mono uppercase text-steel/45">Perf</span>
+                    </div>
+                    <div className="text-[11px] font-mono text-gold tabular-nums">
+                      {formatBps(livePolicy.performanceFeeBps)}
+                    </div>
+                  </div>
+                  <div className="rounded-md bg-cyan/[0.04] border border-cyan/15 px-2 py-1.5">
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <Percent className="w-2.5 h-2.5 text-cyan/60" />
+                      <span className="text-[8px] font-mono uppercase text-steel/45">Mgmt</span>
+                    </div>
+                    <div className="text-[11px] font-mono text-cyan tabular-nums">
+                      {formatBps(livePolicy.managementFeeBps)}
+                    </div>
+                  </div>
+                  <div className="rounded-md bg-white/[0.02] border border-white/[0.06] px-2 py-1.5">
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <DollarSign className="w-2.5 h-2.5 text-steel/45" />
+                      <span className="text-[8px] font-mono uppercase text-steel/45">Entry</span>
+                    </div>
+                    <div className="text-[11px] font-mono text-white/80 tabular-nums">
+                      {formatBps(livePolicy.entryFeeBps)}
+                    </div>
+                  </div>
+                  <div className="rounded-md bg-white/[0.02] border border-white/[0.06] px-2 py-1.5">
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <DollarSign className="w-2.5 h-2.5 text-steel/45" />
+                      <span className="text-[8px] font-mono uppercase text-steel/45">Exit</span>
+                    </div>
+                    <div className="text-[11px] font-mono text-white/80 tabular-nums">
+                      {formatBps(livePolicy.exitFeeBps)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live NAV + High Water Mark */}
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  <div className="rounded-md bg-white/[0.02] border border-white/[0.05] px-3 py-2">
+                    <div className="text-[9px] font-mono uppercase text-steel/40 mb-0.5">Live NAV</div>
+                    <div className="text-sm font-display font-semibold text-white tabular-nums">
+                      ${liveNavUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div className="rounded-md bg-white/[0.02] border border-white/[0.05] px-3 py-2">
+                    <div className="text-[9px] font-mono uppercase text-steel/40 mb-0.5">High Water Mark</div>
+                    <div className="text-sm font-display font-semibold text-emerald-soft tabular-nums">
+                      ${(feeState?.highWaterMark || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Accrued fees */}
+                <div className="rounded-lg bg-gradient-to-br from-gold/[0.06] to-gold/[0.02] border border-gold/15 p-3 mb-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-gold/70">Accrued Fees</span>
+                    {feeState?.lastFeeAccrual ? (
+                      <span className="text-[9px] font-mono text-steel/40">
+                        Last: {new Date(feeState.lastFeeAccrual * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <div className="text-[9px] font-mono uppercase text-steel/40">Mgmt</div>
+                      <div className="text-[13px] font-display font-semibold text-cyan tabular-nums">
+                        ${(feeState?.accruedManagement || 0).toFixed(2)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-mono uppercase text-steel/40">Perf</div>
+                      <div className="text-[13px] font-display font-semibold text-gold tabular-nums">
+                        ${(feeState?.accruedPerformance || 0).toFixed(2)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-mono uppercase text-steel/40">Total</div>
+                      <div className="text-[13px] font-display font-semibold text-white tabular-nums">
+                        ${(feeState?.accruedTotal || 0).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fee recipient */}
+                {livePolicy.feeRecipient && livePolicy.feeRecipient !== '0x0000000000000000000000000000000000000000' && (
+                  <div className="flex items-center justify-between text-[10px] font-mono mb-3 px-3 py-1.5 rounded bg-white/[0.02] border border-white/[0.04]">
+                    <span className="text-steel/40">Fee Recipient</span>
+                    <span className="text-white/60">
+                      {livePolicy.feeRecipient.slice(0, 8)}...{livePolicy.feeRecipient.slice(-6)}
+                    </span>
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="grid grid-cols-2 gap-2">
+                  <ControlButton
+                    variant="secondary"
+                    size="sm"
+                    disabled={!isConnected || accruePending}
+                    onClick={() => {
+                      accrueFees(vaultAddr);
+                      setTimeout(() => { refetchFees(); refetchNav(); }, 4000);
+                    }}
+                  >
+                    <Hourglass className="w-3 h-3" />
+                    {accruePending ? 'Accruing...' : 'Accrue Fees'}
+                  </ControlButton>
+                  <ControlButton
+                    variant="gold"
+                    size="sm"
+                    disabled={
+                      !isConnected ||
+                      claimPending ||
+                      !(feeState?.accruedTotal > 0) ||
+                      !walletAddress ||
+                      walletAddress.toLowerCase() !== (livePolicy.feeRecipient || '').toLowerCase()
+                    }
+                    onClick={() => {
+                      claimFees(vaultAddr);
+                      setTimeout(() => { refetchFees(); refetch(); }, 4000);
+                    }}
+                  >
+                    <Wallet className="w-3 h-3" />
+                    {claimPending ? 'Claiming...' : 'Claim Fees'}
+                  </ControlButton>
+                </div>
+
+                {claimSuccess && (
+                  <p className="text-[10px] text-emerald-soft/70 text-center mt-2">
+                    Fees claimed · 80% to operator · 20% to protocol treasury
+                  </p>
+                )}
+                {accrueSuccess && (
+                  <p className="text-[10px] text-cyan/70 text-center mt-2">Fees accrued on-chain</p>
+                )}
+
+                {/* Pending fee change banner */}
+                {feeState?.pendingFeeChange?.pending && (
+                  <div className="mt-3 rounded-md bg-amber-warn/5 border border-amber-warn/15 px-3 py-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <AlertTriangle className="w-3 h-3 text-amber-warn/70" />
+                      <span className="text-[10px] font-mono text-amber-warn/80">Pending Fee Change</span>
+                    </div>
+                    <div className="text-[10px] text-steel/55 leading-relaxed">
+                      New fees: Perf {formatBps(feeState.pendingFeeChange.newPerformanceFeeBps)} ·
+                      Mgmt {formatBps(feeState.pendingFeeChange.newManagementFeeBps)} ·
+                      Entry {formatBps(feeState.pendingFeeChange.newEntryFeeBps)} ·
+                      Exit {formatBps(feeState.pendingFeeChange.newExitFeeBps)}
+                    </div>
+                    <div className="text-[9px] font-mono text-steel/40 mt-1">
+                      Effective: {new Date(feeState.pendingFeeChange.effectiveAt * 1000).toLocaleString()}
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-[9px] text-steel/35 mt-3 leading-relaxed">
+                  Performance fees only charged on net new profit (above HWM). Management fee streams continuously.
+                  All claimed fees split <strong className="text-white/55">80% operator · 20% treasury</strong>.
+                </p>
+              </GlassPanel>
+            </div>
+          )}
 
           {/* System Controls (ALL REAL) */}
           <div>
@@ -683,11 +926,31 @@ export default function VaultDetailPage() {
                       maxActionsPerDay: livePolicy.maxActionsPerDay,
                       autoExecution: livePolicy.autoExecution,
                       paused: livePolicy.paused,
+                      // Phase 1: preserve fees + recipient (use queueFeeChange to modify)
+                      performanceFeeBps: livePolicy.performanceFeeBps || 0,
+                      managementFeeBps: livePolicy.managementFeeBps || 0,
+                      entryFeeBps: livePolicy.entryFeeBps || 0,
+                      exitFeeBps: livePolicy.exitFeeBps || 0,
+                      feeRecipient: livePolicy.feeRecipient || '0x0000000000000000000000000000000000000000',
                     });
                   }
                   setShowPolicyModal(true);
                 }}>
                   <Settings className="w-3.5 h-3.5" /> Edit Policy
+                </ControlButton>
+
+                {/* Set Executor */}
+                <ControlButton
+                  variant={executorMatchesActiveOrchestrator ? 'secondary' : 'gold'}
+                  className="w-full"
+                  disabled={!isConnected}
+                  onClick={() => {
+                    setExecutorForm(activeOrchestratorExecutor || (hasLive ? liveVault.executor : ''));
+                    setShowExecutorModal(true);
+                  }}
+                >
+                  <Cpu className="w-3.5 h-3.5" />
+                  {executorMatchesActiveOrchestrator ? 'Executor Linked' : 'Set Executor'}
                 </ControlButton>
 
                 {/* Export Journal */}
@@ -709,6 +972,7 @@ export default function VaultDetailPage() {
               {withdrawSuccess && <p className="text-[10px] text-emerald-soft/70 text-center mt-2">Withdrawal submitted successfully</p>}
               {(depositSuccess || transferSuccess) && <p className="text-[10px] text-emerald-soft/70 text-center mt-2">Deposit submitted successfully</p>}
               {policySuccess && <p className="text-[10px] text-emerald-soft/70 text-center mt-2">Policy updated on-chain</p>}
+              {executorSuccess && <p className="text-[10px] text-emerald-soft/70 text-center mt-2">Executor updated on-chain</p>}
             </GlassPanel>
           </div>
 
@@ -927,6 +1191,121 @@ export default function VaultDetailPage() {
             </GlassPanel>
           )}
 
+          {/* ── Set Executor Modal ── */}
+          {showExecutorModal && (
+            <GlassPanel className="p-5">
+              <h4 className="text-sm font-display font-semibold text-white mb-2">Set Vault Executor</h4>
+              <p className="text-[11px] text-steel/45 mb-4">
+                Point this vault to the wallet used by your orchestrator. The owner keeps custody, while the executor only submits intents that still pass on-chain policy checks.
+              </p>
+              <div className="space-y-3">
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-3 space-y-2">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-[11px] text-steel/50">Current Executor</span>
+                    <span className="text-[11px] font-mono text-white/70">{executorAddress}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-[11px] text-steel/50">Active API Executor</span>
+                    <span className="text-[11px] font-mono text-cyan/60">{activeOrchestratorExecutor || 'Not detected'}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-[11px] text-steel/50">Sync Status</span>
+                    <StatusPill
+                      label={executorMatchesActiveOrchestrator ? 'Matched' : activeOrchestratorExecutor ? 'Different' : 'Offline'}
+                      variant={executorMatchesActiveOrchestrator ? 'active' : activeOrchestratorExecutor ? 'warning' : 'paused'}
+                    />
+                  </div>
+                </div>
+
+                {activeOrchestratorExecutor && (
+                  <ControlButton
+                    variant="gold"
+                    className="w-full"
+                    onClick={() => setExecutorForm(activeOrchestratorExecutor)}
+                  >
+                    Use Active Orchestrator Wallet
+                  </ControlButton>
+                )}
+
+                {/* Marketplace operators */}
+                {activeMarketplaceOps.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-[10px] font-mono text-steel/40">Pick from Marketplace ({activeMarketplaceOps.length})</label>
+                      <Link to="/marketplace" className="text-[10px] text-cyan/50 hover:text-cyan">Browse all →</Link>
+                    </div>
+                    <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1">
+                      {activeMarketplaceOps.map((op) => {
+                        const selected = executorForm.toLowerCase() === op.wallet.toLowerCase();
+                        return (
+                          <button
+                            key={op.wallet}
+                            type="button"
+                            onClick={() => setExecutorForm(op.wallet)}
+                            className={`w-full text-left px-2.5 py-2 rounded-md border transition-all ${
+                              selected
+                                ? 'border-gold/30 bg-gold/5'
+                                : 'border-white/[0.05] bg-white/[0.02] hover:border-white/[0.1]'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Cpu className="w-3 h-3 text-gold/50 flex-shrink-0" />
+                                <span className="text-[11px] font-display font-medium text-white truncate">{op.name}</span>
+                                <span className="text-[8px] font-mono text-steel/45 px-1 py-0.5 rounded bg-white/[0.03] border border-white/[0.06]">
+                                  {op.mandateLabel}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="text-[9px] font-mono text-steel/35 mt-0.5 truncate">{op.wallet}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-[10px] font-mono text-steel/40 block mb-1">Executor Address</label>
+                  <input
+                    type="text"
+                    value={executorForm}
+                    onChange={(e) => setExecutorForm(e.target.value.trim())}
+                    placeholder="0x..."
+                    spellCheck="false"
+                    className="w-full bg-obsidian/60 border border-white/[0.08] rounded-md px-3 py-2
+                      text-sm font-mono text-white
+                      focus:outline-none focus:border-gold/30 transition-colors"
+                  />
+                  <p className="mt-2 text-[11px] text-steel/45">
+                    Run your self-hosted orchestrator with the matching `PRIVATE_KEY`, then update the vault executor to the same public address.
+                  </p>
+                </div>
+
+                {!isAddress(executorForm || '') && executorForm && (
+                  <p className="text-[11px] text-red-warn/70">Enter a valid EVM address.</p>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <ControlButton
+                    variant="primary"
+                    className="flex-1"
+                    disabled={!hasLive || !isAddress(executorForm || '') || executorForm.toLowerCase() === liveVault.executor.toLowerCase() || executorPending}
+                    onClick={() => {
+                      setExecutor(vaultAddr, executorForm);
+                      setTimeout(() => { setShowExecutorModal(false); refetch(); }, 3000);
+                    }}
+                  >
+                    {executorPending ? 'Updating...' : 'Update Executor'}
+                  </ControlButton>
+                  <ControlButton variant="secondary" className="flex-1" onClick={() => setShowExecutorModal(false)}>
+                    Cancel
+                  </ControlButton>
+                </div>
+              </div>
+            </GlassPanel>
+          )}
+
           {/* ── Edit Policy Modal ── */}
           {showPolicyModal && policyForm && (
             <GlassPanel gold className="p-5">
@@ -973,7 +1352,23 @@ export default function VaultDetailPage() {
                     className="flex-1"
                     disabled={policyPending}
                     onClick={() => {
-                      updatePolicy(vaultAddr, policyForm);
+                      // Build full policy struct preserving fee fields (fees changed via queueFeeChange)
+                      const fullPolicy = {
+                        maxPositionBps: BigInt(policyForm.maxPositionBps || 0),
+                        maxDailyLossBps: BigInt(policyForm.maxDailyLossBps || 0),
+                        stopLossBps: BigInt(policyForm.stopLossBps || 0),
+                        cooldownSeconds: BigInt(policyForm.cooldownSeconds || 0),
+                        confidenceThresholdBps: BigInt(policyForm.confidenceThresholdBps || 0),
+                        maxActionsPerDay: BigInt(policyForm.maxActionsPerDay || 0),
+                        autoExecution: !!policyForm.autoExecution,
+                        paused: !!policyForm.paused,
+                        performanceFeeBps: BigInt(policyForm.performanceFeeBps || 0),
+                        managementFeeBps: BigInt(policyForm.managementFeeBps || 0),
+                        entryFeeBps: BigInt(policyForm.entryFeeBps || 0),
+                        exitFeeBps: BigInt(policyForm.exitFeeBps || 0),
+                        feeRecipient: policyForm.feeRecipient || '0x0000000000000000000000000000000000000000',
+                      };
+                      updatePolicy(vaultAddr, fullPolicy);
                       setTimeout(() => { setShowPolicyModal(false); refetch(); }, 3000);
                     }}
                   >
@@ -998,6 +1393,20 @@ export default function VaultDetailPage() {
               <div className="flex justify-between">
                 <span className="text-steel/50">Executor</span>
                 <span className="font-mono text-cyan/50">{executorAddress?.slice(0, 8)}...{executorAddress?.slice(-6)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-steel/50">API Executor</span>
+                <span className="font-mono text-white/50">
+                  {activeOrchestratorExecutor
+                    ? `${activeOrchestratorExecutor.slice(0, 8)}...${activeOrchestratorExecutor.slice(-6)}`
+                    : 'Not detected'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-steel/50">Executor Sync</span>
+                <span className={`font-mono ${executorMatchesActiveOrchestrator ? 'text-emerald-soft/70' : 'text-amber-warn/70'}`}>
+                  {executorMatchesActiveOrchestrator ? 'Matched' : activeOrchestratorExecutor ? 'Different' : 'Offline'}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-steel/50">Network</span>

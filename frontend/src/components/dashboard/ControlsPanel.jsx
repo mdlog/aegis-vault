@@ -1,20 +1,27 @@
 import { useState } from 'react';
-import { useAccount, useChainId } from 'wagmi';
+import { useAccount } from 'wagmi';
 import GlassPanel from '../ui/GlassPanel';
 import SectionLabel from '../ui/SectionLabel';
 import ControlButton from '../ui/ControlButton';
-import { usePause, useUnpause, useWithdraw, useVaultSummary } from '../../hooks/useVault';
+import { usePause, useUnpause, useVaultSummary } from '../../hooks/useVault';
 import { useTriggerCycle } from '../../hooks/useOrchestrator';
-import { getDeployments } from '../../lib/contracts';
-import { PauseCircle, PlayCircle, ArrowDownToLine, Settings, Zap, Download, Plus } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import {
+  PauseCircle, PlayCircle, ArrowDownToLine, Settings, Zap, Plus, AlertTriangle,
+} from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { getVaultRoute, getSettingsRoute } from '../../lib/contracts';
 
-export default function ControlsPanel() {
+/**
+ * Vault control panel — operates on the user's currently active vault.
+ *
+ * The active vault must be supplied as a prop. There is no fallback to a hardcoded
+ * demo vault: targeting the wrong vault on a pause/withdraw transaction would be
+ * a real bug, so we require the caller to pass the live address.
+ */
+export default function ControlsPanel({ activeVaultAddress }) {
   const { isConnected } = useAccount();
-  const chainId = useChainId();
-  const deployments = getDeployments(chainId);
-  const vaultAddr = deployments.demoVault;
 
+  const vaultAddr = activeVaultAddress || null;
   const { data: vault, refetch } = useVaultSummary(vaultAddr);
   const isPaused = vault?.paused || false;
 
@@ -27,7 +34,7 @@ export default function ControlsPanel() {
   const { trigger: triggerCycle, loading: cyclePending } = useTriggerCycle();
 
   const handlePauseToggle = () => {
-    if (!isConnected) return;
+    if (!isConnected || !vaultAddr) return;
     if (!isPaused && !confirmPause) {
       setConfirmPause(true);
       return;
@@ -46,9 +53,34 @@ export default function ControlsPanel() {
     setTimeout(() => refetch(), 3000);
   };
 
+  // No active vault selected — show empty state instead of silently targeting demo vault
+  if (!vaultAddr) {
+    return (
+      <div>
+        <SectionLabel color="text-steel/50">Vault Controls</SectionLabel>
+        <GlassPanel className="p-5">
+          <div className="flex items-start gap-2 mb-3">
+            <AlertTriangle className="w-4 h-4 text-amber-warn/70 flex-shrink-0 mt-0.5" />
+            <div className="text-[11px] text-steel/55 leading-relaxed">
+              No active vault selected. Create one or pick from your dashboard to enable controls.
+            </div>
+          </div>
+          <ControlButton variant="gold" className="w-full" onClick={() => navigate('/create')}>
+            <Plus className="w-3.5 h-3.5" /> Create New Vault
+          </ControlButton>
+        </GlassPanel>
+      </div>
+    );
+  }
+
   return (
     <div>
-      <SectionLabel color="text-steel/50">Vault Controls</SectionLabel>
+      <SectionLabel color="text-steel/50">
+        Vault Controls
+        <span className="ml-2 text-[9px] font-mono text-steel/35">
+          {vaultAddr.slice(0, 8)}…{vaultAddr.slice(-6)}
+        </span>
+      </SectionLabel>
       <GlassPanel className="p-5">
         {/* Emergency pause — prominent */}
         <div className="mb-4 pb-4 border-b border-white/[0.04]">
@@ -68,7 +100,8 @@ export default function ControlsPanel() {
           ) : (
             <div className="space-y-2">
               <p className="text-[11px] text-red-warn/80 text-center mb-2">
-                This will immediately halt all AI execution. Confirm?
+                This will immediately halt all AI execution on
+                {' '}<code className="font-mono text-white/70">{vaultAddr.slice(0, 8)}…{vaultAddr.slice(-6)}</code>. Confirm?
               </p>
               <div className="flex gap-2">
                 <ControlButton variant="danger" className="flex-1" onClick={handlePauseToggle} disabled={pausePending}>
@@ -89,14 +122,18 @@ export default function ControlsPanel() {
           </ControlButton>
         </div>
 
-        {/* Other controls */}
+        {/* Other controls — link to vault detail / settings */}
         <div className="grid grid-cols-2 gap-2">
-          <ControlButton variant="secondary" disabled={!isConnected}>
-            <ArrowDownToLine className="w-3.5 h-3.5" /> Withdraw
-          </ControlButton>
-          <ControlButton variant="secondary" disabled={!isConnected}>
-            <Settings className="w-3.5 h-3.5" /> Edit Policy
-          </ControlButton>
+          <Link to={getVaultRoute(vaultAddr)}>
+            <ControlButton variant="secondary" className="w-full" disabled={!isConnected}>
+              <ArrowDownToLine className="w-3.5 h-3.5" /> Withdraw
+            </ControlButton>
+          </Link>
+          <Link to={getSettingsRoute(vaultAddr)}>
+            <ControlButton variant="secondary" className="w-full" disabled={!isConnected}>
+              <Settings className="w-3.5 h-3.5" /> Edit Policy
+            </ControlButton>
+          </Link>
         </div>
 
         {/* Create new vault */}

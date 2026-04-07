@@ -15,11 +15,43 @@
   <img src="https://img.shields.io/badge/Ethers.js-2535A0?style=for-the-badge&logo=ethereum&logoColor=white" alt="Ethers.js" />
   <img src="https://img.shields.io/badge/Hardhat-FFF100?style=for-the-badge&logo=hardhat&logoColor=black" alt="Hardhat" />
   <img src="https://img.shields.io/badge/OpenZeppelin-4E5EE4?style=for-the-badge&logo=openzeppelin&logoColor=white" alt="OpenZeppelin" />
-  <img src="https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express&logoColor=white" alt="Express" />
-  <img src="https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black" alt="JavaScript" />
 </p>
 
-> AI-managed, risk-controlled trading vault on 0G. Users deposit assets, define on-chain risk mandates, and let an AI agent execute within verifiable limits. The AI proposes. The contract enforces. Every action is auditable.
+> AI-managed, risk-controlled trading vault on 0G — now with **operator economics, skin-in-the-game staking, on-chain reputation, and multi-sig governance**. Users deposit, pick an operator from the marketplace, and let on-chain rules enforce every action. The AI proposes. The contract enforces. Every fee, slash, and rating is auditable.
+
+---
+
+## What's New — Production Stack (Phase 1-5)
+
+Aegis Vault graduated from an MVP demo to a full production-grade protocol. Five phases, 135 contract tests, all green.
+
+| Phase | Scope | Contracts | Tests |
+|---|---|---|---|
+| **1. Foundation** | Fee system (HWM, perf / mgmt / entry / exit), ProtocolTreasury, 80/20 operator-treasury split, 7-day fee change cooldown, multi-asset NAV via Pyth | `AegisVault`, `AegisVaultFactory`, `ProtocolTreasury`, `OperatorRegistry`, `VaultNAVCalculator` | 40 |
+| **2. Stake & Slashing** | Operator staking with 4 tiers (Bronze → Platinum), tier-gated vault caps, 14-day unstake cooldown, freeze / slash arbitration, insurance pool | `OperatorStaking`, `InsurancePool` | 22 |
+| **3. Reputation & Discovery** | On-chain execution stats (volume, PnL, success), 1-5 star ratings, verified operator badge, marketplace sort by reputation | `OperatorReputation` | 15 |
+| **4. Governance** | M-of-N multi-sig governor, proposal lifecycle, slashing arbitration + treasury spending via on-chain proposals, owner rotation via self-call | `AegisGovernor` | 18 |
+| **5. Production Hardening** | Reputation auto-recording from vault executions (`setReputationRecorder`), unified `deploy-all.js`, end-to-end integration test | — | 40 |
+
+**Economic model**
+
+- Performance fee: 15% default (max 30%) — charged only on net-new profit above high-water mark
+- Management fee: 2%/year default (max 5%) — streamed continuously on NAV
+- Entry / exit fees: 0% / 0.5% default (max 2% each)
+- Every fee dollar: **80% to operator, 20% to protocol treasury**
+- Protocol treasury funds: audits, grants, insurance pool top-ups
+
+**Skin-in-the-game tiers (USDC stake → max vault size)**
+
+| Tier | Stake | Max Vault NAV |
+|---|---|---|
+| None | $0 | $5k |
+| Bronze | $1k | $50k |
+| Silver | $10k | $500k |
+| Gold | $100k | $5M |
+| Platinum | $1M | Unlimited |
+
+Slashing: up to 50% of stake per governance action. Slashed funds flow to the insurance pool, which pays claims to damaged vault owners after arbitration.
 
 ---
 
@@ -27,65 +59,158 @@
 
 | Layer | What It Does |
 |---|---|
-| **0G Chain** | 8 Solidity contracts on Galileo Testnet — vault custody, 12 on-chain policy rules, executor authorization, swap execution |
-| **0G Compute** | Real AI inference via `GLM-5-FP8` on Mainnet — decentralized, verifiable reasoning + structured JSON output |
+| **0G Chain (Galileo testnet 16602)** | 11 Solidity contracts — vault custody, fee system, operator staking, reputation, multi-sig governance |
+| **0G Compute** | Real AI inference via `GLM-5-FP8` on mainnet — decentralized, verifiable reasoning + structured JSON output |
 | **0G Storage** | KV state snapshots + blob upload — decision journal, execution reports, strategy memory |
+| **Pyth Network** | Multi-asset NAV oracle for fee accrual on vaults holding BTC/ETH/USDC |
 
 ---
 
 ## Architecture
 
 ```
-User → Frontend (React + wagmi) → AegisVault Contract (0G Chain)
-                                         ↑
-                              Strategy Orchestrator (Node.js)
-                              ├── Market Data (CoinGecko + Pyth)
-                              ├── AI Inference (0G Compute GLM-5-FP8)
-                              ├── Policy Pre-check (10 rules)
-                              ├── Intent Builder + Executor
-                              └── 0G Storage (journal + state)
-                                         ↓
-                                    DEX Venue
-                              ├── MockDEX (testnet)
-                              └── JaineVenueAdapter (mainnet)
+┌──────────────────────────────────────────────────────────────────────┐
+│                         User / Frontend (React)                     │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐    │
+│  │ Marketplace│  │ Create     │  │ Vault      │  │ Governance │    │
+│  │ + ratings  │  │ Vault      │  │ Detail     │  │ Dashboard  │    │
+│  └────────────┘  └────────────┘  └────────────┘  └────────────┘    │
+└──────────────────────────────┬───────────────────────────────────────┘
+                               │ wagmi + viem
+                               ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                        0G Chain (Galileo 16602)                     │
+│                                                                      │
+│  ┌─────────────────┐         ┌──────────────────────────────────┐  │
+│  │ AegisVault      │◄────────│ OperatorRegistry                 │  │
+│  │ - policy enforcer        │ - declared fees                  │  │
+│  │ - fee accrual (HWM)      │ - recommended policy             │  │
+│  │ - execution gateway      └──────────────────────────────────┘  │
+│  └────┬────────────┘                                                │
+│       │                                                              │
+│       │  records stats                                               │
+│       ▼                                                              │
+│  ┌──────────────────┐       ┌──────────────────┐                   │
+│  │OperatorReputation│       │ ProtocolTreasury │                   │
+│  │ - execution log  │       │ - 20% fee cut    │                   │
+│  │ - ratings        │       │ - grants / audit │                   │
+│  │ - verified badge │       └──────────────────┘                   │
+│  └──────────────────┘                                                │
+│                                                                      │
+│  ┌──────────────────┐       ┌──────────────────┐                   │
+│  │ OperatorStaking  │──slash│ InsurancePool    │                   │
+│  │ - tier caps      │──────▶│ - user claims    │                   │
+│  │ - 14d cooldown   │       │ - payout via gov │                   │
+│  │ - freeze/unfreeze│       └──────────────────┘                   │
+│  └────────┬─────────┘                                                │
+│           │ admin                                                    │
+│           ▼                                                          │
+│  ┌──────────────────────────────────────┐                           │
+│  │ AegisGovernor (M-of-N multi-sig)     │                           │
+│  │ - slashing arbitration               │                           │
+│  │ - treasury spend                     │                           │
+│  │ - verified badge grants              │                           │
+│  │ - owner rotation (self-call)         │                           │
+│  └──────────────────────────────────────┘                           │
+└──────────────────────────────────────────────────────────────────────┘
+                               ▲
+                               │ executeIntent() / read state
+                               │
+┌──────────────────────────────┴───────────────────────────────────────┐
+│                    Strategy Orchestrator (Node.js)                   │
+│   ├── 0G Compute (GLM-5-FP8 inference)                              │
+│   ├── Market data (CoinGecko + Pyth)                                │
+│   ├── Decision Engine v1 (8 regimes, 15 veto rules)                 │
+│   ├── Operator tier cap + frozen guard                              │
+│   ├── Policy pre-check → intent build → submit                      │
+│   └── 0G Storage (journal, decisions, executions)                   │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-**How it works:** Create vault → Deposit → Orchestrator fetches market data → AI generates decision via 0G Compute → Policy pre-check → `executeIntent()` on-chain (12 rules enforced) → Swap via venue adapter → Result stored on 0G Storage → User monitors on dashboard.
+**End-to-end flow:**
+1. Operator registers in `OperatorRegistry` with declared fees + recommended policy
+2. Operator stakes USDC in `OperatorStaking` to unlock a vault-size tier
+3. User browses `/marketplace`, picks an operator (sorted by reputation / tier / fees)
+4. User creates vault in `/create` — fee preview auto-filled from operator profile
+5. User deposits → entry fee charged (80/20 split) → vault base balance funded
+6. Orchestrator cycle runs:
+   - Reads vault + operator state
+   - Checks `TIER_CAP_EXCEEDED` / `OPERATOR_FROZEN` eligibility
+   - Queries 0G Compute for AI decision
+   - Runs Decision Engine v1 (regime classifier + vetos)
+   - Policy pre-check → builds intent → submits via `executeIntent()`
+7. `AegisVault.executeIntent()`:
+   - Validates intent hash + policy
+   - Executes swap via `JaineVenueAdapter` (or `MockDEX` on testnet)
+   - Calls `reputationRecorder.recordExecution()` to log stats
+   - Finalizes with `ExecutionRegistry`
+8. Fees accrue continuously (mgmt) and on profit above HWM (perf)
+9. Operator claims fees → 80% to operator wallet, 20% to protocol treasury
+10. Bad actor? Governance proposal: `freeze` → `slash` → `payoutClaim` from insurance pool
 
 ---
 
-## Smart Contracts (0G Galileo Testnet — Chain 16602)
+## Smart Contracts
 
-| Contract | Address |
+Current testnet deployment (0G Galileo, chain 16602):
+
+| Contract | Role |
 |---|---|
-| AegisVaultFactory | `0x2A0CAA1d639060446fA1bA799b6B64810B5B4aff` |
-| ExecutionRegistry | `0xDF277f39d4869B1a4bb7Fa2D25e58ab32E2af998` |
-| MockUSDC | `0xcb7F4c52f72DA18d27Bc18C4c3f706b6ba361BC1` |
-| MockWBTC | `0x0d8C28Ad2741cBec172003eee01e7BD97450b5A9` |
-| MockWETH | `0x339d0484699C0E1232aE0947310a5694B7e0E03A` |
-| MockDEX | `0x8eeF4E72ec2ff6f9E00a6D2029bEcB8FcB2f03E6` |
-| Demo Vault | `0xFFac2840f762b6003Ce291bd5B19c2890Ea5DAB2` |
+| `AegisVaultFactory` | Deploys new vault clones, wires treasury |
+| `AegisVault` | Per-user vault (custody + policy + fees + execution) |
+| `ExecutionRegistry` | Intent replay guard + execution history |
+| `ProtocolTreasury` | Collects 20% protocol cut, admin-gated spending |
+| `OperatorRegistry` | Operator directory with declared fees + recommendations |
+| `OperatorStaking` | Tiered stake escrow + slashing + cooldown |
+| `InsurancePool` | Slashed-fund custody + arbitrator-gated payouts |
+| `OperatorReputation` | On-chain execution stats + ratings + verified badge |
+| `AegisGovernor` | M-of-N multi-sig governance |
+| `VaultNAVCalculator` | Pyth-backed multi-asset NAV pricing |
+| `JaineVenueAdapter` | Uniswap V3 fork router (mainnet Jaine) |
 
-**Security:** AI never holds authority (propose-only) — executor cannot withdraw/pause — single-use intent hashes — on-chain swap verification — owner emergency pause + withdraw.
+After running `deploy-all.js`, addresses auto-sync into `frontend/src/lib/contracts.js` and `orchestrator/.env`.
+
+**Security invariants:**
+- AI has **zero authority** — can only propose intents, vault enforces
+- Executor can never withdraw or pause
+- Single-use intent hashes (replay-proof)
+- Fee caps hard-coded in `AegisVault` (users protected even if owner misconfigures)
+- 7-day fee change cooldown (operator can't surprise-raise fees)
+- All slashing + treasury spending requires M-of-N governance approval
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for full economic model, state diagrams, and failure mode analysis.
 
 ---
 
 ## Quick Start
 
 ```bash
-# 1. Deploy contracts
+# 1. Compile + test contracts
 cd contracts && npm install
-DEPLOYER_PRIVATE_KEY=<key> npx hardhat run scripts/deploy.js --network og_testnet
-node scripts/gen-env.js && node scripts/sync-frontend.js
+npx hardhat test                 # 135 tests passing
 
-# 2. Start orchestrator (port 4002)
-cd orchestrator && npm install --legacy-peer-deps && npm start
+# 2. Deploy full stack (Phase 1-5)
+DEPLOYER_PRIVATE_KEY=<key> npx hardhat run scripts/deploy-all.js --network og_testnet
+node scripts/sync-frontend.js    # auto-updates frontend addresses
 
-# 3. Start frontend (port 5173)
-cd frontend && npm install && npm run dev
+# 3. Start orchestrator (port 4002)
+cd ../orchestrator && npm install --legacy-peer-deps
+cp .env.example .env && edit .env
+npm start
+
+# 4. Start frontend (port 5173)
+cd ../frontend && npm install && npm run dev
 ```
 
-**MetaMask:** RPC `https://evmrpc-testnet.0g.ai` — Chain ID `16602` — Symbol `0G`
+**MetaMask:** RPC `https://evmrpc-testnet.0g.ai` · Chain ID `16602` · Symbol `0G`
+
+**Deploy options** (production mode with multi-sig):
+```bash
+GOVERNOR_OWNERS="0xaaa,0xbbb,0xccc" \
+GOVERNOR_THRESHOLD=2 \
+TRANSFER_ADMINS=1 \
+  npx hardhat run scripts/deploy-all.js --network og_testnet
+```
 
 ---
 
@@ -93,9 +218,33 @@ cd frontend && npm install && npm run dev
 
 ```
 0g-chain/
-├── contracts/       Solidity — 8 contracts (Hardhat 2.28 + OpenZeppelin)
-├── orchestrator/    Node.js — AI inference, market data, policy, executor (16 API endpoints)
-└── frontend/        React 19 + Vite 8 + Tailwind 4 + wagmi 2 (7 pages, 40+ components)
+├── contracts/                  11 Solidity contracts (Hardhat 2.28 + OpenZeppelin)
+│   ├── contracts/              *.sol
+│   ├── test/                   135 tests (6 suites)
+│   └── scripts/
+│       ├── deploy-all.js       Unified Phase 1-5 deployment
+│       ├── deploy-phase1..5.js Per-phase deployment
+│       └── sync-frontend.js    Address propagation to frontend
+├── orchestrator/               Node.js — AI inference + policy pre-check + execution
+│   └── src/services/
+│       ├── vaultReader.js      Reads vault state (NAV, policy, fees)
+│       ├── operatorReader.js   Reads stake tier + reputation (Phase 2-5)
+│       ├── decisionEngine.js   Regime classifier + 15 veto rules
+│       ├── inference.js        0G Compute GLM-5-FP8 client
+│       └── orchestrator.js     Main cycle loop
+└── frontend/                   React 19 + Vite + Tailwind + wagmi
+    └── src/
+        ├── pages/
+        │   ├── LandingPage, DashboardPage, VaultDetailPage
+        │   ├── CreateVaultPage, OperatorMarketplacePage
+        │   ├── OperatorProfilePage, OperatorRegisterPage
+        │   └── GovernancePage       M-of-N proposal UI
+        └── hooks/
+            ├── useVault.js           core vault + deposit + withdraw
+            ├── useVaultFees.js       fee accrual + claim (Phase 1)
+            ├── useOperatorStaking.js stake + tier + freeze (Phase 2)
+            ├── useOperatorReputation.js stats + ratings + verified (Phase 3)
+            └── useGovernor.js        proposals + ProposalBuilders (Phase 4)
 ```
 
 ---
@@ -103,8 +252,24 @@ cd frontend && npm install && npm run dev
 ## Test Results
 
 ```
-Smart Contracts:     34 passing, 0 failing
-Security Audit:      4 critical + 6 high findings fixed, re-audited clean
-On-chain Execution:  Real TX on Galileo testnet
-0G Compute:          Live inference from GLM-5-FP8 on mainnet
+Smart contracts    135 / 135 passing  (Phase 1-5 full stack)
+Frontend build     3219 modules, 1.19 MB gzipped, clean
+E2E lifecycle      ✓ create → deposit → execute → accrue → claim
+                   ✓ stake → slash via gov → insurance payout
+Security audit     4 critical + 6 high fixed (Phase 0 audit)
 ```
+
+---
+
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — economic model, state diagrams, threat model
+- [DEMO.md](DEMO.md) — step-by-step walkthrough for judges / demos
+- [Aegis_Vault_0G_Architecture.md](Aegis_Vault_0G_Architecture.md) — original 0G integration design
+- [Aegis_Vault_Decision_Matrix_v1.md](Aegis_Vault_Decision_Matrix_v1.md) — Decision Engine v1 spec
+
+---
+
+## License
+
+MIT

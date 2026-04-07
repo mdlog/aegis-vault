@@ -10,6 +10,7 @@ const typeIcons = {
   rebalance: <Activity className="w-3.5 h-3.5 text-cyan" />,
   hold: <Pause className="w-3.5 h-3.5 text-steel" />,
   blocked: <ShieldOff className="w-3.5 h-3.5 text-red-warn" />,
+  alert: <ShieldOff className="w-3.5 h-3.5 text-amber-warn" />,
   decision: <Activity className="w-3.5 h-3.5 text-cyan" />,
   execution: <ArrowUpRight className="w-3.5 h-3.5 text-emerald-soft" />,
   policy_check: <ShieldOff className="w-3.5 h-3.5 text-gold" />,
@@ -40,6 +41,7 @@ function ConfidenceBar({ value }) {
 
 function getOutcome(entry) {
   if (entry.outcome) return entry.outcome;
+  if (entry.type === 'alert') return entry.level || 'info';
   if (entry.type === 'execution') return entry.success ? 'executed' : 'failed';
   if (entry.type === 'policy_check') return entry.valid ? 'passed' : 'blocked';
   if (entry.type === 'decision') {
@@ -50,6 +52,7 @@ function getOutcome(entry) {
 }
 
 function getActionLabel(entry) {
+  if (entry.type === 'alert') return entry.code?.replace(/_/g, ' ') || 'Alert';
   if (entry.action && entry.asset) return `${entry.action.toUpperCase()} ${entry.asset}`;
   if (entry.action) return entry.action.toUpperCase();
   if (entry.type === 'cycle') return 'AI Cycle';
@@ -118,9 +121,15 @@ export default function ActionFeed({ limit = 20 }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-sm font-display font-medium text-white truncate">
-                      {label}
+                      {entry.type === 'alert' ? entry.message : label}
                     </span>
                     <StatusPill label={outcome} variant={outcome} />
+                    {entry.approval_tier && entry.approval_tier !== 'not_required' && (
+                      <StatusPill
+                        label={entry.approval_tier.replace(/_/g, ' ')}
+                        variant={entry.approval_tier === 'auto_execute' ? 'active' : 'warning'}
+                      />
+                    )}
                     <span className="text-[8px] font-mono text-cyan/40 px-1 py-0.5 rounded bg-cyan/5 border border-cyan/10">LIVE</span>
                   </div>
 

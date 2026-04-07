@@ -17,6 +17,9 @@ const ABIs = {
   AegisVaultFactory: loadABI('AegisVaultFactory'),
   ExecutionRegistry: loadABI('ExecutionRegistry'),
   MockERC20: loadABI('MockERC20'),
+  OperatorRegistry: loadABI('OperatorRegistry'),
+  OperatorStaking: loadABI('OperatorStaking'),
+  OperatorReputation: loadABI('OperatorReputation'),
 };
 
 // Provider & Signer
@@ -55,6 +58,24 @@ export function getRegistryContract() {
 
 export function getERC20Contract(address) {
   return new ethers.Contract(address, ABIs.MockERC20, getSigner());
+}
+
+export function getOperatorRegistryContract(address) {
+  const addr = address || config.contracts.operatorRegistry;
+  if (!addr) return null;
+  return new ethers.Contract(addr, ABIs.OperatorRegistry, getSigner());
+}
+
+export function getOperatorStakingContract(address) {
+  const addr = address || config.contracts.operatorStaking;
+  if (!addr) return null;
+  return new ethers.Contract(addr, ABIs.OperatorStaking, getSigner());
+}
+
+export function getOperatorReputationContract(address) {
+  const addr = address || config.contracts.operatorReputation;
+  if (!addr) return null;
+  return new ethers.Contract(addr, ABIs.OperatorReputation, getSigner());
 }
 
 // Utility: compute intent hash (mirrors on-chain logic — uses abi.encode per C-3/H-1 fix)

@@ -67,6 +67,7 @@ function getDefaultKVState() {
     lastRiskScore: 0,
     lastSignal: null,
     lastExecutionSummary: null,
+    pendingApprovals: {},
     currentAllocation: [],
     totalCycles: 0,
     totalExecutions: 0,
@@ -127,9 +128,8 @@ export function logCycle(cycleData) {
     type: 'cycle',
     cycle: cycleData.cycleNumber,
     marketSummary: cycleData.marketSummary,
-    decision: cycleData.decision,
-    policyResult: cycleData.policyResult,
-    executionResult: cycleData.executionResult,
+    vaultResults: cycleData.vaultResults || [],
+    status: cycleData.status,
     duration_ms: cycleData.duration,
   });
 }
@@ -137,12 +137,14 @@ export function logCycle(cycleData) {
 /**
  * Log an AI decision
  */
-export function logDecision(decision, marketPrices) {
+export function logDecision(decision, marketPrices, context = {}) {
   return appendJournal({
     type: 'decision',
+    vault: context.vault || null,
     action: decision.action,
     asset: decision.asset,
     size_bps: decision.size_bps,
+    sell_fraction_bps: decision.sell_fraction_bps,
     confidence: decision.confidence,
     risk_score: decision.risk_score,
     reason: decision.reason,
@@ -155,6 +157,10 @@ export function logDecision(decision, marketPrices) {
     hard_veto: decision.hard_veto,
     hard_veto_reasons: decision.hard_veto_reasons,
     entry_trigger: decision.entry_trigger,
+    approval_tier: decision.approval_tier,
+    approval_reasons: decision.approval_reasons,
+    context_symbol: decision.context_symbol,
+    market_symbol: decision.market_symbol,
     market_snapshot: Object.entries(marketPrices).map(([sym, d]) => ({
       symbol: sym,
       price: d.price,
@@ -166,9 +172,10 @@ export function logDecision(decision, marketPrices) {
 /**
  * Log a policy check result
  */
-export function logPolicyCheck(decision, result) {
+export function logPolicyCheck(decision, result, context = {}) {
   return appendJournal({
     type: 'policy_check',
+    vault: context.vault || null,
     action: decision.action,
     asset: decision.asset,
     valid: result.valid,
@@ -179,10 +186,14 @@ export function logPolicyCheck(decision, result) {
 /**
  * Log an execution result
  */
-export function logExecution(intent, result) {
+export function logExecution(intent, result, decision = null, context = {}) {
   return appendJournal({
     type: 'execution',
+    vault: context.vault || intent?.vault || null,
     intentHash: intent?.intentHash,
+    action: decision?.action || null,
+    asset: decision?.asset || null,
+    approval_tier: decision?.approval_tier || null,
     success: result.success,
     txHash: result.txHash || null,
     error: result.error || null,
@@ -197,6 +208,16 @@ export function logSystemEvent(eventType, details) {
     type: 'system',
     event: eventType,
     details,
+  });
+}
+
+export function logAlert(level, code, message, details = {}) {
+  return appendJournal({
+    type: 'alert',
+    level,
+    code,
+    message,
+    ...details,
   });
 }
 

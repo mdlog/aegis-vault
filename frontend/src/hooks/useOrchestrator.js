@@ -1,6 +1,25 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ORCHESTRATOR_URL } from '../lib/contracts.js';
 
+const ORCHESTRATOR_API_KEY = import.meta.env.VITE_ORCHESTRATOR_API_KEY || '';
+
+function buildQuery(params = {}) {
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      query.set(key, value);
+    }
+  }
+
+  const queryString = query.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
+function getMutationHeaders() {
+  return ORCHESTRATOR_API_KEY ? { 'x-api-key': ORCHESTRATOR_API_KEY } : {};
+}
+
 /**
  * Generic fetch hook for orchestrator API
  */
@@ -51,16 +70,24 @@ export function useMarketSummary() {
 }
 
 // ── Journal ──
-export function useJournal(limit = 20) {
-  return useAPI(`/api/journal?limit=${limit}`, { interval: 10000 });
+export function useJournal(limit = 20, options = {}) {
+  const { vaultAddress, type, level, interval = 10000 } = options;
+  return useAPI(`/api/journal${buildQuery({ limit, vault: vaultAddress, type, level })}`, { interval });
 }
 
-export function useDecisions(limit = 10) {
-  return useAPI(`/api/journal/decisions?limit=${limit}`, { interval: 10000 });
+export function useDecisions(limit = 10, options = {}) {
+  const { vaultAddress, interval = 10000 } = options;
+  return useAPI(`/api/journal/decisions${buildQuery({ limit, vault: vaultAddress })}`, { interval });
 }
 
-export function useExecutions(limit = 10) {
-  return useAPI(`/api/journal/executions?limit=${limit}`, { interval: 10000 });
+export function useExecutions(limit = 10, options = {}) {
+  const { vaultAddress, interval = 10000 } = options;
+  return useAPI(`/api/journal/executions${buildQuery({ limit, vault: vaultAddress })}`, { interval });
+}
+
+export function useAlerts(limit = 10, options = {}) {
+  const { vaultAddress, level, interval = 10000 } = options;
+  return useAPI(`/api/alerts${buildQuery({ limit, vault: vaultAddress, level })}`, { interval });
 }
 
 // ── Pyth / NAV ──
@@ -79,11 +106,18 @@ export function usePlatformTVL(vaultAddresses) {
   const [loading, setLoading] = useState(true);
   const [source, setSource] = useState('');
 
-  const addrs = vaultAddresses || [];
-  const key = addrs.join(',');
+  const key = (vaultAddresses || []).filter(Boolean).join(',');
 
   const fetchTVL = useCallback(async () => {
-    if (addrs.length === 0) { setTvl(0); setLoading(false); return; }
+    const addrs = key ? key.split(',') : [];
+
+    if (addrs.length === 0) {
+      setTvl(0);
+      setLoading(false);
+      setSource('');
+      return;
+    }
+
     try {
       const results = await Promise.all(
         addrs.map(addr =>
@@ -131,7 +165,10 @@ export function useTriggerCycle() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${ORCHESTRATOR_URL}/api/cycle`, { method: 'POST' });
+      const res = await fetch(`${ORCHESTRATOR_URL}/api/cycle`, {
+        method: 'POST',
+        headers: getMutationHeaders(),
+      });
       const json = await res.json();
       setResult(json);
       return json;
@@ -147,6 +184,7 @@ export function useTriggerCycle() {
 }
 
 // ── Vault State from Orchestrator (richer than on-chain read) ──
-export function useOrchestratorVault() {
-  return useAPI('/api/vault', { interval: 10000 });
+export function useOrchestratorVault(vaultAddress) {
+  const endpoint = `/api/vault${buildQuery({ vault: vaultAddress })}`;
+  return useAPI(endpoint, { interval: 10000, enabled: !!vaultAddress });
 }

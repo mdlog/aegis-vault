@@ -1,4 +1,4 @@
-import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useAccount, useChainId } from 'wagmi';
+import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { AegisVaultABI, AegisVaultFactoryABI, MockERC20ABI, getDeployments } from '../lib/contracts.js';
 
@@ -57,11 +57,21 @@ export function useVaultPolicy(vaultAddress) {
       maxActionsPerDay: Number(data.maxActionsPerDay),
       autoExecution: data.autoExecution,
       paused: data.paused,
+      // Phase 1: fees
+      performanceFeeBps: Number(data.performanceFeeBps || 0),
+      managementFeeBps: Number(data.managementFeeBps || 0),
+      entryFeeBps: Number(data.entryFeeBps || 0),
+      exitFeeBps: Number(data.exitFeeBps || 0),
+      feeRecipient: data.feeRecipient || '',
       // Derived
       maxPositionPct: Number(data.maxPositionBps) / 100,
       maxDailyLossPct: Number(data.maxDailyLossBps) / 100,
       stopLossPct: Number(data.stopLossBps) / 100,
       confidenceThresholdPct: Number(data.confidenceThresholdBps) / 100,
+      performanceFeePct: Number(data.performanceFeeBps || 0) / 100,
+      managementFeePct: Number(data.managementFeeBps || 0) / 100,
+      entryFeePct: Number(data.entryFeeBps || 0) / 100,
+      exitFeePct: Number(data.exitFeeBps || 0) / 100,
     },
     isLoading,
     error,
@@ -361,4 +371,51 @@ export function useUpdatePolicy() {
   };
 
   return { updatePolicy, hash, isPending, isConfirming, isSuccess, error };
+}
+
+// ── Write: Set Executor ──
+
+export function useSetExecutor() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const setExecutor = (vaultAddress, executorAddress) => {
+    writeContract({
+      address: vaultAddress,
+      abi: AegisVaultABI,
+      functionName: 'setExecutor',
+      args: [executorAddress],
+    });
+  };
+
+  return { setExecutor, hash, isPending, isConfirming, isSuccess, error };
+}
+
+// ── Write: Set Reputation Recorder (Phase 5) ──
+
+export function useSetReputationRecorder() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const setRecorder = (vaultAddress, recorderAddress) => {
+    writeContract({
+      address: vaultAddress,
+      abi: AegisVaultABI,
+      functionName: 'setReputationRecorder',
+      args: [recorderAddress],
+    });
+  };
+
+  return { setRecorder, hash, isPending, isConfirming, isSuccess, error };
+}
+
+// ── Read: Vault's reputation recorder address ──
+
+export function useReputationRecorder(vaultAddress) {
+  return useReadContract({
+    address: vaultAddress,
+    abi: AegisVaultABI,
+    functionName: 'reputationRecorder',
+    query: { enabled: !!vaultAddress, refetchInterval: 30000 },
+  });
 }

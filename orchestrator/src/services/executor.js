@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
-import config from '../config/index.js';
-import { getVaultContract, getRegistryContract, computeIntentHash } from '../config/contracts.js';
+import { ABIs, getVaultContract, computeIntentHash } from '../config/contracts.js';
+import { buildAssetAddressMap, getTrackedAsset, normalizeTradeSymbol } from './assets.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -10,10 +10,10 @@ import logger from '../utils/logger.js';
  */
 
 // Asset symbol → contract address mapping (populated at runtime)
-let assetAddresses = {};
+let assetAddresses = buildAssetAddressMap();
 
 export function setAssetAddresses(mapping) {
-  assetAddresses = mapping;
+  assetAddresses = { ...assetAddresses, ...mapping };
 }
 
 /**
@@ -50,18 +50,32 @@ export function buildExecutionIntent(decision, vaultState, oraclePrices = null) 
     // Buying: spend base asset (USDC) to get target asset
     assetIn = resolveAssetAddress('USDC');
     assetOut = resolveAssetAddress(decision.asset);
-    amountIn = calculateAmountFromBps(decision.size_bps, vaultState.nav, 6); // USDC decimals
-    // Expected output in USD = amountIn (since USDC ≈ $1)
-    expectedOutputUsd = (vaultState.nav * decision.size_bps) / 10000;
+    amountIn = calculateBuyAmountFromBps(decision.size_bps, vaultState);
+    expectedOutputUsd = parseFloat(ethers.formatUnits(amountIn, 6));
   } else if (decision.action === 'sell') {
     // Selling: spend target asset to get base asset (USDC)
-    assetIn = resolveAssetAddress(decision.asset);
+    const tradeSymbol = normalizeTradeSymbol(decision.asset);
+    const assetMeta = getTrackedAsset(tradeSymbol);
+    if (!assetMeta) {
+      throw new Error(`Unsupported sell asset: ${decision.asset}`);
+    }
+
+    assetIn = resolveAssetAddress(tradeSymbol);
     assetOut = resolveAssetAddress('USDC');
-    const assetDecimals = config.assets[decision.asset]?.decimals || 18;
-    amountIn = calculateAmountFromBps(decision.size_bps, vaultState.nav, assetDecimals);
-    expectedOutputUsd = (vaultState.nav * decision.size_bps) / 10000;
+    amountIn = calculateSellAmountFromHoldings(
+      vaultState,
+      tradeSymbol,
+      decision.sell_fraction_bps || decision.size_bps || 10000
+    );
+    const assetPrice = oraclePrices?.[tradeSymbol]?.price || oraclePrices?.[tradeSymbol] || 0;
+    expectedOutputUsd = parseFloat(ethers.formatUnits(amountIn, assetMeta.decimals)) * assetPrice;
   } else {
     return null; // hold — no intent needed
+  }
+
+  if (!amountIn || amountIn <= 0n) {
+    logger.warn(`  No executable amount for ${decision.action} ${decision.asset}`);
+    return null;
   }
 
   // ── Calculate minAmountOut with slippage protection ──
@@ -70,8 +84,9 @@ export function buildExecutionIntent(decision, vaultState, oraclePrices = null) 
   if (oraclePrices && expectedOutputUsd > 0) {
     // Use Pyth oracle price to calculate expected output
     const outAssetSymbol = decision.action === 'buy' ? decision.asset : 'USDC';
+    const outAssetMeta = getTrackedAsset(outAssetSymbol);
     const outDecimals = decision.action === 'buy'
-      ? (config.assets[decision.asset]?.decimals || 18)
+      ? (outAssetMeta?.decimals || 18)
       : 6;
 
     if (outAssetSymbol === 'USDC') {
@@ -106,7 +121,7 @@ export function buildExecutionIntent(decision, vaultState, oraclePrices = null) 
     expiresAt: now + ttl,
     confidenceBps: Math.round(decision.confidence * 10000),
     riskScoreBps: Math.round(decision.risk_score * 10000),
-    reasonSummary: decision.reason.substring(0, 200),
+    reasonSummary: (decision.reason || '').substring(0, 200),
   };
 
   // Compute intent hash
@@ -116,11 +131,50 @@ export function buildExecutionIntent(decision, vaultState, oraclePrices = null) 
 }
 
 /**
- * Calculate token amount from basis points of vault NAV
+ * Calculate USDC amount from basis points of vault NAV, capped by available base balance.
  */
-function calculateAmountFromBps(sizeBps, navUsd, decimals) {
-  const amountUsd = (navUsd * sizeBps) / 10000;
-  return ethers.parseUnits(amountUsd.toFixed(decimals > 6 ? 6 : decimals), decimals);
+function calculateBuyAmountFromBps(sizeBps, vaultState) {
+  const desiredUsd = ((vaultState.nav || 0) * sizeBps) / 10000;
+  const spendableUsd = Math.max(0, vaultState.baseBalance ?? vaultState.balance ?? 0);
+  const amountUsd = Math.min(desiredUsd, spendableUsd);
+  return ethers.parseUnits(amountUsd.toFixed(6), 6);
+}
+
+function calculateSellAmountFromHoldings(vaultState, symbol, fractionBps) {
+  const assetMeta = getTrackedAsset(symbol);
+  if (!assetMeta) {
+    throw new Error(`Unsupported sell asset: ${symbol}`);
+  }
+
+  const rawBalance = getVaultAssetBalanceRaw(vaultState, symbol);
+  const cappedFraction = Math.max(0, Math.min(Number(fractionBps || 0), 10000));
+  const amountIn = rawBalance * BigInt(cappedFraction) / 10000n;
+
+  if (amountIn <= 0n && rawBalance > 0n && cappedFraction > 0) {
+    return rawBalance;
+  }
+
+  return amountIn;
+}
+
+function getVaultAssetBalanceRaw(vaultState, symbol) {
+  const assetMeta = getTrackedAsset(symbol);
+  const candidates = [
+    symbol,
+    normalizeTradeSymbol(symbol),
+    assetMeta?.contractSymbol,
+    assetMeta?.tradeSymbol,
+    ...(assetMeta?.aliases || []),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const raw = vaultState.assetBalancesRaw?.[candidate];
+    if (raw !== undefined && raw !== null) {
+      return BigInt(raw);
+    }
+  }
+
+  return 0n;
 }
 
 /**
@@ -131,6 +185,7 @@ function calculateAmountFromBps(sizeBps, navUsd, decimals) {
 export async function submitIntent(intent) {
   try {
     const vault = getVaultContract(intent.vault);
+    const iface = new ethers.Interface(ABIs.AegisVault);
 
     logger.info(`Submitting intent ${intent.intentHash.substring(0, 10)}...`);
     logger.info(`  Action: ${intent.assetIn} → ${intent.assetOut}`);
@@ -139,13 +194,27 @@ export async function submitIntent(intent) {
 
     const tx = await vault.executeIntent(intent);
     const receipt = await tx.wait();
+    const intentExecutedEvent = receipt.logs
+      .map((log) => {
+        try {
+          return iface.parseLog(log);
+        } catch {
+          return null;
+        }
+      })
+      .find((event) => event?.name === 'IntentExecuted' && event.args.intentHash === intent.intentHash);
+
+    const executionSuccess = intentExecutedEvent ? intentExecutedEvent.args.success : true;
+    const amountOut = intentExecutedEvent ? intentExecutedEvent.args.amountOut?.toString() : null;
 
     logger.info(`Intent submitted. TX: ${receipt.hash}`);
 
     return {
-      success: true,
+      success: executionSuccess,
       txHash: receipt.hash,
       blockNumber: receipt.blockNumber,
+      amountIn: intent.amountIn.toString(),
+      amountOut,
     };
 
   } catch (err) {

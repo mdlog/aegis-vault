@@ -150,7 +150,7 @@ export function runDecisionEngine(params) {
         executionMode = 'MARKETABLE_SWAP';
         entryTrigger = 'score_deterioration';
         reduceFractionBps = computeReduceFraction(edgeScore);
-        sizeBps = Math.round((vaultState.current_position_notional_usd || 0) * reduceFractionBps / 10000);
+        sizeBps = reduceFractionBps;
         assetIn = tradeAsset;
         assetOut = baseAsset;
       } else {
@@ -233,7 +233,7 @@ export function runDecisionEngine(params) {
       executionMode = 'MARKETABLE_SWAP';
       entryTrigger = 'score_deterioration';
       reduceFractionBps = computeReduceFraction(edgeScore);
-      sizeBps = Math.round((vaultState.current_position_notional_usd || 0) * reduceFractionBps / 10000);
+      sizeBps = reduceFractionBps;
       assetIn = tradeAsset;
       assetOut = baseAsset;
     }
@@ -243,7 +243,7 @@ export function runDecisionEngine(params) {
       executionMode = 'MARKETABLE_SWAP';
       entryTrigger = 'partial_profit_take';
       reduceFractionBps = 2500;
-      sizeBps = Math.round((vaultState.current_position_notional_usd || 0) * 2500 / 10000);
+      sizeBps = 2500;
       assetIn = tradeAsset;
       assetOut = baseAsset;
     }
@@ -326,10 +326,15 @@ export function runDecisionEngine(params) {
  * Maps BUY/SELL/REDUCE → buy/sell, everything else → hold.
  */
 export function toSimpleDecision(v1Decision) {
+  const sellFractionBps = v1Decision.simple_action === 'sell'
+    ? (v1Decision.reduce_fraction_bps || v1Decision.size_bps || 10000)
+    : 0;
+
   return {
     action: v1Decision.simple_action,
     asset: v1Decision.recommended_asset_out === 'USDC' ? v1Decision.recommended_asset_in : v1Decision.recommended_asset_out,
     size_bps: v1Decision.size_bps,
+    sell_fraction_bps: sellFractionBps,
     confidence: v1Decision.confidence,
     risk_score: v1Decision.risk_score,
     reason: v1Decision.reason_summary,

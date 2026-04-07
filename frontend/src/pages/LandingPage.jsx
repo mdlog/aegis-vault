@@ -4,6 +4,7 @@ import ProblemSection from '../components/ProblemSection';
 import SolutionSection from '../components/SolutionSection';
 import HowItWorks from '../components/HowItWorks';
 import Capabilities from '../components/Capabilities';
+import ProductionStackSection from '../components/ProductionStackSection';
 import Architecture from '../components/Architecture';
 import TrustSection from '../components/TrustSection';
 import ClosingCTA from '../components/ClosingCTA';
@@ -18,6 +19,7 @@ export default function LandingPage() {
       <SolutionSection />
       <HowItWorks />
       <Capabilities />
+      <ProductionStackSection />
       <Architecture />
       <TrustSection />
       <ClosingCTA />

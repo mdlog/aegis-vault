@@ -6,12 +6,12 @@ export default function AllocationRing({ size = 180 }) {
   const strokeW = r * 0.2;
   const circumference = 2 * Math.PI * (r - strokeW / 2);
 
-  let accumulated = 0;
-  const segments = allocation.map((a) => {
-    const offset = accumulated;
-    accumulated += a.pct;
-    return { ...a, offset };
-  });
+  const segments = allocation.reduce((items, asset) => {
+    const previous = items[items.length - 1];
+    const offset = previous ? previous.offset + previous.pct : 0;
+    items.push({ ...asset, offset });
+    return items;
+  }, []);
 
   return (
     <div className="relative" style={{ width: size, height: size }}>

@@ -1,6 +1,20 @@
 import { http, createConfig } from 'wagmi';
-import { injected, metaMask } from 'wagmi/connectors';
+import { injected } from 'wagmi/connectors';
 import { defineChain } from 'viem';
+
+// ── 0G Aristotle Mainnet ──
+export const ogMainnet = defineChain({
+  id: 16661,
+  name: '0G Aristotle',
+  nativeCurrency: { name: '0G', symbol: '0G', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://evmrpc.0g.ai'] },
+  },
+  blockExplorers: {
+    default: { name: '0G Explorer', url: 'https://chainscan.0g.ai' },
+  },
+  testnet: false,
+});
 
 // ── 0G Galileo Testnet ──
 export const ogTestnet = defineChain({
@@ -28,13 +42,23 @@ export const hardhatLocal = defineChain({
 });
 
 // ── Wagmi Config ──
+//
+// Production toggle: set VITE_DISABLE_TESTNETS=1 in production builds to hide
+// testnet + local chains from the wallet selector. This prevents users from
+// accidentally connecting MetaMask to the wrong network on a mainnet release.
+const isProd = import.meta.env.VITE_DISABLE_TESTNETS === '1';
+const enabledChains = isProd
+  ? [ogMainnet]
+  : [ogMainnet, ogTestnet, hardhatLocal];
+
 export const wagmiConfig = createConfig({
-  chains: [ogTestnet, hardhatLocal],
+  chains: enabledChains,
   connectors: [
     injected({ target: 'metaMask' }),
     injected(),
   ],
   transports: {
+    [ogMainnet.id]: http(),
     [ogTestnet.id]: http(),
     [hardhatLocal.id]: http(),
   },

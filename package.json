@@ -9,7 +9,7 @@
     "dev:node": "cd contracts && npx hardhat node",
     "dev:deploy": "cd contracts && npx hardhat run scripts/deploy.js --network localhost && node scripts/gen-env.js && node scripts/sync-frontend.js",
     "dev:orchestrator": "cd orchestrator && npm start",
-    "dev:frontend": "cd landing && npm run dev"
+    "dev:frontend": "cd frontend && npm run dev"
   },
   "dependencies": {
     "ethers": "^6.16.0"

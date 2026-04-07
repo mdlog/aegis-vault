@@ -1,4 +1,5 @@
 import logger from '../utils/logger.js';
+import { getAssetAddress, normalizeTradeSymbol } from './assets.js';
 
 /**
  * PolicyCheckService
@@ -67,14 +68,26 @@ function checkConfidence(decision, policy) {
 function checkPositionSize(decision, vaultState, policy) {
   if (decision.action === 'hold') return { valid: true, reason: '' };
 
-  const maxPct = policy.maxPositionBps / 100;
-  const sizePct = decision.size_bps / 100;
-  if (sizePct > maxPct) {
+  if (decision.action === 'buy') {
+    const maxPct = policy.maxPositionBps / 100;
+    const sizePct = decision.size_bps / 100;
+    if (sizePct > maxPct) {
+      return {
+        valid: false,
+        reason: `Position size ${sizePct}% exceeds max ${maxPct}%`,
+      };
+    }
+    return { valid: true, reason: '' };
+  }
+
+  const sellFractionPct = (decision.sell_fraction_bps || decision.size_bps || 0) / 100;
+  if (sellFractionPct <= 0 || sellFractionPct > 100) {
     return {
       valid: false,
-      reason: `Position size ${sizePct}% exceeds max ${maxPct}%`,
+      reason: `Sell fraction ${sellFractionPct}% is invalid`,
     };
   }
+
   return { valid: true, reason: '' };
 }
 
@@ -105,17 +118,31 @@ function checkCooldown(vaultState, policy) {
 function checkAssetWhitelist(decision, vaultState) {
   if (decision.action === 'hold') return { valid: true, reason: '' };
 
-  const allowed = vaultState.allowedAssets || [];
-  const assetSymbol = decision.asset;
+  const allowed = new Set((vaultState.allowedAssets || []).map((asset) => asset.toLowerCase()));
+  const assetSymbol = normalizeTradeSymbol(decision.asset);
+  const tradeAsset = getAssetAddress(assetSymbol);
+  const baseAsset = getAssetAddress('USDC');
 
-  // Check if the symbol maps to an address in allowedAssets
-  // For the pre-check, we verify the symbol exists in our known mapping
-  if (!['BTC', 'ETH', 'USDC', '0G'].includes(assetSymbol)) {
+  if (!tradeAsset || !baseAsset) {
     return {
       valid: false,
       reason: `Asset ${assetSymbol} not recognized`,
     };
   }
+
+  const requiredAssets = decision.action === 'buy'
+    ? [tradeAsset, baseAsset]
+    : [tradeAsset, baseAsset];
+
+  for (const asset of requiredAssets) {
+    if (!allowed.has(asset.toLowerCase())) {
+      return {
+        valid: false,
+        reason: `Asset ${assetSymbol} not allowed by vault policy`,
+      };
+    }
+  }
+
   return { valid: true, reason: '' };
 }
 

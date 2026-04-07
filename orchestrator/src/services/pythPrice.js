@@ -2,6 +2,7 @@ import { HermesClient } from '@pythnetwork/hermes-client';
 import { ethers } from 'ethers';
 import config from '../config/index.js';
 import { getProvider } from '../config/contracts.js';
+import { getTrackedAssets, getTokenAddresses } from './assets.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -61,6 +62,10 @@ export async function fetchPythPrices() {
     return prices;
 
   } catch (err) {
+    if (config.strictMode) {
+      logger.error(`Pyth Hermes fetch failed in STRICT_MODE: ${err.message}. Aborting NAV calculation.`);
+      throw new Error(`pyth_oracle_unavailable: ${err.message}`);
+    }
     logger.warn(`Pyth Hermes fetch failed: ${err.message}. Using fallback prices.`);
     return getFallbackPrices();
   }
@@ -72,18 +77,22 @@ export async function fetchPythPrices() {
  * @param {object} tokenAddresses - { usdc, wbtc, weth } contract addresses
  * @returns {{ totalNav: number, breakdown: object[] }}
  */
-export async function calculateMultiAssetNAV(vaultAddress, tokenAddresses) {
-  const prices = await fetchPythPrices();
+export async function calculateMultiAssetNAV(vaultAddress, tokenAddresses = null, options = {}) {
+  const { priceSnapshot = null } = options;
+  const prices = priceSnapshot || await fetchPythPrices();
   const provider = getProvider();
 
   // ERC20 balanceOf ABI
   const erc20Abi = ['function balanceOf(address) view returns (uint256)', 'function decimals() view returns (uint8)'];
+  const defaultTokenAddresses = tokenAddresses || getTokenAddresses();
 
-  const assets = [
-    { symbol: 'USDC', address: tokenAddresses.usdc, decimals: 6, isStable: true },
-    { symbol: 'WBTC', address: tokenAddresses.wbtc, decimals: 8, isStable: false },
-    { symbol: 'WETH', address: tokenAddresses.weth, decimals: 18, isStable: false },
-  ];
+  const assets = getTrackedAssets().map((asset) => {
+    const mappedAddress = defaultTokenAddresses[asset.contractSymbol.toLowerCase()] || asset.address;
+    return {
+      ...asset,
+      address: mappedAddress,
+    };
+  });
 
   const breakdown = [];
   let totalNav = 0;
@@ -97,25 +106,35 @@ export async function calculateMultiAssetNAV(vaultAddress, tokenAddresses) {
       const balanceFormatted = parseFloat(ethers.formatUnits(balance, asset.decimals));
 
       let valueUsd;
-      if (asset.isStable) {
+      if (asset.isStablecoin) {
         valueUsd = balanceFormatted * (prices.USDC?.price || 1.0);
       } else {
-        const priceData = prices[asset.symbol === 'WBTC' ? 'BTC' : 'ETH'];
+        const priceData = prices[asset.tradeSymbol];
         valueUsd = balanceFormatted * (priceData?.price || 0);
       }
 
       breakdown.push({
-        symbol: asset.symbol,
+        symbol: asset.contractSymbol,
+        tradeSymbol: asset.tradeSymbol,
         balance: balanceFormatted,
-        priceUsd: asset.isStable ? 1.0 : (prices[asset.symbol === 'WBTC' ? 'BTC' : 'ETH']?.price || 0),
+        rawBalance: balance.toString(),
+        priceUsd: asset.isStablecoin ? 1.0 : (prices[asset.tradeSymbol]?.price || 0),
         valueUsd,
         pct: 0, // computed after total
       });
 
       totalNav += valueUsd;
     } catch (err) {
-      logger.warn(`Failed to read balance for ${asset.symbol}: ${err.message}`);
-      breakdown.push({ symbol: asset.symbol, balance: 0, priceUsd: 0, valueUsd: 0, pct: 0 });
+      logger.warn(`Failed to read balance for ${asset.contractSymbol}: ${err.message}`);
+      breakdown.push({
+        symbol: asset.contractSymbol,
+        tradeSymbol: asset.tradeSymbol,
+        balance: 0,
+        rawBalance: '0',
+        priceUsd: 0,
+        valueUsd: 0,
+        pct: 0,
+      });
     }
   }
 

@@ -5,19 +5,12 @@ import Logo from '../ui/Logo';
 import StatusPill from '../ui/StatusPill';
 import WalletButton from '../ui/WalletButton';
 import { useVaultList } from '../../hooks/useVault';
-import { getDeployments } from '../../lib/contracts';
+import { useAlerts, useOrchestratorStatus } from '../../hooks/useOrchestrator';
+import { getDeployments, getSettingsRoute, getVaultRoute } from '../../lib/contracts';
 import {
-  LayoutDashboard, Shield, Activity, FileText, Settings,
+  LayoutDashboard, Shield, Activity, FileText, Settings, Cpu, Vote,
   ChevronDown, Bell, Globe, Menu, X
 } from 'lucide-react';
-
-const navItems = [
-  { label: 'Overview', path: '/app', icon: LayoutDashboard },
-  { label: 'Vault Detail', path: '/app/vault', icon: Shield },
-  { label: 'AI Actions', path: '/app/actions', icon: Activity },
-  { label: 'Journal', path: '/app/journal', icon: FileText },
-  { label: 'Settings', path: '/app/settings', icon: Settings },
-];
 
 export default function AppShell({ children }) {
   const location = useLocation();
@@ -35,14 +28,30 @@ export default function AppShell({ children }) {
     deployments.aegisVaultFactory,
     address
   );
+  const { data: orchStatus } = useOrchestratorStatus();
+  const { data: alerts } = useAlerts(6);
 
   // Only show vaults owned by the connected wallet
   const displayVaults = vaults;
+  const routeVaultAddress = location.pathname.startsWith('/app/vault/') || location.pathname.startsWith('/app/settings/')
+    ? location.pathname.split('/')[3]
+    : null;
+  const activeVaultAddress = routeVaultAddress || displayVaults[0]?.address || deployments.demoVault;
 
   // Current vault name (derive from address)
-  const currentVaultLabel = displayVaults.length > 0
-    ? `Vault ${displayVaults[0].address?.slice(0, 6)}...${displayVaults[0].address?.slice(-4)}`
+  const currentVaultLabel = activeVaultAddress
+    ? `Vault ${activeVaultAddress?.slice(0, 6)}...${activeVaultAddress?.slice(-4)}`
     : 'No Vault';
+  const navItems = [
+    { label: 'Overview', path: '/app', icon: LayoutDashboard, active: location.pathname === '/app' },
+    { label: 'Vault Detail', path: getVaultRoute(activeVaultAddress), icon: Shield, active: location.pathname.startsWith('/app/vault') },
+    { label: 'Marketplace', path: '/marketplace', icon: Cpu, active: location.pathname === '/marketplace' || location.pathname.startsWith('/operator') },
+    { label: 'Governance', path: '/governance', icon: Vote, active: location.pathname === '/governance' },
+    { label: 'AI Actions', path: '/app/actions', icon: Activity, active: location.pathname === '/app/actions' },
+    { label: 'Journal', path: '/app/journal', icon: FileText, active: location.pathname === '/app/journal' },
+    { label: 'Settings', path: getSettingsRoute(activeVaultAddress), icon: Settings, active: location.pathname.startsWith('/app/settings') },
+  ];
+  const alertCount = Math.max(alerts?.length || 0, orchStatus?.pendingApprovalCount || 0);
 
   return (
     <div className="min-h-screen bg-obsidian flex flex-col">
@@ -100,7 +109,7 @@ export default function AppShell({ children }) {
                           >
                             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isPaused ? 'bg-amber-warn' : 'bg-emerald-soft'}`} />
                             <Link
-                              to="/app/vault"
+                              to={getVaultRoute(v.address)}
                               onClick={() => setVaultOpen(false)}
                               className="flex-1 min-w-0"
                             >
@@ -159,7 +168,7 @@ export default function AppShell({ children }) {
           {/* Center: Desktop Nav */}
           <nav className="hidden lg:flex items-center gap-1">
             {navItems.map((item) => {
-              const active = location.pathname === item.path;
+              const active = item.active;
               const Icon = item.icon;
               return (
                 <Link
@@ -193,13 +202,35 @@ export default function AppShell({ children }) {
                 className="relative w-8 h-8 rounded-md flex items-center justify-center hover:bg-white/[0.03] transition-colors"
               >
                 <Bell className="w-4 h-4 text-steel/50" />
+                {alertCount > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-warn" />
+                )}
               </button>
               {notifOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />
                   <div className="absolute top-full right-0 mt-1 w-72 glass-panel rounded-lg p-3 z-50 shadow-2xl">
                     <div className="text-[10px] font-mono text-steel/40 uppercase tracking-wider mb-2">Notifications</div>
-                    <div className="text-xs text-steel/40 py-2 text-center">No new notifications</div>
+                    {alerts && alerts.length > 0 ? (
+                      <div className="space-y-2">
+                        {alerts.map((alert) => (
+                          <div key={alert.id} className="rounded-md border border-white/[0.05] bg-white/[0.02] px-2.5 py-2">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-[10px] text-white/70 line-clamp-1">{alert.message}</span>
+                              <StatusPill
+                                label={alert.level || 'info'}
+                                variant={alert.level === 'critical' ? 'critical' : alert.level === 'warning' ? 'warning' : 'info'}
+                              />
+                            </div>
+                            <div className="text-[9px] font-mono text-steel/35">
+                              {alert.vault ? `${alert.vault.slice(0, 8)}...${alert.vault.slice(-4)}` : 'Global'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-steel/40 py-2 text-center">No new notifications</div>
+                    )}
                   </div>
                 </>
               )}
@@ -222,7 +253,7 @@ export default function AppShell({ children }) {
         {mobileNavOpen && (
           <div className="lg:hidden bg-obsidian/98 backdrop-blur-xl border-t border-white/[0.04] px-4 py-3 space-y-1">
             {navItems.map((item) => {
-              const active = location.pathname === item.path;
+              const active = item.active;
               const Icon = item.icon;
               return (
                 <Link

@@ -49,5 +49,3 @@ export default function TokenIcon({ symbol, size = 16, className = '' }) {
     />
   );
 }
-
-export { logos, fallbackColors };

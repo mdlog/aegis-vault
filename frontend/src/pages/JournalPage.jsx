@@ -9,11 +9,12 @@ const typeConfig = {
   decision: { icon: Activity, color: 'text-cyan/60', label: 'Decision' },
   execution: { icon: Shield, color: 'text-emerald-soft/60', label: 'Execution' },
   policy_check: { icon: AlertTriangle, color: 'text-gold/60', label: 'Policy' },
+  alert: { icon: AlertTriangle, color: 'text-amber-warn/60', label: 'Alert' },
   cycle: { icon: Clock, color: 'text-steel/40', label: 'Cycle' },
   system: { icon: Settings, color: 'text-steel/40', label: 'System' },
 };
 
-const filters = ['all', 'decision', 'execution', 'policy_check', 'cycle'];
+const filters = ['all', 'decision', 'execution', 'policy_check', 'alert', 'cycle'];
 
 export default function JournalPage() {
   const [filter, setFilter] = useState('all');
@@ -79,7 +80,19 @@ export default function JournalPage() {
                     {entry.success !== undefined && (
                       <StatusPill label={entry.success ? 'Success' : 'Failed'} variant={entry.success ? 'executed' : 'failed'} />
                     )}
+                    {entry.level && (
+                      <StatusPill label={entry.level} variant={entry.level === 'critical' ? 'critical' : entry.level === 'warning' ? 'warning' : 'info'} />
+                    )}
+                    {entry.approval_tier && entry.approval_tier !== 'not_required' && (
+                      <StatusPill
+                        label={entry.approval_tier.replace(/_/g, ' ')}
+                        variant={entry.approval_tier === 'auto_execute' ? 'active' : 'warning'}
+                      />
+                    )}
                   </div>
+                  {entry.message && (
+                    <p className="text-[11px] text-white/65 truncate">{entry.message}</p>
+                  )}
                   {entry.reason && (
                     <p className="text-[11px] text-steel/50 truncate">{entry.reason}</p>
                   )}
