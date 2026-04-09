@@ -5,15 +5,14 @@ import { isAddress } from 'viem';
 // Mock data is no longer mixed into the live vault page. We render explicit empty
 // states when on-chain data is unavailable so users can never mistake stale demo
 // numbers for real performance.
-import { getDeployments } from '../lib/contracts';
+import { getDefaultVaultAddress, getDeployments, getNetworkLabel } from '../lib/contracts';
 import { Link } from 'react-router-dom';
 import { useVaultSummary, useVaultPolicy, usePause, useUnpause, useWithdraw, useApprove, useDeposit, useUpdatePolicy, useTokenBalance, useVaultList, useTransferToken, useSetExecutor } from '../hooks/useVault';
-import { useOperatorList, MandateLabel } from '../hooks/useOperatorRegistry';
-import { useMultiAssetNAV, useOrchestratorStatus, useKVState, useDecisions, useJournal, useExecutions } from '../hooks/useOrchestrator';
+import { useOperatorList } from '../hooks/useOperatorRegistry';
+import { useMultiAssetNAV, useOrchestratorStatus, useDecisions, useJournal, useExecutions } from '../hooks/useOrchestrator';
 import {
   useVaultFeeState, useVaultNav, useClaimFees, useAccrueFees,
-  useQueueFeeChange, useApplyFeeChange, useSetFeeRecipient,
-  formatBps, estimateAnnualFees,
+  formatBps,
 } from '../hooks/useVaultFees';
 import GlassPanel from '../components/ui/GlassPanel';
 import StatusPill from '../components/ui/StatusPill';
@@ -60,7 +59,7 @@ export default function VaultDetailPage() {
   const { vaultAddress: routeVaultAddress } = useParams();
 
   const { vaults: myVaults } = useVaultList(deployments.aegisVaultFactory, address);
-  const vaultAddr = routeVaultAddress || myVaults[0]?.address || deployments.demoVault;
+  const vaultAddr = routeVaultAddress || myVaults[0]?.address || getDefaultVaultAddress(chainId);
   const { operators: marketplaceOps } = useOperatorList(deployments.operatorRegistry);
   const activeMarketplaceOps = marketplaceOps.filter((op) => op.loaded && op.active);
 
@@ -69,7 +68,6 @@ export default function VaultDetailPage() {
   const { data: livePolicy } = useVaultPolicy(vaultAddr);
   const { data: navData } = useMultiAssetNAV(vaultAddr);
   const { data: orchStatus } = useOrchestratorStatus();
-  const { data: kvState } = useKVState();
   const { data: liveDecisions } = useDecisions(10, { vaultAddress: vaultAddr });
   const { data: journalData } = useJournal(100, { vaultAddress: vaultAddr });
   const { data: liveExecutions } = useExecutions(20, { vaultAddress: vaultAddr });
@@ -115,14 +113,14 @@ export default function VaultDetailPage() {
   const [policyForm, setPolicyForm] = useState(null);
 
   const hasLive = isConnected && !!liveVault;
-  const latestSignal = liveDecisions?.[0] || (!routeVaultAddress ? kvState?.lastSignal : null) || null;
+  const latestSignal = liveDecisions?.[0] || null;
 
   // ── Live data only — no mock fallback ──
   // Anything that doesn't exist on-chain renders as zero / empty state.
   const nav = navData?.totalNav || (hasLive ? parseFloat(liveVault.balance) : 0);
   const isPaused = hasLive ? liveVault.paused : false;
   const totalDeposited = hasLive ? parseFloat(liveVault.totalDeposited) : 0;
-  const executions = liveExecutions?.length ?? orchStatus?.totalExecutions ?? 0;
+  const executions = liveExecutions?.length ?? 0;
   const dailyActions = hasLive ? liveVault.dailyActions : 0;
   const lastExecTs = hasLive ? liveVault.lastExecution : 0;
 
@@ -177,6 +175,8 @@ export default function VaultDetailPage() {
     : pol.maxPositionPct <= 30 ? 'Defensive'
     : pol.maxPositionPct <= 50 ? 'Balanced'
     : 'Tactical';
+  const navHistoryData = [];
+  const drawdownHistoryData = [];
 
   // Allocation — empty array when no NAV data
   const allocationData = navData?.breakdown
@@ -259,12 +259,29 @@ export default function VaultDetailPage() {
     Boolean(activeOrchestratorExecutor) &&
     activeOrchestratorExecutor.toLowerCase() === liveVault.executor.toLowerCase();
   const networkName = chainId === 16661 ? '0G Aristotle Mainnet'
-    : chainId === 16602 ? '0G Galileo Testnet'
-    : chainId === 31337 ? 'Hardhat Local'
-    : `Chain ${chainId || '—'}`;
+    : getNetworkLabel(chainId);
   const vaultTitle = vaultAddress
     ? `Vault ${vaultAddress.slice(0, 6)}...${vaultAddress.slice(-4)}`
-    : 'Aegis Primary Vault';
+    : 'No Vault Selected';
+
+  if (!vaultAddr) {
+    return (
+      <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-12">
+        <GlassPanel className="p-8 text-center">
+          <Shield className="w-8 h-8 text-steel/20 mx-auto mb-3" />
+          <h1 className="text-xl font-display font-semibold text-white mb-2">No Vault Selected</h1>
+          <p className="text-sm text-steel/50 max-w-md mx-auto">
+            Create a vault first or open one from the dashboard. This page no longer falls back to demo data.
+          </p>
+          <Link to="/create" className="inline-block mt-4">
+            <ControlButton variant="gold">
+              <ArrowUpToLine className="w-3.5 h-3.5" /> Create Vault
+            </ControlButton>
+          </Link>
+        </GlassPanel>
+      </div>
+    );
+  }
 
   const handlePause = () => {
     if (isPaused) { unpause(vaultAddr); } else { pause(vaultAddr); }
@@ -395,7 +412,7 @@ export default function VaultDetailPage() {
       <div className="grid lg:grid-cols-3 gap-6 lg:gap-8">
         {/* Left 2/3 */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Performance chart (mock — needs historical data) */}
+          {/* Performance chart */}
           <div>
             <SectionLabel color="text-cyan/60">Performance</SectionLabel>
             <GlassPanel className="p-5">
@@ -414,14 +431,11 @@ export default function VaultDetailPage() {
                     </span>
                   </div>
                 </div>
-                {!hasRealReturn && (
-                  <span className="text-[8px] font-mono text-steel/25 px-1.5 py-0.5 rounded bg-white/[0.02] border border-white/[0.04]">MOCK CHART</span>
-                )}
               </div>
-              <NavChart height={220} />
+              <NavChart height={220} data={navHistoryData} emptyLabel="NAV history will appear after journal snapshots accumulate." />
               <div className="mt-4 pt-3 border-t border-white/[0.04]">
                 <span className="text-[9px] font-mono tracking-[0.12em] uppercase text-steel/40 block mb-2">Drawdown</span>
-                <DrawdownChart height={100} />
+                <DrawdownChart height={100} data={drawdownHistoryData} emptyLabel="Drawdown history requires stored NAV snapshots." />
               </div>
             </GlassPanel>
           </div>
@@ -452,6 +466,11 @@ export default function VaultDetailPage() {
                     </div>
                   ))}
                 </div>
+                {allocationData.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] px-4 py-6 text-center text-xs text-steel/40">
+                    Allocation data is not available yet. Start the orchestrator and wait for a fresh NAV snapshot.
+                  </div>
+                )}
                 {navData?.prices && (
                   <div className="mt-3 pt-2 border-t border-white/[0.04] flex gap-4 text-[9px] font-mono text-steel/30">
                     <span>BTC ${navData.prices.BTC?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
@@ -528,6 +547,13 @@ export default function VaultDetailPage() {
                   </div>
                 </GlassPanel>
               ))}
+              {journalEntries.length === 0 && (
+                <GlassPanel className="p-6 text-center">
+                  <Cpu className="w-6 h-6 text-steel/20 mx-auto mb-2" />
+                  <p className="text-sm text-steel/40">No AI journal entries yet.</p>
+                  <p className="text-[10px] text-steel/30 mt-1">Run a cycle after connecting an executor to this vault.</p>
+                </GlassPanel>
+              )}
             </div>
           </div>
 
@@ -563,6 +589,11 @@ export default function VaultDetailPage() {
                       </div>
                     </div>
                   ))}
+                  {riskTimelineEntries.length === 0 && (
+                    <div className="py-2 text-center text-xs text-steel/40">
+                      No risk timeline entries yet.
+                    </div>
+                  )}
                 </div>
               </div>
             </GlassPanel>

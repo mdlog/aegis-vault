@@ -6,7 +6,7 @@ import StatusPill from '../ui/StatusPill';
 import WalletButton from '../ui/WalletButton';
 import { useVaultList } from '../../hooks/useVault';
 import { useAlerts, useOrchestratorStatus } from '../../hooks/useOrchestrator';
-import { getDeployments, getSettingsRoute, getVaultRoute } from '../../lib/contracts';
+import { getDefaultVaultAddress, getDeployments, getNetworkLabel, getSettingsRoute, getVaultRoute } from '../../lib/contracts';
 import {
   LayoutDashboard, Shield, Activity, FileText, Settings, Cpu, Vote,
   ChevronDown, Bell, Globe, Menu, X
@@ -36,7 +36,7 @@ export default function AppShell({ children }) {
   const routeVaultAddress = location.pathname.startsWith('/app/vault/') || location.pathname.startsWith('/app/settings/')
     ? location.pathname.split('/')[3]
     : null;
-  const activeVaultAddress = routeVaultAddress || displayVaults[0]?.address || deployments.demoVault;
+  const activeVaultAddress = routeVaultAddress || displayVaults[0]?.address || getDefaultVaultAddress(chainId);
 
   // Current vault name (derive from address)
   const currentVaultLabel = activeVaultAddress
@@ -169,18 +169,16 @@ export default function AppShell({ children }) {
           <nav className="hidden lg:flex items-center gap-1">
             {navItems.map((item) => {
               const active = item.active;
-              const Icon = item.icon;
               return (
                 <Link
                   key={item.label}
                   to={item.path}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium tracking-wide transition-all duration-200
+                  className={`flex items-center px-3 py-1.5 rounded-md text-[11px] font-medium tracking-wide transition-all duration-200
                     ${active
                       ? 'text-white bg-white/[0.06] border border-white/[0.06]'
                       : 'text-steel/60 hover:text-steel/90 hover:bg-white/[0.02]'
                     }`}
                 >
-                  <Icon className="w-3.5 h-3.5" />
                   {item.label}
                 </Link>
               );
@@ -192,7 +190,7 @@ export default function AppShell({ children }) {
             {/* Network */}
             <div className="hidden sm:flex items-center gap-1.5 text-[10px] font-mono text-steel/50">
               <Globe className="w-3 h-3" />
-              <span>{chainId === 16602 ? '0G Galileo' : chainId === 31337 ? 'Local' : `Chain ${chainId}`}</span>
+              <span>{getNetworkLabel(chainId)}</span>
             </div>
 
             {/* Notifications */}

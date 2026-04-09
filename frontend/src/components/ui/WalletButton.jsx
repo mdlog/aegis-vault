@@ -1,9 +1,12 @@
 import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain, useBalance, useReadContracts } from 'wagmi';
 import { useState } from 'react';
 import { formatUnits } from 'viem';
-import { ogTestnet } from '../../lib/wagmiConfig';
-import { getDeployments, MockERC20ABI } from '../../lib/contracts';
+import { arbitrumOne, ogMainnet, ogTestnet } from '../../lib/wagmiConfig';
+import { getDeployments, getNetworkLabel, MockERC20ABI } from '../../lib/contracts';
 import TokenIcon from './TokenIcon';
+
+const SUPPORTED_CHAIN_IDS = new Set([ogMainnet.id, arbitrumOne.id, ogTestnet.id, 31337]);
+const DEFAULT_SWITCH_CHAIN_ID = import.meta.env.VITE_DISABLE_TESTNETS === '1' ? ogMainnet.id : ogTestnet.id;
 
 export default function WalletButton() {
   const { address, isConnected, chain } = useAccount();
@@ -72,20 +75,20 @@ export default function WalletButton() {
     );
   }
 
-  const isWrongChain = chain && chain.id !== ogTestnet.id && chain.id !== 31337;
+  const isWrongChain = chain ? !SUPPORTED_CHAIN_IDS.has(chain.id) : false;
   const shortAddr = `${address.slice(0, 6)}...${address.slice(-4)}`;
-  const chainName = chainId === 16602 ? '0G Galileo' : chainId === 31337 ? 'Local' : chainId === 16661 ? '0G Mainnet' : `Chain ${chainId}`;
+  const chainName = getNetworkLabel(chainId);
 
   return (
     <div className="relative flex items-center gap-2">
       {isWrongChain && (
         <button
-          onClick={() => switchChain({ chainId: ogTestnet.id })}
+          onClick={() => switchChain({ chainId: DEFAULT_SWITCH_CHAIN_ID })}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] font-mono
             bg-amber-warn/10 text-amber-warn border border-amber-warn/20
             hover:bg-amber-warn/20 transition-all"
         >
-          Switch to 0G
+          Switch Network
         </button>
       )}
 
@@ -177,10 +180,10 @@ export default function WalletButton() {
             {/* Actions */}
             {chain?.id === 31337 && (
               <button
-                onClick={() => { switchChain({ chainId: ogTestnet.id }); setMenuOpen(false); }}
+                onClick={() => { switchChain({ chainId: DEFAULT_SWITCH_CHAIN_ID }); setMenuOpen(false); }}
                 className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-cyan/60 hover:text-cyan hover:bg-white/[0.02] transition-colors text-left"
               >
-                Switch to 0G Galileo
+                Switch to {DEFAULT_SWITCH_CHAIN_ID === ogMainnet.id ? '0G Aristotle' : '0G Galileo'}
               </button>
             )}
             <button

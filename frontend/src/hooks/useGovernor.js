@@ -1,5 +1,5 @@
 import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { encodeFunctionData, parseUnits, formatUnits } from 'viem';
+import { encodeFunctionData, parseUnits } from 'viem';
 import {
   AegisGovernorABI,
   OperatorStakingABI,

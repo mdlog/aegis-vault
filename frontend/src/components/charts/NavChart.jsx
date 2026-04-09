@@ -13,10 +13,21 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
-export default function NavChart({ height = 200 }) {
+export default function NavChart({ height = 200, data = navHistory, emptyLabel = 'No NAV history yet' }) {
+  if (!data || data.length === 0) {
+    return (
+      <div
+        className="rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] flex items-center justify-center text-xs text-steel/40"
+        style={{ height }}
+      >
+        {emptyLabel}
+      </div>
+    );
+  }
+
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <AreaChart data={navHistory} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
+      <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
         <defs>
           <linearGradient id="navGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#4cc9f0" stopOpacity={0.2} />

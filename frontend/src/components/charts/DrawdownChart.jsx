@@ -13,10 +13,21 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
-export default function DrawdownChart({ height = 140 }) {
+export default function DrawdownChart({ height = 140, data = drawdownHistory, emptyLabel = 'No drawdown history yet' }) {
+  if (!data || data.length === 0) {
+    return (
+      <div
+        className="rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] flex items-center justify-center text-xs text-steel/40"
+        style={{ height }}
+      >
+        {emptyLabel}
+      </div>
+    );
+  }
+
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <AreaChart data={drawdownHistory} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
+      <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
         <defs>
           <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#ef4444" stopOpacity={0} />

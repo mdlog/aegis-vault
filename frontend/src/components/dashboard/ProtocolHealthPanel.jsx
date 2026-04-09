@@ -154,7 +154,8 @@ export default function ProtocolHealthPanel() {
   );
 }
 
-function ProtocolStat({ icon: Icon, iconColor, bg, border, label, value, subValue, accent, enabled }) {
+function ProtocolStat({ icon, iconColor, bg, border, label, value, subValue, accent, enabled }) {
+  const Icon = icon;
   if (!enabled) {
     return (
       <div className="rounded-lg bg-white/[0.02] border border-white/[0.05] p-3 opacity-40">

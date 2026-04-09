@@ -200,8 +200,9 @@ export default function ProductionStackSection() {
   );
 }
 
-function Stat({ icon: Icon, value, label, accent }) {
+function Stat({ icon, value, label, accent }) {
   const a = accentMap[accent];
+  const Icon = icon;
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">

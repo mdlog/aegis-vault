@@ -5,12 +5,12 @@ import { buildExecutionIntent, submitIntent, setAssetAddresses } from './executo
 import { readVaultState } from './vaultReader.js';
 import { readOperatorState, checkOperatorEligibility } from './operatorReader.js';
 import {
-  readKVState, updateKVState,
+  readKVState, updateKVState, writeKVState,
   logCycle, logDecision, logPolicyCheck, logExecution, logAlert,
   syncKVToOGStorage, appendToOGStorage,
   syncDecisionToOG, syncExecutionToOG,
 } from './storage.js';
-import { initOGStorage } from './ogStorage.js';
+import { initOGStorage, isOGStorageAvailable, readVaultStateFromOG } from './ogStorage.js';
 import { initOGCompute, getOGComputeStatus } from './ogCompute.js';
 import { evaluateApprovalTier } from './approvalTier.js';
 import { buildAssetAddressMap } from './assets.js';
@@ -129,6 +129,31 @@ export async function initialize() {
 
   // Initialize 0G Storage (non-blocking)
   await initOGStorage().catch(() => {});
+
+  if (config.strictMode && !isOGStorageAvailable()) {
+    throw new Error('STRICT_MODE requires 0G Storage to initialize successfully');
+  }
+
+  if (isOGStorageAvailable()) {
+    try {
+      const remoteState = await readVaultStateFromOG();
+      if (remoteState?.updatedAt) {
+        const localState = readKVState();
+        const remoteUpdatedAt = Date.parse(remoteState.updatedAt) || 0;
+        const localUpdatedAt = Date.parse(localState.updatedAt) || 0;
+
+        if (remoteUpdatedAt > localUpdatedAt) {
+          writeKVState(remoteState);
+          logger.info('Restored KV state from 0G Storage snapshot');
+        }
+      }
+    } catch (err) {
+      logger.warn(`Failed to hydrate state from 0G Storage: ${err.message}`);
+      if (config.strictMode) {
+        throw err;
+      }
+    }
+  }
 
   const state = readKVState();
   cycleCount = state.totalCycles || 0;
@@ -557,7 +582,9 @@ export function getStatus() {
     executorAddress,
     signerConfigured: Boolean(executorAddress),
     mutationAuthMode: config.apiKey ? 'api-key' : 'localhost-only',
+    strictMode: config.strictMode,
     configuredVault: config.contracts.vault || null,
+    deploymentsFile: config.deploymentsFile,
     lastSignal: kvState.lastSignal,
     lastExecution: kvState.lastExecutionSummary,
     totalExecutions: kvState.totalExecutions || 0,

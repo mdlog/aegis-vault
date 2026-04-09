@@ -91,6 +91,10 @@ export function createApp(overrides = {}) {
 
   const app = express();
 
+  if (config.strictMode && !apiKey) {
+    throw new Error('orchestrator_api_key_required_in_strict_mode');
+  }
+
   // CORS — production deployments must set CORS_ALLOWED_ORIGINS to a comma-separated
   // list of frontend origins (e.g. https://app.aegisvault.io). Empty list = allow all
   // (dev mode only).

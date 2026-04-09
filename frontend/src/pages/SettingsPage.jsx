@@ -2,7 +2,7 @@ import { useAccount, useChainId } from 'wagmi';
 import { useParams } from 'react-router-dom';
 import { useVaultPolicy, useAllowedAssets, useVaultList } from '../hooks/useVault';
 import { useOGStorageStatus, useOrchestratorStatus } from '../hooks/useOrchestrator';
-import { getDeployments } from '../lib/contracts';
+import { getDefaultVaultAddress, getDeployments, getExplorerBaseUrl, getNetworkLabel } from '../lib/contracts';
 import GlassPanel from '../components/ui/GlassPanel';
 import StatusPill from '../components/ui/StatusPill';
 import SectionLabel from '../components/ui/SectionLabel';
@@ -36,14 +36,14 @@ export default function SettingsPage() {
   const deployments = getDeployments(chainId);
   const { vaultAddress: routeVaultAddress } = useParams();
   const { vaults: myVaults } = useVaultList(deployments.aegisVaultFactory, address);
-  const vaultAddr = routeVaultAddress || myVaults[0]?.address || deployments.demoVault;
+  const vaultAddr = routeVaultAddress || myVaults[0]?.address || getDefaultVaultAddress(chainId);
 
   const { data: policy } = useVaultPolicy(vaultAddr);
   const { data: assets } = useAllowedAssets(vaultAddr);
   const { data: ogStatus } = useOGStorageStatus();
   const { data: orchStatus } = useOrchestratorStatus();
 
-  const explorer = chainId === 16602 ? 'https://chainscan-galileo.0g.ai' : null;
+  const explorer = getExplorerBaseUrl(chainId);
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
@@ -66,7 +66,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-steel/60">Network</span>
                 <span className="text-[11px] font-mono text-white/50">
-                  {chainId === 16602 ? '0G Galileo (16602)' : chainId === 31337 ? 'Hardhat Local (31337)' : `Chain ${chainId}`}
+                  {getNetworkLabel(chainId)} {chainId ? `(${chainId})` : ''}
                 </span>
               </div>
             </div>
@@ -109,7 +109,11 @@ export default function SettingsPage() {
                 )}
               </>
             ) : (
-              <p className="text-xs text-steel/40">{isConnected ? 'Loading policy...' : 'Connect wallet to view policy'}</p>
+              <p className="text-xs text-steel/40">
+                {vaultAddr
+                  ? (isConnected ? 'Loading policy...' : 'Connect wallet to view policy')
+                  : 'No vault selected yet. Create a vault or open one from the dashboard.'}
+              </p>
             )}
           </GlassPanel>
         </div>

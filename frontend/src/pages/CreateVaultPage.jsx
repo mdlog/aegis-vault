@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { isAddress } from 'viem';
@@ -81,7 +81,7 @@ export default function CreateVaultPage() {
     sealedMode: false,
     autoExecution: true,
   });
-  const [executorMode, setExecutorMode] = useState('marketplace');
+  const [executorMode, setExecutorMode] = useState('');
   const [customExecutor, setCustomExecutor] = useState('');
   const [selectedMarketplaceOperator, setSelectedMarketplaceOperator] = useState('');
 
@@ -96,10 +96,12 @@ export default function CreateVaultPage() {
   const selectedProfile = riskProfiles.find((p) => p.id === config.riskProfile);
   const detectedExecutor = orchStatus?.executorAddress || '';
   const canUseDetectedExecutor = Boolean(detectedExecutor);
+  const activeExecutorMode =
+    executorMode || (canUseDetectedExecutor && !customExecutor ? 'orchestrator' : 'marketplace');
 
   // Selected operator full metadata (for fee preview + recommended policy preset)
   const selectedOperatorData =
-    executorMode === 'marketplace' && selectedMarketplaceOperator
+    activeExecutorMode === 'marketplace' && selectedMarketplaceOperator
       ? activeMarketplaceOperators.find(
           (op) => op.wallet?.toLowerCase() === selectedMarketplaceOperator.toLowerCase()
         )
@@ -112,8 +114,8 @@ export default function CreateVaultPage() {
     && config.depositAmount > selectedOperatorTier.maxVaultSize;
 
   let resolvedExecutor = '';
-  if (executorMode === 'orchestrator') resolvedExecutor = detectedExecutor.trim();
-  else if (executorMode === 'marketplace') resolvedExecutor = selectedMarketplaceOperator.trim();
+  if (activeExecutorMode === 'orchestrator') resolvedExecutor = detectedExecutor.trim();
+  else if (activeExecutorMode === 'marketplace') resolvedExecutor = selectedMarketplaceOperator.trim();
   else resolvedExecutor = customExecutor.trim();
 
   const executorReady = Boolean(resolvedExecutor) && isAddress(resolvedExecutor);
@@ -122,12 +124,6 @@ export default function CreateVaultPage() {
     : 'Not configured';
 
   const updateConfig = (key, value) => setConfig((prev) => ({ ...prev, [key]: value }));
-
-  useEffect(() => {
-    if (canUseDetectedExecutor && !customExecutor) {
-      setExecutorMode('orchestrator');
-    }
-  }, [canUseDetectedExecutor, customExecutor]);
 
   const toggleAsset = (symbol) => {
     setConfig((prev) => ({
@@ -603,7 +599,7 @@ export default function CreateVaultPage() {
                         type="button"
                         onClick={() => setExecutorMode('marketplace')}
                         className={`text-left rounded-lg border px-3 py-3 transition-all ${
-                          executorMode === 'marketplace'
+                          activeExecutorMode === 'marketplace'
                             ? 'border-gold/30 bg-gold/10'
                             : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]'
                         }`}
@@ -637,7 +633,7 @@ export default function CreateVaultPage() {
                         disabled={!canUseDetectedExecutor}
                         onClick={() => setExecutorMode('orchestrator')}
                         className={`text-left rounded-lg border px-3 py-3 transition-all ${
-                          executorMode === 'orchestrator'
+                          activeExecutorMode === 'orchestrator'
                             ? 'border-cyan/30 bg-cyan/10'
                             : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]'
                         } ${!canUseDetectedExecutor ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -667,7 +663,7 @@ export default function CreateVaultPage() {
                         type="button"
                         onClick={() => setExecutorMode('custom')}
                         className={`text-left rounded-lg border px-3 py-3 transition-all ${
-                          executorMode === 'custom'
+                          activeExecutorMode === 'custom'
                             ? 'border-gold/30 bg-gold/10'
                             : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]'
                         }`}
@@ -689,7 +685,7 @@ export default function CreateVaultPage() {
                       </button>
                     </div>
 
-                    {executorMode === 'marketplace' && (
+                    {activeExecutorMode === 'marketplace' && (
                       <div>
                         <label className="text-[10px] font-mono tracking-[0.12em] uppercase text-steel/40 block mb-2">
                           Choose an Operator
@@ -769,7 +765,7 @@ export default function CreateVaultPage() {
                       </div>
                     )}
 
-                    {executorMode === 'custom' && (
+                    {activeExecutorMode === 'custom' && (
                       <div>
                         <label className="text-[10px] font-mono tracking-[0.12em] uppercase text-steel/40 block mb-2">
                           Executor Address

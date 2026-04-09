@@ -14,7 +14,10 @@ import { getSigner, getProvider } from '../config/contracts.js';
 import logger from '../utils/logger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const TMP_DIR = resolve(__dirname, '../../data/tmp');
+const baseDataDir = config.dataDir
+  ? resolve(process.cwd(), config.dataDir)
+  : resolve(__dirname, '../../data');
+const TMP_DIR = resolve(baseDataDir, 'tmp');
 
 if (!existsSync(TMP_DIR)) {
   mkdirSync(TMP_DIR, { recursive: true });

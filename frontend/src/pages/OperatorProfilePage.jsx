@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { isAddress } from 'viem';
@@ -62,7 +62,7 @@ export default function OperatorProfilePage() {
     stakingAddress
   );
   const { balance: walletUsdcBalance } = useTokenBalance(usdcAddress, walletAddress, 6);
-  const { approve: approveUsdc, isPending: approvingStake, isSuccess: approveSuccess } = useApproveStake();
+  const { approve: approveUsdc, isPending: approvingStake } = useApproveStake();
   const { stake, isPending: staking, isSuccess: stakeSuccess } = useStake();
   const { requestUnstake, isPending: requesting, isSuccess: requestSuccess } = useRequestUnstake();
   const { claimUnstake, isPending: claiming, isSuccess: claimSuccess } = useClaimUnstake();
@@ -89,6 +89,14 @@ export default function OperatorProfilePage() {
   const [unstakeAmount, setUnstakeAmount] = useState('');
   const [ratingStars, setRatingStars] = useState(5);
   const [ratingComment, setRatingComment] = useState('');
+  const [nowSeconds, setNowSeconds] = useState(() => Math.floor(Date.now() / 1000));
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowSeconds(Math.floor(Date.now() / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   if (!validAddress) {
     return (
@@ -114,6 +122,9 @@ export default function OperatorProfilePage() {
     orchStatus?.executorAddress &&
     orchStatus.executorAddress.toLowerCase() === operatorAddress.toLowerCase();
   const explorer = chainId === 16602 ? 'https://chainscan-galileo.0g.ai' : null;
+  const unstakeClaimable =
+    (stakeState?.pendingUnstake || 0) > 0 &&
+    (stakeState?.unstakeAvailableAt || 0) <= nowSeconds;
 
   const handleAssign = () => {
     if (!selectedVault) return;
@@ -567,7 +578,7 @@ export default function OperatorProfilePage() {
                         <Hourglass className="w-3 h-3" />
                         {requesting ? 'Requesting...' : 'Request Unstake'}
                       </ControlButton>
-                      {stakeState?.pendingUnstake > 0 && stakeState?.unstakeAvailableAt < Date.now() / 1000 && (
+                      {unstakeClaimable && (
                         <ControlButton
                           variant="gold"
                           size="sm"

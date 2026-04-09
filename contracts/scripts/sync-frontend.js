@@ -1,17 +1,12 @@
 /**
- * Sync deployment addresses to frontend lib/contracts.js
+ * Sync deployment addresses to frontend/src/lib/deployments.generated.json
  *
  * Reads either deployments.json (default) or a path passed as argv[2].
- * Auto-detects target chain from `network` or `chainId` field.
- *
- * Supported networks:
- *   og_mainnet  → chain 16661
- *   og_testnet  → chain 16602
- *   localhost / hardhat → chain 31337
+ * Auto-detects the target chain from `network` or `chainId`.
  *
  * Run after each deploy:
- *   node scripts/sync-frontend.js                          # uses deployments.json
- *   node scripts/sync-frontend.js deployments-mainnet.json # explicit
+ *   node scripts/sync-frontend.js
+ *   node scripts/sync-frontend.js deployments-mainnet.json
  */
 const fs = require('fs');
 const path = require('path');
@@ -23,11 +18,13 @@ const NETWORK_TO_CHAIN_ID = {
   og_testnet: 16602,
   '0g_testnet': 16602,
   galileo: 16602,
+  arbitrum: 42161,
+  arbitrum_one: 42161,
+  arbitrum_sepolia: 421614,
   hardhat: 31337,
   localhost: 31337,
 };
 
-// Determine which deployments file to read
 const argPath = process.argv[2];
 const deploymentsPath = argPath
   ? path.resolve(process.cwd(), argPath)
@@ -35,96 +32,113 @@ const deploymentsPath = argPath
 
 if (!fs.existsSync(deploymentsPath)) {
   console.error(`Deployments file not found: ${deploymentsPath}`);
-  console.error('Run a deploy script first (deploy-all.js, deploy-mainnet.js, …)');
   process.exit(1);
 }
 
+const frontendRootCandidates = [
+  path.resolve(__dirname, '../../frontend/src/lib'),
+  path.resolve(__dirname, '../../landing/src/lib'),
+];
+const frontendLibDir = frontendRootCandidates.find((candidate) => fs.existsSync(candidate));
+if (!frontendLibDir) {
+  console.error('Could not find frontend/src/lib or landing/src/lib');
+  process.exit(1);
+}
+
+const generatedManifestPath = path.resolve(frontendLibDir, 'deployments.generated.json');
 const deployments = JSON.parse(fs.readFileSync(deploymentsPath, 'utf8'));
 
-// Resolve chain id from explicit chainId field, then network name, then fail loud
 let chainId = null;
-if (deployments.chainId && Number.isInteger(deployments.chainId)) {
+if (Number.isInteger(deployments.chainId)) {
   chainId = String(deployments.chainId);
 } else if (deployments.network && NETWORK_TO_CHAIN_ID[deployments.network]) {
   chainId = String(NETWORK_TO_CHAIN_ID[deployments.network]);
 }
 
 if (!chainId) {
-  console.error(`Cannot determine chain id from deployments file.`);
-  console.error(`  network field: ${JSON.stringify(deployments.network)}`);
-  console.error(`  chainId field: ${JSON.stringify(deployments.chainId)}`);
-  console.error(`Supported networks: ${Object.keys(NETWORK_TO_CHAIN_ID).join(', ')}`);
+  console.error('Unable to infer chain id from deployments file.');
+  console.error(`  network: ${JSON.stringify(deployments.network)}`);
+  console.error(`  chainId: ${JSON.stringify(deployments.chainId)}`);
   process.exit(1);
 }
 
-// Find the frontend contracts.js
-const candidatePaths = [
-  path.resolve(__dirname, '../../frontend/src/lib/contracts.js'),
-  path.resolve(__dirname, '../../landing/src/lib/contracts.js'),
-];
-const contractsPath = candidatePaths.find((p) => fs.existsSync(p));
-if (!contractsPath) {
-  console.error('Frontend contracts.js not found in frontend/ or landing/');
-  process.exit(1);
+function buildManifestEntry(targetChainId, source) {
+  if (targetChainId === '16661') {
+    return {
+      operatorRegistry: source.operatorRegistry || '',
+      operatorStaking: source.operatorStaking || '',
+      insurancePool: source.insurancePool || '',
+      operatorReputation: source.operatorReputation || '',
+      aegisGovernor: source.aegisGovernor || '',
+      protocolTreasury: source.protocolTreasury || '',
+      executionRegistry: source.executionRegistry || '',
+      aegisVaultFactory: source.aegisVaultFactory || '',
+      oUSDT: source.realTokens?.oUSDT || source.stakeToken || '0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189',
+      W0G: source.realTokens?.W0G || '0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c',
+      mockUSDC: source.realTokens?.oUSDT || source.stakeToken || '0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189',
+      mockWBTC: '',
+      mockWETH: '',
+      mockDEX: '',
+      demoVault: '',
+      orchestratorWallet: source.orchestratorWallet || '',
+    };
+  }
+
+  if (targetChainId === '42161') {
+    return {
+      executionRegistry: source.executionRegistry || '',
+      aegisVaultFactory: source.aegisVaultFactory || '',
+      uniswapV3VenueAdapter: source.uniswapV3VenueAdapter || source.jaineVenueAdapter || '',
+      vaultNAVCalculator: source.vaultNAVCalculator || source.navCalculator || '',
+      operatorRegistry: '',
+      operatorStaking: '',
+      insurancePool: '',
+      operatorReputation: '',
+      aegisGovernor: '',
+      protocolTreasury: '',
+      USDC: source.canonical?.USDC || '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+      WETH: source.canonical?.WETH || '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
+      WBTC: source.canonical?.WBTC || '0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f',
+      mockUSDC: source.canonical?.USDC || '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+      mockWBTC: source.canonical?.WBTC || '0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f',
+      mockWETH: source.canonical?.WETH || '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
+      uniV3Router: source.canonical?.UniV3_Router || '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
+      uniV3Factory: source.canonical?.UniV3_Factory || '0x1F98431c8aD98523631AE4a59f267346ea31F984',
+      pyth: source.canonical?.Pyth || '0xff1a0f4744e8582DF1aE09D5611b887B6a12925C',
+      mockDEX: '',
+      demoVault: '',
+      orchestratorWallet: source.orchestratorWallet || '',
+    };
+  }
+
+  return {
+    executionRegistry: source.executionRegistry || '',
+    aegisVaultFactory: source.aegisVaultFactory || '',
+    operatorRegistry: source.operatorRegistry || '',
+    protocolTreasury: source.protocolTreasury || '',
+    operatorStaking: source.operatorStaking || '',
+    insurancePool: source.insurancePool || '',
+    operatorReputation: source.operatorReputation || '',
+    aegisGovernor: source.aegisGovernor || '',
+    mockUSDC: source.mockUSDC || '',
+    mockWBTC: source.mockWBTC || '',
+    mockWETH: source.mockWETH || '',
+    mockDEX: source.mockDEX || '',
+    demoVault: source.demoVault || '',
+    orchestratorWallet: source.orchestratorWallet || '',
+  };
 }
 
-let content = fs.readFileSync(contractsPath, 'utf8');
-
-// Build the replacement object — supports both legacy (mock-based) and mainnet schemas
-const isMainnet = chainId === '16661';
-const addrBlock = isMainnet
-  ? `  ${chainId}: {
-    executionRegistry: '${deployments.executionRegistry || ''}',
-    aegisVaultFactory: '${deployments.aegisVaultFactory || ''}',
-    operatorRegistry: '${deployments.operatorRegistry || ''}',
-    protocolTreasury: '${deployments.protocolTreasury || ''}',
-    operatorStaking: '${deployments.operatorStaking || ''}',
-    insurancePool: '${deployments.insurancePool || ''}',
-    operatorReputation: '${deployments.operatorReputation || ''}',
-    aegisGovernor: '${deployments.aegisGovernor || ''}',
-    jaineVenueAdapter: '${deployments.jaineVenueAdapter || ''}',
-    oUSDT: '${deployments.realTokens?.oUSDT || '0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189'}',
-    W0G:   '${deployments.realTokens?.W0G   || '0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c'}',
-    mockUSDC: '${deployments.realTokens?.oUSDT || '0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189'}',
-    mockWBTC: '',
-    mockWETH: '',
-    mockDEX: '',
-    demoVault: '',
-    orchestratorWallet: '${deployments.orchestratorWallet || ''}',
-  },`
-  : `  ${chainId}: {
-    executionRegistry: '${deployments.executionRegistry || ''}',
-    aegisVaultFactory: '${deployments.aegisVaultFactory || ''}',
-    operatorRegistry: '${deployments.operatorRegistry || ''}',
-    protocolTreasury: '${deployments.protocolTreasury || ''}',
-    operatorStaking: '${deployments.operatorStaking || ''}',
-    insurancePool: '${deployments.insurancePool || ''}',
-    operatorReputation: '${deployments.operatorReputation || ''}',
-    aegisGovernor: '${deployments.aegisGovernor || ''}',
-    mockUSDC: '${deployments.mockUSDC || ''}',
-    mockWBTC: '${deployments.mockWBTC || ''}',
-    mockWETH: '${deployments.mockWETH || ''}',
-    mockDEX: '${deployments.mockDEX || ''}',
-    demoVault: '${deployments.demoVault || ''}',
-    orchestratorWallet: '${deployments.orchestratorWallet || ''}',
-  },`;
-
-// Replace the chain block using regex
-const regex = new RegExp(`  ${chainId}: \\{[^}]+\\},`, 's');
-if (!regex.test(content)) {
-  console.error(`Could not find chain ${chainId} block in ${contractsPath}`);
-  console.error('Make sure the DEPLOYMENTS object has an entry for this chain.');
-  process.exit(1);
+let generatedManifest = {};
+if (fs.existsSync(generatedManifestPath)) {
+  generatedManifest = JSON.parse(fs.readFileSync(generatedManifestPath, 'utf8'));
 }
-content = content.replace(regex, addrBlock);
 
-fs.writeFileSync(contractsPath, content);
-console.log(`Frontend contracts.js updated for chain ${chainId} (${deployments.network || 'unknown'})`);
-console.log(`  Source: ${deploymentsPath}`);
-console.log(`  Factory: ${deployments.aegisVaultFactory || '(not set)'}`);
-if (isMainnet) {
-  console.log(`  Jaine venue: ${deployments.jaineVenueAdapter || '(not set)'}`);
-  console.log(`  Governor: ${deployments.aegisGovernor || '(not set)'}`);
-} else {
-  console.log(`  Demo vault: ${deployments.demoVault || '(not set)'}`);
-}
+generatedManifest[chainId] = buildManifestEntry(chainId, deployments);
+fs.writeFileSync(generatedManifestPath, `${JSON.stringify(generatedManifest, null, 2)}\n`);
+
+console.log(`Frontend deployment manifest updated for chain ${chainId}`);
+console.log(`  Source:   ${deploymentsPath}`);
+console.log(`  Output:   ${generatedManifestPath}`);
+console.log(`  Factory:  ${deployments.aegisVaultFactory || '(not set)'}`);
+console.log(`  Registry: ${deployments.executionRegistry || '(not set)'}`);

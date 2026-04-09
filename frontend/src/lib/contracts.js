@@ -8,6 +8,7 @@ import InsurancePoolABI from './abi/InsurancePool.json';
 import OperatorReputationABI from './abi/OperatorReputation.json';
 import AegisGovernorABI from './abi/AegisGovernor.json';
 import MockERC20ABI from './abi/MockERC20.json';
+import generatedDeployments from './deployments.generated.json';
 
 export {
   AegisVaultABI,
@@ -23,9 +24,12 @@ export {
 };
 
 // ── Deployment Addresses ──
-// Updated after each deploy. In production, load from deployments.json or env.
+//
+// `STATIC_DEPLOYMENTS` is only a safety net for local development. Real staging /
+// production addresses should come from `deployments.generated.json`, which is
+// written by `contracts/scripts/sync-frontend.js` after each deploy.
 
-const DEPLOYMENTS = {
+const STATIC_DEPLOYMENTS = {
   // Hardhat local (default — updated by deploy script)
   31337: {
     executionRegistry: '0xD0141E899a65C95a556fE2B27e5982A6DE7fDD7A',
@@ -60,21 +64,24 @@ const DEPLOYMENTS = {
     demoVault: '0xFFac2840f762b6003Ce291bd5B19c2890Ea5DAB2',
     orchestratorWallet: '0xDB13C2dE3CD57d529CeA16E8EE6ae53a498b878D',
   },
-  // 0G Aristotle Mainnet (fill after deploying to mainnet via deploy-mainnet.js)
+  // 0G Aristotle Mainnet — VERIFICATION layer (operator identity, staking,
+  // reputation, governance). Submit-required for hackathon. Fill after running
+  // deploy-0g-verification.js.
   16661: {
-    executionRegistry: '',
-    aegisVaultFactory: '',
+    // Verification layer
     operatorRegistry: '',
-    protocolTreasury: '',
     operatorStaking: '',
     insurancePool: '',
     operatorReputation: '',
     aegisGovernor: '',
-    jaineVenueAdapter: '',
-    // Real on-chain tokens (Hyperlane bridged + native wrapped)
+    protocolTreasury: '',
+    // Execution layer NOT here — lives on Arbitrum (chain 42161)
+    executionRegistry: '',
+    aegisVaultFactory: '',
+    // Real on-chain stake token (Hyperlane bridged USDT)
     oUSDT: '0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189',
     W0G:   '0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c',
-    // mockUSDC alias points to oUSDT so existing hooks work without changes
+    // mockUSDC alias points to oUSDT so existing hooks read the right token
     mockUSDC: '0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189',
     mockWBTC: '',
     mockWETH: '',
@@ -82,14 +89,106 @@ const DEPLOYMENTS = {
     demoVault: '',
     orchestratorWallet: '',
   },
+  // Arbitrum One — EXECUTION layer (vault custody + Uniswap V3 swaps).
+  // Real DeFi liquidity. Fill after running deploy-arbitrum-execution.js.
+  42161: {
+    // Execution layer
+    executionRegistry: '',
+    aegisVaultFactory: '',
+    uniswapV3VenueAdapter: '',
+    vaultNAVCalculator: '',
+    // Verification layer NOT here — lives on 0G mainnet (chain 16661)
+    operatorRegistry: '',
+    operatorStaking: '',
+    insurancePool: '',
+    operatorReputation: '',
+    aegisGovernor: '',
+    protocolTreasury: '',
+    // Real on-chain canonical tokens (verified)
+    USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+    WETH: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
+    WBTC: '0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f',
+    // Aliases for hooks that read mockUSDC etc — point at canonical USDC
+    mockUSDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+    mockWBTC: '0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f',
+    mockWETH: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
+    // Uniswap V3 canonical
+    uniV3Router: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
+    uniV3Factory: '0x1F98431c8aD98523631AE4a59f267346ea31F984',
+    pyth: '0xff1a0f4744e8582DF1aE09D5611b887B6a12925C',
+    mockDEX: '',
+    demoVault: '',
+    orchestratorWallet: '',
+  },
 };
 
-export function getDeployments(chainId) {
-  return DEPLOYMENTS[chainId] || DEPLOYMENTS[31337];
+const DEPLOYMENT_SCHEMA = {
+  executionRegistry: '',
+  aegisVaultFactory: '',
+  operatorRegistry: '',
+  protocolTreasury: '',
+  operatorStaking: '',
+  insurancePool: '',
+  operatorReputation: '',
+  aegisGovernor: '',
+  mockUSDC: '',
+  mockWBTC: '',
+  mockWETH: '',
+  mockDEX: '',
+  demoVault: '',
+  orchestratorWallet: '',
+};
+
+function normalizeDeploymentMap(source = {}) {
+  return Object.fromEntries(
+    Object.entries(source).map(([chainId, entry]) => [
+      String(chainId),
+      { ...DEPLOYMENT_SCHEMA, ...entry },
+    ])
+  );
 }
 
-// ── Orchestrator API ──
-export const ORCHESTRATOR_URL = import.meta.env.VITE_ORCHESTRATOR_URL || 'http://localhost:4002';
+const generatedMap = normalizeDeploymentMap(generatedDeployments);
+const staticMap = normalizeDeploymentMap(STATIC_DEPLOYMENTS);
+
+const DEPLOYMENTS = {
+  ...staticMap,
+  ...generatedMap,
+};
+
+export const ENABLE_DEMO_FALLBACKS = import.meta.env.VITE_ENABLE_DEMO_FALLBACKS === '1';
+export const ORCHESTRATOR_URL =
+  import.meta.env.VITE_ORCHESTRATOR_URL ||
+  (import.meta.env.DEV ? 'http://localhost:4002' : '');
+
+export function getDeployments(chainId) {
+  const key = String(chainId || 31337);
+  return DEPLOYMENTS[key] || DEPLOYMENTS['31337'];
+}
+
+export function getDefaultVaultAddress(chainId) {
+  const deployments = getDeployments(chainId);
+  return ENABLE_DEMO_FALLBACKS ? deployments.demoVault || null : null;
+}
+
+export function getNetworkLabel(chainId) {
+  if (chainId === 16661) return '0G Aristotle Mainnet';
+  if (chainId === 42161) return 'Arbitrum One';
+  if (chainId === 16602) return '0G Galileo Testnet';
+  if (chainId === 31337) return 'Hardhat Local';
+  return `Chain ${chainId || '—'}`;
+}
+
+export function getExplorerBaseUrl(chainId) {
+  if (chainId === 16661) return 'https://chainscan.0g.ai';
+  if (chainId === 42161) return 'https://arbiscan.io';
+  if (chainId === 16602) return 'https://chainscan-galileo.0g.ai';
+  return null;
+}
+
+export function isConfiguredAddress(address) {
+  return typeof address === 'string' && /^0x[a-fA-F0-9]{40}$/.test(address);
+}
 
 export function getVaultRoute(vaultAddress) {
   return vaultAddress ? `/app/vault/${vaultAddress}` : '/app';

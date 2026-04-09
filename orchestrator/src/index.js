@@ -1,7 +1,8 @@
 import cron from 'node-cron';
-import config from './config/index.js';
+import config, { validateConfig } from './config/index.js';
 import { initialize, runCycle, getStatus } from './services/orchestrator.js';
 import { startAPI } from './api.js';
+import { flushJournalBuffer } from './services/storage.js';
 import logger from './utils/logger.js';
 
 /**
@@ -16,6 +17,15 @@ import logger from './utils/logger.js';
  */
 
 async function main() {
+  const validation = validateConfig();
+  if (!validation.ok) {
+    logger.error('Runtime configuration is incomplete:');
+    for (const issue of validation.errors) {
+      logger.error(`  - ${issue}`);
+    }
+    process.exit(1);
+  }
+
   logger.info('╔════════════════════════════════════════════════╗');
   logger.info('║       AEGIS VAULT ORCHESTRATOR v1.0           ║');
   logger.info('║       AI-Managed Risk-Controlled Vault        ║');
@@ -24,8 +34,11 @@ async function main() {
   logger.info(`Network:  ${config.rpcUrl}`);
   logger.info(`Chain ID: ${config.chainId}`);
   logger.info(`Vault:    ${config.contracts.vault || 'Not configured'}`);
+  logger.info(`Factory:  ${config.contracts.vaultFactory || 'Not configured'}`);
   logger.info(`Interval: Every ${config.cycleIntervalMinutes} minutes`);
   logger.info(`Port:     ${config.port}`);
+  logger.info(`Strict:   ${config.strictMode ? 'ON' : 'OFF'}`);
+  logger.info(`Deploys:  ${config.deploymentsFile}`);
   logger.info('');
 
   // Initialize orchestrator (includes 0G Storage init)
@@ -67,11 +80,24 @@ async function main() {
 }
 
 // Handle graceful shutdown
-process.on('SIGINT', () => {
-  logger.info('\nShutting down orchestrator...');
+async function shutdown(signal) {
+  logger.info(`\nShutting down orchestrator (${signal})...`);
+  try {
+    await flushJournalBuffer();
+  } catch (err) {
+    logger.warn(`Journal flush during shutdown failed: ${err.message}`);
+  }
   const status = getStatus();
   logger.info(`Final status: ${status.cycleCount} cycles, ${status.totalExecutions} executions`);
   process.exit(0);
+}
+
+process.on('SIGINT', () => {
+  shutdown('SIGINT');
+});
+
+process.on('SIGTERM', () => {
+  shutdown('SIGTERM');
 });
 
 main().catch((err) => {

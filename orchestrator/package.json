@@ -6,7 +6,7 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "cycle": "node -e \"import('./src/services/orchestrator.js').then(m => { m.initialize(); return m.runCycle(); }).then(r => { console.log(JSON.stringify(r, null, 2)); process.exit(0); })\"",
-    "test": "node --test --test-reporter=spec test/"
+    "test": "node --test --test-reporter=spec test/**/*.test.js"
   },
   "keywords": [],
   "author": "",

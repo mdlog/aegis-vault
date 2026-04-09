@@ -16,6 +16,23 @@ export const ogMainnet = defineChain({
   testnet: false,
 });
 
+// ── Arbitrum One — execution layer for cross-chain hybrid ──
+// Aegis Vault custody + execution lives on Arbitrum (mature DeFi liquidity).
+// Operator identity, staking, reputation, governance live on 0G mainnet
+// (satisfies hackathon "verifiable on-chain activity on 0G" requirement).
+export const arbitrumOne = defineChain({
+  id: 42161,
+  name: 'Arbitrum One',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://arb1.arbitrum.io/rpc'] },
+  },
+  blockExplorers: {
+    default: { name: 'Arbiscan', url: 'https://arbiscan.io' },
+  },
+  testnet: false,
+});
+
 // ── 0G Galileo Testnet ──
 export const ogTestnet = defineChain({
   id: 16602,
@@ -48,8 +65,8 @@ export const hardhatLocal = defineChain({
 // accidentally connecting MetaMask to the wrong network on a mainnet release.
 const isProd = import.meta.env.VITE_DISABLE_TESTNETS === '1';
 const enabledChains = isProd
-  ? [ogMainnet]
-  : [ogMainnet, ogTestnet, hardhatLocal];
+  ? [ogMainnet, arbitrumOne]
+  : [ogMainnet, arbitrumOne, ogTestnet, hardhatLocal];
 
 export const wagmiConfig = createConfig({
   chains: enabledChains,
@@ -59,6 +76,7 @@ export const wagmiConfig = createConfig({
   ],
   transports: {
     [ogMainnet.id]: http(),
+    [arbitrumOne.id]: http(),
     [ogTestnet.id]: http(),
     [hardhatLocal.id]: http(),
   },

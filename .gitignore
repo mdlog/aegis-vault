@@ -15,6 +15,11 @@ contracts/artifacts/
 contracts/typechain-types/
 contracts/deployments-mainnet.json
 contracts/deployments.json
+contracts/deployments-0g-mainnet.json
+contracts/deployments-arbitrum.json
+
+# Frontend generated address snapshot (regenerable via sync-frontend.js)
+frontend/src/lib/deployments.generated.json
 
 # Orchestrator local data + logs
 orchestrator/data/

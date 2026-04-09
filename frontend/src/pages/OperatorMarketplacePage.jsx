@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useAccount, useChainId } from 'wagmi';
+import { useChainId } from 'wagmi';
 import { getDeployments } from '../lib/contracts';
 import { useOperatorList, MandateLabel } from '../hooks/useOperatorRegistry';
 import { formatBps } from '../hooks/useVaultFees';
@@ -33,7 +33,6 @@ const MANDATE_COLORS = {
 };
 
 export default function OperatorMarketplacePage() {
-  const { address: walletAddress, isConnected } = useAccount();
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
   const registryAddress = deployments.operatorRegistry;

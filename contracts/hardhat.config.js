@@ -30,6 +30,22 @@ module.exports = {
         ? [process.env.DEPLOYER_PRIVATE_KEY]
         : [],
     },
+    // Arbitrum One — execution layer for cross-chain hybrid deployment
+    arbitrum: {
+      url: process.env.ARBITRUM_RPC || "https://arb1.arbitrum.io/rpc",
+      chainId: 42161,
+      accounts: process.env.DEPLOYER_PRIVATE_KEY
+        ? [process.env.DEPLOYER_PRIVATE_KEY]
+        : [],
+    },
+    // Arbitrum Sepolia — testnet rehearsal target before arbitrum mainnet
+    arbitrum_sepolia: {
+      url: process.env.ARBITRUM_SEPOLIA_RPC || "https://sepolia-rollup.arbitrum.io/rpc",
+      chainId: 421614,
+      accounts: process.env.DEPLOYER_PRIVATE_KEY
+        ? [process.env.DEPLOYER_PRIVATE_KEY]
+        : [],
+    },
   },
   paths: {
     sources: "./contracts",

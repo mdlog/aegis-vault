@@ -1,6 +1,7 @@
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -13,13 +14,28 @@ import logger from '../utils/logger.js';
  */
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STORAGE_DIR = resolve(__dirname, '../../data');
+const STORAGE_DIR = config.dataDir
+  ? resolve(process.cwd(), config.dataDir)
+  : resolve(__dirname, '../../data');
 const KV_FILE = resolve(STORAGE_DIR, 'kv-state.json');
 const JOURNAL_FILE = resolve(STORAGE_DIR, 'journal.json');
 
 // Ensure storage directory exists
 if (!existsSync(STORAGE_DIR)) {
   mkdirSync(STORAGE_DIR, { recursive: true });
+}
+
+function writeJsonAtomic(targetPath, value) {
+  const tmpPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    writeFileSync(tmpPath, `${JSON.stringify(value, null, 2)}\n`);
+    renameSync(tmpPath, targetPath);
+  } catch (err) {
+    try {
+      unlinkSync(tmpPath);
+    } catch {}
+    throw err;
+  }
 }
 
 // ── KV State (mutable, latest snapshot) ──
@@ -43,7 +59,7 @@ export function readKVState() {
  */
 export function writeKVState(state) {
   try {
-    writeFileSync(KV_FILE, JSON.stringify(state, null, 2));
+    writeJsonAtomic(KV_FILE, state);
     logger.debug('KV state updated');
   } catch (err) {
     logger.error(`Failed to write KV state: ${err.message}`);
@@ -108,7 +124,7 @@ export function appendJournal(entry) {
 
     // Keep last 1000 entries
     const trimmed = journal.slice(-1000);
-    writeFileSync(JOURNAL_FILE, JSON.stringify(trimmed, null, 2));
+    writeJsonAtomic(JOURNAL_FILE, trimmed);
 
     logger.debug(`Journal entry added: ${journalEntry.id}`);
     return journalEntry;

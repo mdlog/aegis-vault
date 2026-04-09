@@ -32,7 +32,7 @@ const ACTION_TYPES = [
 ];
 
 export default function GovernancePage() {
-  const { address: walletAddress, isConnected } = useAccount();
+  const { address: walletAddress } = useAccount();
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
   const governorAddress = deployments.aegisGovernor;

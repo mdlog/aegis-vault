@@ -42,6 +42,7 @@ async function main() {
     network: network.name,
     chainId: Number(network.chainId),
     deployer: deployer.address,
+    orchestratorWallet: deployer.address,
     timestamp: new Date().toISOString(),
   };
   const deploymentsPath = path.resolve(__dirname, "../deployments.json");

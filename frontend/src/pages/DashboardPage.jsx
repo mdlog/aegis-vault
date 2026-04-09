@@ -1,5 +1,5 @@
 import { useAccount, useChainId } from 'wagmi';
-import { getDeployments, getSettingsRoute, getVaultRoute } from '../lib/contracts';
+import { getDefaultVaultAddress, getDeployments, getNetworkLabel, getSettingsRoute, getVaultRoute } from '../lib/contracts';
 import { useVaultList, useAllPlatformVaults } from '../hooks/useVault';
 import { useOrchestratorStatus, useKVState, useMultiAssetNAV, usePythPrices, usePlatformTVL } from '../hooks/useOrchestrator';
 import MetricCard from '../components/ui/MetricCard';
@@ -98,7 +98,7 @@ export default function DashboardPage() {
   const allVaultAddrs = allVaults.map(v => v.address).filter(Boolean);
   const { tvl: platformTVL, source: tvlSource } = usePlatformTVL(allVaultAddrs);
   const runningCount = allVaults.filter(v => v.loaded && !v.paused).length;
-  const primaryVaultAddress = myVaults[0]?.address || allVaults[0]?.address || deployments.demoVault;
+  const primaryVaultAddress = myVaults[0]?.address || allVaults[0]?.address || getDefaultVaultAddress(chainId);
 
   // Risk score (from last AI signal confidence)
   const risk = { score: 0, level: 'Unknown' };
@@ -144,7 +144,7 @@ export default function DashboardPage() {
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-dim/30 border border-emerald-soft/20">
               <Radio className="w-3 h-3 text-emerald-soft animate-pulse" />
               <span className="text-[10px] font-mono tracking-[0.1em] uppercase text-emerald-soft/80">
-                Live — {chainId === 16602 ? '0G Galileo' : 'Local'}
+                Live — {getNetworkLabel(chainId)}
               </span>
             </div>
             <span className="text-[10px] font-mono text-steel/30">{address?.slice(0, 8)}...{address?.slice(-6)}</span>
