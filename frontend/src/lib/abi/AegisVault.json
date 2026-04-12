@@ -10,6 +10,43 @@
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "CommitNotFound",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "CommitTooRecent",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ECDSAInvalidSignature",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "length",
+        "type": "uint256"
+      }
+    ],
+    "name": "ECDSAInvalidSignatureLength",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "s",
+        "type": "bytes32"
+      }
+    ],
+    "name": "ECDSAInvalidSignatureS",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -47,7 +84,17 @@
   },
   {
     "inputs": [],
+    "name": "InvalidAttestationSignature",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "MinAmountOutRequired",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "MissingAttestationReport",
     "type": "error"
   },
   {
@@ -105,6 +152,11 @@
       }
     ],
     "name": "SafeERC20FailedOperation",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "SealedModeRequiresAttestedSigner",
     "type": "error"
   },
   {
@@ -510,6 +562,31 @@
       {
         "indexed": true,
         "internalType": "bytes32",
+        "name": "commitHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "commitBlock",
+        "type": "uint256"
+      }
+    ],
+    "name": "IntentCommitted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "vault",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
         "name": "intentHash",
         "type": "bytes32"
       },
@@ -652,6 +729,37 @@
       },
       {
         "indexed": true,
+        "internalType": "bytes32",
+        "name": "intentHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "attestedSigner",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "attestationReportHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "SealedIntentExecuted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "vault",
+        "type": "address"
+      },
+      {
+        "indexed": true,
         "internalType": "address",
         "name": "owner",
         "type": "address"
@@ -753,6 +861,19 @@
     ],
     "name": "Withdrawn",
     "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "COMMIT_REVEAL_MIN_BLOCKS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   },
   {
     "inputs": [],
@@ -925,6 +1046,19 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "commitHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "commitIntent",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "cumulativePnl",
     "outputs": [
@@ -1064,6 +1198,11 @@
             "type": "uint256"
           },
           {
+            "internalType": "bytes32",
+            "name": "attestationReportHash",
+            "type": "bytes32"
+          },
+          {
             "internalType": "string",
             "name": "reasonSummary",
             "type": "string"
@@ -1072,6 +1211,11 @@
         "internalType": "struct ExecutionIntent",
         "name": "intent",
         "type": "tuple"
+      },
+      {
+        "internalType": "bytes",
+        "name": "attestationSig",
+        "type": "bytes"
       }
     ],
     "name": "executeIntent",
@@ -1213,6 +1357,16 @@
           {
             "internalType": "address",
             "name": "feeRecipient",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "sealedMode",
+            "type": "bool"
+          },
+          {
+            "internalType": "address",
+            "name": "attestedSigner",
             "type": "address"
           }
         ],
@@ -1383,6 +1537,16 @@
             "internalType": "address",
             "name": "feeRecipient",
             "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "sealedMode",
+            "type": "bool"
+          },
+          {
+            "internalType": "address",
+            "name": "attestedSigner",
+            "type": "address"
           }
         ],
         "internalType": "struct VaultPolicy",
@@ -1413,6 +1577,25 @@
         "internalType": "bool",
         "name": "",
         "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "name": "intentCommits",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -1601,6 +1784,16 @@
       {
         "internalType": "address",
         "name": "feeRecipient",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "sealedMode",
+        "type": "bool"
+      },
+      {
+        "internalType": "address",
+        "name": "attestedSigner",
         "type": "address"
       }
     ],
@@ -1897,6 +2090,16 @@
           {
             "internalType": "address",
             "name": "feeRecipient",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "sealedMode",
+            "type": "bool"
+          },
+          {
+            "internalType": "address",
+            "name": "attestedSigner",
             "type": "address"
           }
         ],

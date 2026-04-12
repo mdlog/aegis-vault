@@ -146,9 +146,48 @@ async function main() {
   deployments.executionRegistry = await execRegistry.getAddress();
   console.log("        →", deployments.executionRegistry);
 
-  console.log("  [3/9] Deploying AegisVaultFactory...");
+  // Slim build: deploy 3 small external libraries, then link the slim vault
+  console.log("  [3a/9] Deploying SealedLib (TEE attestation)...");
+  const SealedLib = await ethers.getContractFactory("SealedLib");
+  const sealedLib = await SealedLib.deploy();
+  await sealedLib.waitForDeployment();
+  deployments.sealedLibrary = await sealedLib.getAddress();
+  console.log("        →", deployments.sealedLibrary);
+
+  console.log("  [3b/9] Deploying ExecLib (run pipeline + swap)...");
+  const ExecLib = await ethers.getContractFactory("ExecLib");
+  const execLib = await ExecLib.deploy();
+  await execLib.waitForDeployment();
+  deployments.execLibrary = await execLib.getAddress();
+  console.log("        →", deployments.execLibrary);
+
+  console.log("  [3c/9] Deploying IOLib (deposit/withdraw)...");
+  const IOLib = await ethers.getContractFactory("IOLib");
+  const ioLib = await IOLib.deploy();
+  await ioLib.waitForDeployment();
+  deployments.ioLibrary = await ioLib.getAddress();
+  console.log("        →", deployments.ioLibrary);
+
+  console.log("  [3d/9] Deploying AegisVault implementation (linked clone template)...");
+  const VaultImpl = await ethers.getContractFactory("AegisVault", {
+    libraries: {
+      SealedLib: deployments.sealedLibrary,
+      ExecLib: deployments.execLibrary,
+      IOLib: deployments.ioLibrary,
+    },
+  });
+  const vaultImpl = await VaultImpl.deploy();
+  await vaultImpl.waitForDeployment();
+  deployments.aegisVaultImplementation = await vaultImpl.getAddress();
+  console.log("        →", deployments.aegisVaultImplementation);
+
+  console.log("  [3b/9] Deploying AegisVaultFactory (EIP-1167 clone factory)...");
   const Factory = await ethers.getContractFactory("AegisVaultFactory");
-  const factory = await Factory.deploy(deployments.executionRegistry, deployments.protocolTreasury);
+  const factory = await Factory.deploy(
+    deployments.aegisVaultImplementation,
+    deployments.executionRegistry,
+    deployments.protocolTreasury
+  );
   await factory.waitForDeployment();
   deployments.aegisVaultFactory = await factory.getAddress();
   console.log("        →", deployments.aegisVaultFactory);
@@ -342,6 +381,9 @@ async function main() {
       entryFeeBps: 0,
       exitFeeBps: 50,                 // 0.5%
       feeRecipient: deployer.address, // operator fee recipient
+      // Track 2: Sealed mode off by default for the demo vault — owner can enable later
+      sealedMode: false,
+      attestedSigner: ethers.ZeroAddress,
     };
 
     console.log("  [+] Creating demo vault via factory...");

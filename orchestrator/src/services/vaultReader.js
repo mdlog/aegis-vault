@@ -106,6 +106,9 @@ export async function readVaultState(vaultAddress) {
         entryFeeBps: Number(policy.entryFeeBps || 0),
         exitFeeBps: Number(policy.exitFeeBps || 0),
         feeRecipient: policy.feeRecipient || ethers.ZeroAddress,
+        // Track 2: Sealed strategy mode + TEE attested signer
+        sealedMode: !!policy.sealedMode,
+        attestedSigner: policy.attestedSigner || ethers.ZeroAddress,
       },
 
       // Derived for prompts

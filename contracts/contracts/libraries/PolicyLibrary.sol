@@ -159,7 +159,7 @@ library PolicyLibrary {
         address baseAsset,
         uint256 tokenInBalance,
         address[] memory allowedAssets
-    ) internal view returns (bool valid, string memory reason) {
+    ) external view returns (bool valid, string memory reason) {
         bool isSellToBase = assetOut == baseAsset && assetIn != baseAsset;
 
         // 1. Not paused

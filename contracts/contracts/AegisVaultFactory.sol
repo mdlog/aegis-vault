@@ -1,19 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts/proxy/Clones.sol";
 import "./AegisVault.sol";
 import "./ExecutionRegistry.sol";
 import "./VaultEvents.sol";
 
 /**
  * @title AegisVaultFactory
- * @notice Factory contract that deploys new AegisVault instances.
+ * @notice Factory contract that deploys new AegisVault instances via EIP-1167
+ *         minimal proxy clones. Vault implementation is deployed once, factory
+ *         clones it cheaply for each new vault.
  *         Automatically authorizes new vaults in the ExecutionRegistry.
- *         Phase 1: Now passes protocolTreasury to all deployed vaults.
+ *         Phase 1: Passes protocolTreasury to all deployed vaults.
  */
 contract AegisVaultFactory {
+    using Clones for address;
+
     // ── State ──
 
+    /// @notice Address of the AegisVault implementation contract used as the clone template
+    address public immutable vaultImplementation;
     address public executionRegistry;
     address public protocolTreasury;
     address public admin;
@@ -50,8 +57,10 @@ contract AegisVaultFactory {
 
     // ── Constructor ──
 
-    constructor(address _executionRegistry, address _protocolTreasury) {
+    constructor(address _vaultImplementation, address _executionRegistry, address _protocolTreasury) {
+        if (_vaultImplementation == address(0)) revert ZeroAddress();
         if (_executionRegistry == address(0)) revert ZeroAddress();
+        vaultImplementation = _vaultImplementation;
         executionRegistry = _executionRegistry;
         protocolTreasury = _protocolTreasury; // can be 0 for no treasury (testnet)
         admin = msg.sender;
@@ -74,7 +83,9 @@ contract AegisVaultFactory {
             revert FactoryNotRegistryAdmin();
         }
 
-        AegisVault newVault = new AegisVault();
+        // EIP-1167 minimal proxy clone of the implementation (cheap deploy)
+        address vaultAddr = vaultImplementation.clone();
+        AegisVault newVault = AegisVault(vaultAddr);
 
         newVault.initialize(
             msg.sender,

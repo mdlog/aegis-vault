@@ -7,9 +7,10 @@ module.exports = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200,
+        runs: 1,
       },
       viaIR: true,
+      evmVersion: "cancun",
     },
   },
   networks: {
@@ -29,6 +30,8 @@ module.exports = {
       accounts: process.env.DEPLOYER_PRIVATE_KEY
         ? [process.env.DEPLOYER_PRIVATE_KEY]
         : [],
+      gas: 15000000,
+      gasPrice: 3000000000,
     },
     // Arbitrum One — execution layer for cross-chain hybrid deployment
     arbitrum: {

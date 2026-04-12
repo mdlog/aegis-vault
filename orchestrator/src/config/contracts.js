@@ -78,11 +78,13 @@ export function getOperatorReputationContract(address) {
   return new ethers.Contract(addr, ABIs.OperatorReputation, getSigner());
 }
 
-// Utility: compute intent hash (mirrors on-chain logic — uses abi.encode per C-3/H-1 fix)
+// Utility: compute intent hash (mirrors on-chain logic in AegisVault.executeIntent)
+// Track 2: now binds attestationReportHash so the TEE-attested inference output
+// cannot be swapped out post-attestation.
 export function computeIntentHash(intent) {
   return ethers.keccak256(
     ethers.AbiCoder.defaultAbiCoder().encode(
-      ['address', 'address', 'address', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256'],
+      ['address', 'address', 'address', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256', 'bytes32'],
       [
         intent.vault,
         intent.assetIn,
@@ -93,8 +95,16 @@ export function computeIntentHash(intent) {
         intent.expiresAt,
         intent.confidenceBps,
         intent.riskScoreBps,
+        intent.attestationReportHash || ethers.ZeroHash,
       ]
     )
+  );
+}
+
+// Track 2: commit hash binds intent + attestation. Used for sealed-mode commit-reveal.
+export function computeCommitHash(intentHash, attestationReportHash) {
+  return ethers.keccak256(
+    ethers.solidityPacked(['bytes32', 'bytes32'], [intentHash, attestationReportHash])
   );
 }
 

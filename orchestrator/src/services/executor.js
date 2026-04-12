@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
-import { ABIs, getVaultContract, computeIntentHash } from '../config/contracts.js';
+import { ABIs, getVaultContract, computeIntentHash, computeCommitHash, getProvider } from '../config/contracts.js';
 import { buildAssetAddressMap, getTrackedAsset, normalizeTradeSymbol } from './assets.js';
+import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -38,7 +39,28 @@ function resolveAssetAddress(symbol) {
  */
 const DEFAULT_SLIPPAGE_BPS = 50;
 
-export function buildExecutionIntent(decision, vaultState, oraclePrices = null) {
+/**
+ * Track 2: Compute the TEE attestation report hash from a 0G Compute response.
+ * Binds the inference output to a verifiable provider+chatId on-chain.
+ *
+ * Honest disclosure: this is provider-attestation (signed by the registered
+ * 0G Compute provider key). True TEE-grade attestation depends on whether the
+ * selected provider runs in SGX/TDX hardware. We hash everything we have so the
+ * vault can be audited against the original 0G Compute call.
+ */
+export function computeAttestationReportHash(computeResponse) {
+  if (!computeResponse) return ethers.ZeroHash;
+  const { provider, chatId, content, model } = computeResponse;
+  const contentDigest = ethers.keccak256(ethers.toUtf8Bytes(content || ''));
+  return ethers.keccak256(
+    ethers.AbiCoder.defaultAbiCoder().encode(
+      ['address', 'string', 'string', 'bytes32'],
+      [provider || ethers.ZeroAddress, chatId || '', model || '', contentDigest]
+    )
+  );
+}
+
+export function buildExecutionIntent(decision, vaultState, oraclePrices = null, computeResponse = null) {
   const now = Math.floor(Date.now() / 1000);
   const ttl = 300; // 5 minute TTL
 
@@ -110,6 +132,9 @@ export function buildExecutionIntent(decision, vaultState, oraclePrices = null) 
     logger.info(`  Slippage protection: minAmountOut = ${minAmountOut.toString()} (${DEFAULT_SLIPPAGE_BPS / 100}% tolerance)`);
   }
 
+  // Track 2: bind the TEE attestation report hash into the intent
+  const attestationReportHash = computeAttestationReportHash(computeResponse);
+
   const intent = {
     intentHash: ethers.ZeroHash, // computed below
     vault: vaultState.address,
@@ -121,10 +146,11 @@ export function buildExecutionIntent(decision, vaultState, oraclePrices = null) 
     expiresAt: now + ttl,
     confidenceBps: Math.round(decision.confidence * 10000),
     riskScoreBps: Math.round(decision.risk_score * 10000),
+    attestationReportHash,
     reasonSummary: (decision.reason || '').substring(0, 200),
   };
 
-  // Compute intent hash
+  // Compute intent hash (now binds attestationReportHash on-chain)
   intent.intentHash = computeIntentHash(intent);
 
   return intent;
@@ -178,21 +204,76 @@ function getVaultAssetBalanceRaw(vaultState, symbol) {
 }
 
 /**
- * Submit intent to the vault contract
+ * Track 2: Sign an intent hash with the TEE signer key (EIP-191 prefixed).
+ * The vault recovers this signer and requires it to equal policy.attestedSigner.
+ */
+async function signIntentHashWithTeeKey(intentHash) {
+  const pk = (config.teeSigner.privateKey || '').replace(/^0x/, '');
+  if (!pk) {
+    throw new Error('TEE_SIGNER_PRIVATE_KEY missing — required for sealed-mode vaults');
+  }
+  const wallet = new ethers.Wallet(pk);
+  // ethers v6 signMessage produces an EIP-191 signature, matching MessageHashUtils.toEthSignedMessageHash on-chain
+  const sig = await wallet.signMessage(ethers.getBytes(intentHash));
+  return { signer: wallet.address, signature: sig };
+}
+
+/**
+ * Submit intent to the vault contract.
+ *
+ * Track 2: For sealed-mode vaults, performs a two-step commit-reveal:
+ *   1. commitIntent(commitHash) at block N
+ *   2. wait until block ≥ N+1 (COMMIT_REVEAL_MIN_BLOCKS)
+ *   3. executeIntent(intent, attestationSig)
+ * For non-sealed vaults, falls through to a single executeIntent(intent, "0x").
+ *
  * @param {object} intent - Built ExecutionIntent
+ * @param {object} [opts] - { sealedMode: boolean, attestedSigner: address }
  * @returns {{ success: boolean, txHash?: string, error?: string }}
  */
-export async function submitIntent(intent) {
+export async function submitIntent(intent, opts = {}) {
   try {
     const vault = getVaultContract(intent.vault);
     const iface = new ethers.Interface(ABIs.AegisVault);
 
-    logger.info(`Submitting intent ${intent.intentHash.substring(0, 10)}...`);
+    const sealedMode = !!opts.sealedMode;
+
+    logger.info(`Submitting ${sealedMode ? 'SEALED' : 'public'} intent ${intent.intentHash.substring(0, 10)}...`);
     logger.info(`  Action: ${intent.assetIn} → ${intent.assetOut}`);
     logger.info(`  Amount: ${intent.amountIn.toString()}`);
     logger.info(`  Confidence: ${intent.confidenceBps} bps`);
+    if (sealedMode) {
+      logger.info(`  Attestation: ${intent.attestationReportHash}`);
+    }
 
-    const tx = await vault.executeIntent(intent);
+    let attestationSig = '0x';
+    if (sealedMode) {
+      // Step 1: Sign intent hash with the TEE-attested signer key
+      const { signer, signature } = await signIntentHashWithTeeKey(intent.intentHash);
+      attestationSig = signature;
+      logger.info(`  TEE signer: ${signer}`);
+      if (opts.attestedSigner && signer.toLowerCase() !== opts.attestedSigner.toLowerCase()) {
+        throw new Error(`TEE signer mismatch: vault expects ${opts.attestedSigner} but TEE_SIGNER_PRIVATE_KEY produces ${signer}`);
+      }
+
+      // Step 2: Pre-commit the (intentHash, attestationReportHash) pair
+      const commitHash = computeCommitHash(intent.intentHash, intent.attestationReportHash);
+      logger.info(`  Commit hash: ${commitHash.substring(0, 10)}...`);
+      const commitTx = await vault.commitIntent(commitHash);
+      const commitReceipt = await commitTx.wait();
+      logger.info(`  Commit mined at block ${commitReceipt.blockNumber}`);
+
+      // Step 3: Wait at least one fresh block before reveal
+      const provider = getProvider();
+      let currentBlock = await provider.getBlockNumber();
+      while (currentBlock < commitReceipt.blockNumber + 1) {
+        await new Promise((r) => setTimeout(r, 1000));
+        currentBlock = await provider.getBlockNumber();
+      }
+      logger.info(`  Reveal block ready: ${currentBlock} (commit was ${commitReceipt.blockNumber})`);
+    }
+
+    const tx = await vault.executeIntent(intent, attestationSig);
     const receipt = await tx.wait();
     const intentExecutedEvent = receipt.logs
       .map((log) => {

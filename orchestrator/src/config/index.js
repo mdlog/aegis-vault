@@ -76,6 +76,16 @@ const config = {
     preferredModel: process.env.OG_COMPUTE_MODEL || '', // empty = auto-discover
   },
 
+  // ── Track 2: Sealed Strategy Mode (TEE attestation signer) ──
+  // The TEE signer is the ECDSA key bound to the TEE-attested 0G Compute pipeline.
+  // For sealed-mode vaults, the orchestrator signs the intent hash with this key
+  // and the vault verifies the signature against policy.attestedSigner on-chain.
+  // SECURITY: this key must be different from the orchestrator's hot wallet, and
+  // must only ever be used to sign valid TEE-attested inference outputs.
+  teeSigner: {
+    privateKey: process.env.TEE_SIGNER_PRIVATE_KEY || '',
+  },
+
   // 0G Storage
   ogStorage: {
     rpc: process.env.OG_STORAGE_RPC || 'https://storage-testnet.0g.ai',

@@ -74,6 +74,9 @@ export async function requestInference(marketSummary, vaultState) {
             reason_hint: parsed.reason,
             provider: result.provider,
             model: result.model,
+            // Track 2: keep the full compute response so the executor can build the
+            // TEE attestation report hash from (provider, chatId, content, model)
+            _computeResponse: result,
           };
           logger.info(`  AI assessment: ${parsed.action} ${parsed.asset} conf=${(parsed.confidence * 100).toFixed(0)}% risk=${(parsed.risk_score * 100).toFixed(0)}% ctx=${aiView.ai_context_score} timing=${aiView.timing_score}`);
         } else {
@@ -126,6 +129,9 @@ export async function requestInference(marketSummary, vaultState) {
   decision.market_symbol = decisionAsset;
   decision.context_symbol = contextMarket.symbol;
   decision.context_price = decisionMarket.price;
+  // Track 2: forward the raw compute response so the executor can derive the
+  // TEE attestation report hash. Null when running in local-fallback mode.
+  decision._computeResponse = aiView._computeResponse || null;
 
   return decision;
 }

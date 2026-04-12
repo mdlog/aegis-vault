@@ -380,7 +380,9 @@ async function runVaultCycle(vaultAddress, marketSummary) {
 
     // Build + submit intent
     const oraclePrices = marketSummary.prices;
-    const intent = buildExecutionIntent(decision, vaultState, oraclePrices);
+    // Track 2: pass the raw 0G Compute response so the executor can derive the
+    // TEE attestation report hash and bind it into the intent.
+    const intent = buildExecutionIntent(decision, vaultState, oraclePrices, decision._computeResponse);
 
     if (!intent) {
       vaultResult.status = 'error_intent';
@@ -389,7 +391,12 @@ async function runVaultCycle(vaultAddress, marketSummary) {
 
     logger.info(`    Intent: ${intent.intentHash.substring(0, 18)}...`);
 
-    const execResult = await submitIntent(intent);
+    // Track 2: forward sealed-mode policy state from on-chain vault to executor.
+    // When sealedMode=true, executor will run commit-reveal + TEE signature flow.
+    const execResult = await submitIntent(intent, {
+      sealedMode: vaultState.policy?.sealedMode === true,
+      attestedSigner: vaultState.policy?.attestedSigner,
+    });
     vaultResult.executionResult = execResult;
     logExecution(intent, execResult, decision, { vault: vaultAddress });
     syncExecutionToOG(intent, execResult, decision).catch(() => {});

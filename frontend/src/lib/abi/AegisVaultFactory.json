@@ -220,6 +220,16 @@
             "internalType": "address",
             "name": "feeRecipient",
             "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "sealedMode",
+            "type": "bool"
+          },
+          {
+            "internalType": "address",
+            "name": "attestedSigner",
+            "type": "address"
           }
         ],
         "internalType": "struct VaultPolicy",

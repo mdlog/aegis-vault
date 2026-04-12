@@ -31,6 +31,10 @@ struct VaultPolicy {
     uint256 entryFeeBps;             // % of deposit (max 200 = 2%)
     uint256 exitFeeBps;              // % of withdrawal (max 200 = 2%)
     address feeRecipient;            // Operator wallet receiving fees
+
+    // ── Track 2: Sealed Strategy Mode (TEE attestation + commit-reveal) ──
+    bool    sealedMode;              // When true: require TEE attestation sig + commit-reveal
+    address attestedSigner;          // ECDSA signer key bound to TEE-attested 0G Compute pipeline
 }
 
 struct ExecutionIntent {
@@ -44,6 +48,7 @@ struct ExecutionIntent {
     uint256 expiresAt;
     uint256 confidenceBps;
     uint256 riskScoreBps;
+    bytes32 attestationReportHash;   // Track 2: hash of TEE attestation report (provider/chatId/content)
     string  reasonSummary;
 }
 
@@ -90,6 +95,10 @@ library VaultEvents {
     event IntentExecuted(address indexed vault, bytes32 indexed intentHash, uint256 amountIn, uint256 amountOut, bool success);
     event IntentBlocked(address indexed vault, bytes32 indexed intentHash, string reason);
     event IntentExpired(address indexed vault, bytes32 indexed intentHash);
+
+    // Track 2: Sealed Mode commit-reveal + attestation
+    event IntentCommitted(address indexed vault, bytes32 indexed commitHash, uint256 commitBlock);
+    event SealedIntentExecuted(address indexed vault, bytes32 indexed intentHash, address indexed attestedSigner, bytes32 attestationReportHash);
 
     // Risk
     event RiskThresholdBreached(address indexed vault, string riskType, uint256 currentValue, uint256 limitValue);

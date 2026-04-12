@@ -415,10 +415,22 @@ export default function CreateVaultPage() {
                   </div>
                   <div className="flex-1">
                     <span className="text-sm font-display font-medium text-white block mb-0.5">Sealed Strategy Mode</span>
-                    <span className="text-[11px] text-steel/50">Strategy parameters and inference inputs remain confidential</span>
+                    <span className="text-[11px] text-steel/50">TEE-attested 0G Compute inference + commit-reveal anti-MEV</span>
                   </div>
                   <StatusPill label={config.sealedMode ? 'Enabled' : 'Off'} variant={config.sealedMode ? 'sealed' : 'paused'} />
                 </button>
+
+                {config.sealedMode && (
+                  <div className="p-4 rounded-lg border border-gold/20 bg-gold/[0.04] text-left space-y-2">
+                    <p className="text-[11px] font-mono uppercase tracking-wider text-gold/80">Sealed mode trust model</p>
+                    <ul className="text-[11px] text-steel/60 space-y-1.5 list-disc list-inside">
+                      <li>Inference runs via 0G Compute provider — output is hashed into the on-chain intent</li>
+                      <li>Vault verifies an ECDSA signature from the attested signer before executing</li>
+                      <li>Commit-reveal: orchestrator pre-commits a hash 1+ block before reveal, hiding swap params from public mempool front-runners</li>
+                      <li>TEE-grade hardware confidentiality depends on the selected 0G Compute provider</li>
+                    </ul>
+                  </div>
+                )}
 
                 <button
                   onClick={() => updateConfig('autoExecution', !config.autoExecution)}
@@ -840,6 +852,12 @@ export default function CreateVaultPage() {
                 size="lg"
                 disabled={createPending || !executorReady || exceedsTierCap || selectedOperatorTier?.frozen}
                 onClick={() => {
+                  // Track 2: when sealed mode is enabled, the on-chain attested signer
+                  // defaults to the operator/executor address. Off-chain, the orchestrator
+                  // must run with TEE_SIGNER_PRIVATE_KEY whose address matches this.
+                  const teeAttestedSigner = config.sealedMode
+                    ? (selectedOperatorData?.wallet || resolvedExecutor)
+                    : '0x0000000000000000000000000000000000000000';
                   const policyStruct = {
                     maxPositionBps: BigInt(config.maxPosition * 100),
                     maxDailyLossBps: BigInt(config.dailyLossLimit * 100),
@@ -856,6 +874,9 @@ export default function CreateVaultPage() {
                     exitFeeBps: BigInt(selectedOperatorData?.exitFeeBps || 0),
                     // Operator wallet receives the 80% share; treasury gets 20% on claim
                     feeRecipient: selectedOperatorData?.wallet || resolvedExecutor,
+                    // ── Track 2: Sealed Strategy Mode (TEE attestation + commit-reveal) ──
+                    sealedMode: !!config.sealedMode,
+                    attestedSigner: teeAttestedSigner,
                   };
                   const assetAddrs = config.allowedAssets.map(s => {
                     if (s === 'BTC') return deployments.mockWBTC;
