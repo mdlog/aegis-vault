@@ -146,8 +146,7 @@ Slashing: up to 50% of stake per governance action. Slashed funds flow to the in
 
 | Layer | What It Does |
 |---|---|
-| **0G Chain — Galileo testnet (16602)** | Full sealed-mode demo: 3 external libraries + slim vault + EIP-1167 factory + Phase 1-5 stack |
-| **0G Chain — Aristotle mainnet (16661)** | Pre-sealed stack deployed at factory `0xDDb8988B6e2d43ABA0b6b10D181a09F995db54CB`; sealed-mode contracts pending (block gas limit constraint being solved by slim build) |
+| **0G Chain — Aristotle mainnet (16661)** | Full Track 2 stack deployed: 3 external libraries (SealedLib + ExecLib + IOLib) + slim vault + EIP-1167 factory + Phase 1-5 stack. Factory: `0xE03336e792F061f9fDEbd2B62ce9324f4868a683` |
 | **0G Compute** | Real AI inference via `GLM-5-FP8` — decentralized verifiable reasoning + structured JSON output; response hashed as `attestationReportHash` |
 | **0G Storage** | KV state snapshots + blob upload — decision journal, execution reports, strategy memory; hydrated on orchestrator restart |
 | **Pyth Network** | Multi-asset NAV oracle for BTC/ETH/USDC; live on 0G mainnet (`0x2880ab155794e7179c9ee2e38200202908c17b43`) |
@@ -261,10 +260,21 @@ Steps 1-4 same, steps 6-7 skipped, `executeIntent()` skips attestation branch.
 | `VaultNAVCalculator` | — | Pyth-backed multi-asset NAV pricing |
 | `JaineVenueAdapter` | — | Uniswap V3 fork router (Jaine mainnet DEX) |
 
-**Deployed on 0G mainnet (chain 16661, pre-sealed Phase 1-5 stack):**
-- Factory: `0xDDb8988B6e2d43ABA0b6b10D181a09F995db54CB`
-- Real tokens: oUSDT (`0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189`), W0G (`0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c`)
-- Pyth oracle: `0x2880ab155794e7179c9ee2e38200202908c17b43`
+**Deployed on 0G Aristotle mainnet (chain 16661) — full Track 2 sealed mode:**
+
+| Contract | Address |
+|---|---|
+| SealedLib | `0xe8AaB350495bBFf3868f89681eBC36814cB64D61` |
+| ExecLib | `0x2e29a14dDbDa85760a765A775B41B69Aca60bAA7` |
+| IOLib | `0xa49b7898bfd5eEaC9C0fA748c2309e23a8e876Dd` |
+| AegisVault impl | `0x4720686cCC199fD645B824F8d0A037c44Bc8336A` |
+| AegisVaultFactory | `0xE03336e792F061f9fDEbd2B62ce9324f4868a683` |
+| ExecutionRegistry | `0xa8b9807038c855737cc300dD9D9da4377570bE93` |
+| MockDEX | `0x54BD07427d344373da0c8EA13fa13c2B75916b16` |
+| MockUSDC | `0x6f66f804ECf406587343aF976c6f38c3395d6cDa` |
+| Pyth oracle | `0x2880ab155794e7179c9ee2e38200202908c17b43` |
+
+First verified execution TX: [`0x035e043d...`](https://chainscan.0g.ai/tx/0x035e043d9bef4a98854cea09b54dcb3b262af88b0f358ef61eea8afc7634be03)
 
 **Security invariants:**
 - AI has **zero authority** — can only propose intents; vault enforces every rule
@@ -403,7 +413,8 @@ STRICT_MODE=true npm start
         │   ├── ActionsPage               Intent submit + sealed mode flow UI
         │   ├── OperatorMarketplacePage
         │   ├── OperatorProfilePage, OperatorRegisterPage
-        │   └── GovernancePage
+        │   ├── GovernancePage
+        │   └── FaucetPage               Mint mock tokens (mUSDC, mWBTC, mWETH) for testing
         └── hooks/
             ├── useVault.js
             ├── useVaultFees.js
@@ -422,6 +433,7 @@ Frontend build                                      clean Vite build
 E2E sealed flow    deposit → commitIntent → wait 1 block → executeIntent
 E2E standard flow  deposit → executeIntent (non-sealed)
 E2E invariants     fee caps, replay protection, attestation mismatch revert
+Mainnet execution   ✓ TX 0x035e04... — 500 mUSDC → mWBTC via MockDEX on chain 16661
 
 Note: Legacy 135-test suite (Phase 1-5 full stack) targets the pre-slim API
 and requires migration to slim build interface. Core functionality covered
