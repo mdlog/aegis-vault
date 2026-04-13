@@ -1,0 +1,36 @@
+{
+  "16602": {
+    "executionRegistry": "0xDF277f39d4869B1a4bb7Fa2D25e58ab32E2af998",
+    "aegisVaultFactory": "0x2A0CAA1d639060446fA1bA799b6B64810B5B4aff",
+    "operatorRegistry": "",
+    "protocolTreasury": "",
+    "operatorStaking": "",
+    "insurancePool": "",
+    "operatorReputation": "",
+    "aegisGovernor": "",
+    "mockUSDC": "0xcb7F4c52f72DA18d27Bc18C4c3f706b6ba361BC1",
+    "mockWBTC": "0x0d8C28Ad2741cBec172003eee01e7BD97450b5A9",
+    "mockWETH": "0x339d0484699C0E1232aE0947310a5694B7e0E03A",
+    "mockDEX": "0x8eeF4E72ec2ff6f9E00a6D2029bEcB8FcB2f03E6",
+    "demoVault": "0xFFac2840f762b6003Ce291bd5B19c2890Ea5DAB2",
+    "orchestratorWallet": ""
+  },
+  "16661": {
+    "operatorRegistry": "0x3d374c7bc6eaA99Df2A9e17dC2B676FF0AEB0900",
+    "operatorStaking": "0xd49a2a3a3a2f261a1d1B7bA83BCfCeBD90E58974",
+    "insurancePool": "0x93622CC2147d4D8f5cc0a6AA767fA58A344247E3",
+    "operatorReputation": "0xCc8D6985c19B83fDeAb2dC3bB2e0040b6a150f3C",
+    "aegisGovernor": "0x70367EECcE9dB82CB182210093cB57a67DCFa6D2",
+    "protocolTreasury": "0xb743d15e936dDBf3Ed2957578143560CF2C7e21e",
+    "executionRegistry": "0xc5B9aeE1feD21DA988c6c21f6516E32fD7cAE9e5",
+    "aegisVaultFactory": "0xc72d5Fea6A5b92e0161822Aa1268c217E8DFF42f",
+    "oUSDT": "0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189",
+    "W0G": "0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c",
+    "mockUSDC": "0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189",
+    "mockWBTC": "",
+    "mockWETH": "",
+    "mockDEX": "",
+    "demoVault": "",
+    "orchestratorWallet": ""
+  }
+}

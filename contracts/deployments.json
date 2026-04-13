@@ -1,0 +1,42 @@
+{
+  "network": "og_mainnet",
+  "chainId": 16661,
+  "deployer": "0x93Aa10d8F3B35A86E9D6722917E8DF75F8E1e161",
+  "timestamp": "2026-04-13T08:41:47.180Z",
+  "protocolTreasury": "0xb743d15e936dDBf3Ed2957578143560CF2C7e21e",
+  "executionRegistry": "0xc5B9aeE1feD21DA988c6c21f6516E32fD7cAE9e5",
+  "sealedLibrary": "0xeE2614952c20C11Bcc7E79A0619D8fDEec694F42",
+  "execLibrary": "0x82a577AF7a795dBbB173d0CD6461849D21Bc43E0",
+  "ioLibrary": "0xaE66a452C4097D8C5f3dB0059A441729069F00a1",
+  "aegisVaultImplementation": "0xF160eE49E93D9307743CcD5c5c637f39dAbdcBd3",
+  "aegisVaultFactory": "0xc72d5Fea6A5b92e0161822Aa1268c217E8DFF42f",
+  "operatorRegistry": "0x3d374c7bc6eaA99Df2A9e17dC2B676FF0AEB0900",
+  "jaineVenueAdapter": "0x00c5aa0D91F0872bd84baCfDEB070f3Fef4fcde7",
+  "insurancePool": "0x93622CC2147d4D8f5cc0a6AA767fA58A344247E3",
+  "operatorStaking": "0xd49a2a3a3a2f261a1d1B7bA83BCfCeBD90E58974",
+  "operatorReputation": "0xCc8D6985c19B83fDeAb2dC3bB2e0040b6a150f3C",
+  "aegisGovernor": "0x70367EECcE9dB82CB182210093cB57a67DCFa6D2",
+  "vaultNAVCalculator": "0xCE626970aDEb961823CEB2c0D3dcf762947383b6",
+  "mockWBTC": "0x5959097B719cBACD35D11f8d959c145EBbb88f33",
+  "mockWETH": "0x4f69AC64BBB4D73a098c398af498024A3715ff57",
+  "mockDEX": "0xE21dbC01424533ABc96237BfAeaE5d625d58e359",
+  "jaine": {
+    "router": "0x8b598a7c136215a95ba0282b4d832b9f9801f2e2",
+    "factory": "0x9bdcA5798E52e592A08e3b34d3F18EeF76Af7ef4",
+    "w0g": "0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c"
+  },
+  "pyth": {
+    "address": "0x2880ab155794e7179c9ee2e38200202908c17b43",
+    "feedBTC": "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+    "feedETH": "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+    "feedUSDC": "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a"
+  },
+  "realTokens": {
+    "oUSDT": "0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189",
+    "W0G": "0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c"
+  },
+  "governorOwners": [
+    "0x93Aa10d8F3B35A86E9D6722917E8DF75F8E1e161"
+  ],
+  "governorThreshold": 1
+}
