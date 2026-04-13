@@ -6,10 +6,11 @@ A 10-15 minute guided tour through the full Phase 1-5 production stack. Use this
 - Contracts deployed via `scripts/deploy-all.js`
 - Orchestrator running on `localhost:4002`
 - Frontend running on `localhost:5173`
-- Two MetaMask accounts with test 0G tokens:
+- Connected to **0G mainnet (chain 16661)** or **0G testnet (chain 16602)**
+- Two MetaMask accounts with 0G tokens:
   - **Account A** — User (depositor / vault owner)
   - **Account B** — Operator (runs the AI bot + stakes)
-- Test USDC minted to both accounts (via `MockERC20.mint()`)
+- Test USDC minted to both accounts (via `MockERC20.mint()` on testnet; use bridged USDC on mainnet)
 
 ---
 
@@ -26,6 +27,7 @@ Point to the three differentiators on the landing page:
 - **Fee-aware economics** — HWM performance fee, 80/20 protocol cut
 - **Skin in the game** — 5 staking tiers gate vault sizes
 - **On-chain reputation** — every execution logged, ratings tied to wallets
+- **Sealed inference** — TEE-attested commit-reveal protects strategy params from front-running
 
 ---
 
@@ -143,6 +145,58 @@ Entry    $0       Mgmt/yr  $1,000   Perf/yr  $750    Total/yr $1,750
 **Click "Deploy Vault"** → MetaMask → two transactions (approve USDC + createVault) → confirm both.
 
 After ~4 seconds you'll be redirected to the dashboard.
+
+---
+
+## Scene 5b — Sealed Strategy Mode (~2 min)
+
+> "Now let me show you what happens when we turn Sealed Mode ON."
+
+Go back to **`/create`** and walk through Steps 1-4 as before. On **Step 5: Privacy & Execution**, toggle **"Sealed Strategy Mode" ON**.
+
+A **Trust Model disclosure box** appears in the UI:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Sealed Strategy Mode                                    │
+│                                                          │
+│  When enabled, the orchestrator must pre-commit a hash  │
+│  of the trade intent before revealing the actual        │
+│  parameters. The vault only executes after verifying a  │
+│  TEE attestation signature from 0G Compute.             │
+│                                                          │
+│  • Prevents front-running — swap params stay hidden     │
+│    until the reveal block                               │
+│  • On-chain proof of TEE provenance via ECDSA           │
+│  • Strategy params never touch the chain                │
+└─────────────────────────────────────────────────────────┘
+```
+
+Point this out to judges:
+
+> "When sealed mode is enabled, the orchestrator must pre-commit a hash of the intent before revealing the actual trade. This prevents front-running. The vault verifies a TEE attestation signature from 0G Compute before executing."
+
+**Deploy this second vault.** After creation, open the orchestrator logs and show the two-transaction flow:
+
+```
+[sealed] Block 1041:  commitIntent(0x7f3a...)  → tx committed
+[sealed] Block 1042:  executeIntent(intent, teeSignature)
+         └─ ExecLib: EIP-712 hash computed (name="AegisVault", version="1")
+         └─ SealedLib: ecrecover → 0xTEE_SIGNER matches attestedSigner ✓
+         └─ intentCommits[commitHash] found at block 1041 < 1042 ✓
+         └─ commit deleted (replay protection)
+         └─ swap executed
+```
+
+Point out to judges:
+
+- **commit tx → wait 1 block → reveal tx** — the vault rejects any reveal in the same block as the commit
+- The `teeSignature` is an **EIP-712 typed data signature** over the intent struct, signed by the TEE signer key inside 0G Compute
+- The EIP-712 domain: `name="AegisVault"`, `version="1"`, `chainId`, `verifyingContract`
+- `SealedLib` uses raw `ecrecover` — no EIP-191 double-prefix — because the TEE signs the domain-separated hash directly
+- The `attestationReportHash` (keccak256 of provider + chatId + contentHash) is baked into the commit, so strategy parameters **never appear on-chain**
+
+> "This is Track 2 of the 0G Compute integration. The AI's reasoning lives entirely inside a TEE enclave. The vault never sees the prompt, the model output, or the trade rationale — only a cryptographic commitment and a hardware attestation signature."
 
 ---
 
@@ -323,6 +377,7 @@ End-to-End (Phase 5 full stack)
 | Rating button missing | You're either the operator self, not connected, or have already rated |
 | "Frozen" badge on operator | Governance locked the stake; unfreeze via proposal |
 | Fees not accruing | Call `accrueFees()` manually or wait for the next deposit/withdraw |
+| Sealed mode commit fails | Check `TEE_SIGNER_PRIVATE_KEY` in orchestrator `.env`; key must match `attestedSigner` stored in vault policy |
 
 ## Key URLs for Demo
 

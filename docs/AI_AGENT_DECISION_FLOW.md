@@ -239,18 +239,18 @@ Jika SATU SAJA gagal → intent **tidak dikirim** ke blockchain (hemat gas).
 ```
 ✅ autoExecution == true
 ✅ intent.vault == address(this) (anti cross-vault attack)
-✅ intentHash recomputed dan cocok (anti tampering)
-✅ Global stop-loss not triggered
-✅ PolicyLibrary.validateAll():
-   - Position size
-   - Daily loss
-   - Cooldown
-   - Asset whitelist
-   - Confidence threshold
+✅ EIP-712 intentHash recomputed dan cocok (anti tampering + cross-chain replay)
+✅ [Sealed mode] ECDSA signature verified against policy.attestedSigner
+✅ [Sealed mode] commit-reveal: commit exists at block < current (anti-MEV)
+✅ [Sealed mode] commit deleted after use (anti-replay)
+✅ ExecLib policy checks:
    - Intent expiry
-   - Pause state
-   - Action count
+   - Cooldown elapsed
+   - Confidence threshold
+   - Daily action count
+   - Token balance sufficient
 ✅ Intent registered di ExecutionRegistry (anti replay)
+✅ Swap executed via venue (ExecLib._swap with slippage check)
 ```
 
 ---
@@ -435,6 +435,74 @@ Block Reasons:
 
 ---
 
+## Track 2: Sealed Strategy Mode — Decision Flow Extension
+
+Ketika vault menggunakan **Sealed Strategy Mode** (`policy.sealedMode = true`), ada langkah tambahan sebelum dan sesudah AI decision:
+
+### Pre-Execution: TEE Attestation
+
+```
+Standard Flow:
+  AI Decision → Policy Check → executeIntent(intent, "0x")
+
+Sealed Flow:
+  AI Decision → 0G Compute verified response → computeAttestationReportHash()
+              → commitIntent(keccak256(intentHash, attestationReportHash))
+              → wait 1 block (anti-MEV)
+              → executeIntent(intent, teeSignature)
+              → vault verifies ECDSA signature (EIP-712 typed data)
+              → vault checks commit exists and is old enough
+              → vault deletes commit (replay protection)
+              → execute swap
+```
+
+### Attestation Report Hash
+
+Orchestrator menghitung hash dari 0G Compute response:
+```
+attestationReportHash = keccak256(abi.encode(
+  providerAddress,   // 0G Compute provider yang menjalankan inference
+  chatId,            // ID percakapan (unik per request)
+  model,             // Model yang digunakan (e.g., "GLM-5-FP8")
+  keccak256(content) // Hash dari output AI (keputusan JSON)
+))
+```
+
+Hash ini di-bind ke dalam intent hash (EIP-712), sehingga:
+- Output AI tidak bisa ditukar setelah attestation
+- Vault bisa di-audit: cocokkan attestation hash dengan 0G Compute log
+
+### EIP-712 Intent Hash
+
+Intent hash sekarang menggunakan **EIP-712 typed structured data**:
+```
+digest = keccak256(\x19\x01 || domainSeparator || structHash)
+
+domainSeparator = keccak256(EIP712Domain(name, version, chainId, verifyingContract))
+  name = "AegisVault"
+  version = "1"
+  chainId = block.chainid (16661 mainnet, 16602 testnet)
+  verifyingContract = address(vault)
+
+structHash = keccak256(ExecutionIntent typehash || vault || assetIn || ... || attestationReportHash)
+```
+
+Keuntungan:
+- Replay protection lintas chain (testnet hash ≠ mainnet hash)
+- Replay protection lintas vault (vault A hash ≠ vault B hash)
+- Standar industri (MetaMask, Ledger, dll. bisa display readable data)
+
+### Trust Model
+
+| Layer | Apa yang dilindungi | Tergantung pada |
+|---|---|---|
+| On-chain: ECDSA verify | Hanya `attestedSigner` yang bisa otorisasi trade | Private key `TEE_SIGNER_PRIVATE_KEY` aman |
+| On-chain: commit-reveal | Front-runner tidak bisa lihat swap params sebelum reveal | ≥1 block delay antara commit dan reveal |
+| Off-chain: 0G Compute | Inference jalan di provider terdaftar | Provider integrity + `processResponse()` verification |
+| Off-chain: TEE hardware | Strategy params tetap confidential selama inference | Provider hardware (SGX/TDX) — honest disclosure |
+
+---
+
 ## Ringkasan
 
 | Aspek | Detail |
@@ -445,5 +513,6 @@ Block Reasons:
 | **Kapan BUY?** | Momentum kuat (+2.5%+ BTC, +3%+ ETH), volatility rendah, confidence tinggi |
 | **Kapan SELL?** | Penurunan tajam (-3%+ BTC, -3.5%+ ETH), exposure perlu dikurangi |
 | **Kapan HOLD?** | Pasar netral, volatility tinggi, confidence rendah, limit tercapai |
-| **Safety** | 12 on-chain policy rules, replay prevention, executor authorization |
+| **Safety** | EIP-712 intent hash, commit-reveal, TEE attestation, policy rules, replay prevention |
+| **Sealed mode** | TEE-attested 0G Compute inference + commit-reveal anti-MEV + ECDSA on-chain verify |
 | **Transparency** | Setiap keputusan dicatat di journal + 0G Storage (immutable) |

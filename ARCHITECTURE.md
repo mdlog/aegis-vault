@@ -22,36 +22,42 @@ This document describes the production architecture of Aegis Vault (Phase 1-5): 
                                  │ creates
                                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                        AegisVault                                │
+│                        AegisVault  (thin orchestrator, 3.4KB)  │
 │                                                                  │
 │  STATE                                                           │
 │  ├── owner                                                       │
 │  ├── executor (= operator wallet)                                │
 │  ├── baseAsset (USDC)                                            │
 │  ├── allowedAssets[]                                             │
-│  ├── policy { fees, risk limits, autoExec }                     │
+│  ├── policy { fees, risk limits, autoExec,                      │
+│  │            sealedMode, attestedSigner }                      │
 │  ├── highWaterMark (HWM)                                         │
 │  ├── accruedManagementFee + accruedPerformanceFee               │
 │  ├── pendingFeeChange (7-day cooldown)                          │
+│  ├── intentCommits (commit-reveal map)                          │
 │  ├── navCalculator (optional, Phase 1.8)                        │
 │  └── reputationRecorder (optional, Phase 5)                     │
 │                                                                  │
-│  ACTIONS                                                         │
-│  • deposit()        → accrueFees + entry fee + update HWM       │
-│  • withdraw()       → accrueFees + exit fee                     │
-│  • executeIntent()  → policy check + swap + reputation record   │
+│  ACTIONS (delegatecall to libraries)                            │
+│  • deposit()        → IOLib: accrueFees + entry fee + HWM       │
+│  • withdraw()       → IOLib: accrueFees + exit fee              │
+│  • commitIntent()   → store keccak256(intentHash, reportHash)  │
+│  • executeIntent()  → ExecLib: EIP-712 hash + policy check     │
+│  │                    SealedLib: ECDSA attest verify (if sealed)│
+│  │                    swap + reputation record                  │
 │  • accrueFees()     → streaming mgmt fee + HWM-gated perf fee   │
 │  • claimFees()      → 80% operator / 20% treasury               │
 │  • queueFeeChange() → 7-day delay                               │
 │  • pause/unpause    → owner only                                │
-└────┬─────────────┬─────────────┬─────────────┬──────────────────┘
-     │             │             │             │
-     │ swap via    │ finalize    │ record      │ 20% cut
-     │             │             │             │
-     ▼             ▼             ▼             ▼
-  Venue     ExecutionRegistry  OperatorRep   ProtocolTreasury
-  (Jaine   (replay guard)     (stats +      (admin spending
-  or Mock)                    ratings)       via governance)
+└──┬──────────┬──────────┬──────────┬──────────┬─────────────────┘
+   │          │          │          │          │
+   │delegatecall         │          │          │
+   ▼          ▼          │ swap via │ record   │ 20% cut
+ExecLib   SealedLib      │          │          │
+(3.5KB)   (0.5KB)        ▼          ▼          ▼
+           IOLib      Venue   ExecutionReg  OperatorRep   ProtocolTreasury
+          (1.1KB)   (Jaine   (replay guard)(stats +      (admin spending
+                    or Mock)              ratings)       via governance)
 
 
                      ┌──────────────────────┐
@@ -269,9 +275,96 @@ All sensitive protocol actions route through governance proposals. The frontend'
 
 ---
 
-## 6. State Machines
+## 6. Track 2: Sealed Strategy Mode
 
-### 6.1 Vault Lifecycle
+### 6.1 Contract Layer
+
+`VaultPolicy` gains two new fields for sealed vaults:
+
+| Field | Type | Purpose |
+|---|---|---|
+| `sealedMode` | `bool` | Requires commit-reveal + TEE attestation |
+| `attestedSigner` | `address` | The TEE key whose ECDSA signature is accepted |
+
+`ExecutionIntent` gains `attestationReportHash` — a `bytes32` keccak256 of the 0G Compute provider identifier, chatId, and content hash. Strategy parameters never appear on-chain; only this digest is committed.
+
+**Two-phase execution:**
+
+```solidity
+// Phase 1 — commit (block N)
+commitIntent(bytes32 commitHash)
+    // commitHash = keccak256(abi.encode(intentHash, attestationReportHash))
+    // stored: intentCommits[commitHash] = block.number
+
+// Phase 2 — reveal (block N+1 or later)
+executeIntent(ExecutionIntent calldata intent, bytes calldata teeSignature)
+    // vault reconstructs commitHash, verifies it was committed at an earlier block
+    // ExecLib.computeIntentHash  → EIP-712 structured hash
+    // SealedLib.verifyAttestation → ecrecover == attestedSigner
+    // policy checks (unchanged from non-sealed path)
+    // delete intentCommits[commitHash]  ← replay protection
+    // execute swap
+```
+
+**EIP-712 domain separator** (computed once at vault creation):
+
+```
+name            = "AegisVault"
+version         = "1"
+chainId         = block.chainid
+verifyingContract = address(this)
+```
+
+`ExecLib` computes the EIP-712 structured hash and all inline policy checks. `SealedLib` performs a single `ecrecover` call — no EIP-191 double-prefix, because the TEE signs the domain-separated hash directly from the `eth_signTypedData_v4` spec.
+
+### 6.2 Commit-Reveal Flow
+
+```
+Block N:   orchestrator → commitIntent(keccak256(intentHash, attestationReportHash))
+                          vault stores: intentCommits[commitHash] = N
+
+Block N+1: orchestrator → executeIntent(intent, teeSignature)
+           vault → ExecLib.computeIntentHash(intent)      (EIP-712 structured hash)
+           vault → SealedLib.verifyAttestation(intentHash, teeSignature)
+                   ecrecover(intentHash, teeSignature) == policy.attestedSigner  ✓
+           vault → reconstruct commitHash, look up intentCommits[commitHash]
+                   require(commitBlock < block.number)     ✓  (same-block forbidden)
+           vault → delete intentCommits[commitHash]        ← replay protection
+           vault → policy checks (position size, confidence, cooldown …)
+           vault → execute swap via venue
+           vault → recordExecution on OperatorReputation
+```
+
+The `attestationReportHash` baked into the commit binds the on-chain execution to a specific 0G Compute inference job. An orchestrator cannot substitute a different model output without invalidating the commit.
+
+### 6.3 Library Decomposition
+
+The vault is refactored into a thin state-management shell (~3.4KB) that `delegatecall`s into purpose-built libraries:
+
+| Library | Size | Responsibility |
+|---|---|---|
+| `ExecLib` | ~3.5KB | EIP-712 intent hash, policy validation, swap execution, registry call |
+| `SealedLib` | ~0.5KB | TEE attestation ECDSA verification (`ecrecover`) |
+| `IOLib` | ~1.1KB | `deposit` / `withdraw` with fee accrual and HWM updates |
+| `AegisVault` | ~3.4KB | State storage, routing, access control |
+
+Each library operates on the vault's storage layout via `delegatecall` — no proxy pattern, no storage collision risk beyond the explicit slot layout documented in `AegisVault.sol`.
+
+### 6.4 Trust Model
+
+| Layer | What is enforced |
+|---|---|
+| On-chain | Vault checks that only `attestedSigner` can authorize trades; commit must precede reveal by at least one block; each commit is single-use |
+| Off-chain | Orchestrator routes inference through 0G Compute; collects verified TEE response including provider attestation; signs intent with TEE key |
+| Hardware | TEE-grade confidentiality depends on the 0G Compute provider's hardware (SGX/TDX); Aegis Vault trusts the `attestedSigner` public key, not any specific hardware claim |
+| Strategy privacy | Strategy parameters (prompt, model output, trade rationale) never touch the chain — only `keccak256(provider, chatId, contentHash)` is committed |
+| Front-running protection | Commit-reveal ensures swap parameters are hidden until the reveal block; validators and mempool observers cannot act on the intent before it is executable |
+
+---
+
+## 7. State Machines
+
+### 7.1 Vault Lifecycle
 
 ```
 created ─deposit──▶ funded ─executeIntent──▶ trading ─withdraw──▶ depleted
@@ -285,7 +378,7 @@ created ─deposit──▶ funded ─executeIntent──▶ trading ─withdraw
   └─(never deposited) ─▶ can be ignored indefinitely
 ```
 
-### 6.2 Operator Staking Lifecycle
+### 7.2 Operator Staking Lifecycle
 
 ```
 unstaked ─stake──▶ active(tier) ─requestUnstake──▶ cooling(14d) ─claimUnstake──▶ unstaked
@@ -304,7 +397,7 @@ Key invariants:
 - **Slashing works on active + cooling combined**, capped at 50% per action
 - **Tier downgrade is automatic** after slashing (e.g., Silver → Bronze if stake falls below $10k)
 
-### 6.3 Proposal Lifecycle
+### 7.3 Proposal Lifecycle
 
 ```
 submitted ─confirm──▶ (if conf < threshold) ───▶ submitted
@@ -324,9 +417,9 @@ submitted ─confirm──▶ (if conf < threshold) ───▶ submitted
 
 ---
 
-## 7. Trust Model
+## 8. Trust Model
 
-### 7.1 Who Can Do What
+### 8.1 Who Can Do What
 
 | Actor | Can | Cannot |
 |---|---|---|
@@ -336,7 +429,7 @@ submitted ─confirm──▶ (if conf < threshold) ───▶ submitted
 | Governor (M-of-N) | Slash, treasury spend, grant verified, rotate owners | Withdraw user funds, change fees on a user's vault |
 | Protocol admin (pre-rotation) | Same as governor — **before** `TRANSFER_ADMINS=1` | — |
 
-### 7.2 What The AI Can Do
+### 8.2 What The AI Can Do
 
 **The AI has zero on-chain authority.** It proposes intents via the orchestrator, which signs and submits to `executeIntent()`. The vault's policy enforces:
 
@@ -356,9 +449,9 @@ If the AI goes rogue, the vault **refuses** to execute. Worst case: 0 intents pa
 
 ---
 
-## 8. Threat Model
+## 9. Threat Model
 
-### 8.1 What We Protect Against
+### 9.1 What We Protect Against
 
 | Threat | Mitigation |
 |---|---|
@@ -376,7 +469,7 @@ If the AI goes rogue, the vault **refuses** to execute. Worst case: 0 intents pa
 | **Admin rug pull** | Multi-sig governance after `TRANSFER_ADMINS=1`; owner rotation via self-call. |
 | **Compromised governor owner** | M-of-N threshold + revokeConfirmation before execution. |
 
-### 8.2 Known Limitations
+### 9.2 Known Limitations
 
 - **Reputation PnL is 0 in Phase 5** — the vault can't yet reconcile realized PnL across heterogeneous swap outputs. Tracked as Phase 6 work.
 - **No slashing appeal** — Phase 4 governance is final; a disputed slash requires a counter-proposal.
@@ -385,9 +478,9 @@ If the AI goes rogue, the vault **refuses** to execute. Worst case: 0 intents pa
 
 ---
 
-## 9. Gas & Deployment
+## 10. Gas & Deployment
 
-### 9.1 Deployment Order
+### 10.1 Deployment Order
 
 `scripts/deploy-all.js` handles this:
 
@@ -403,13 +496,13 @@ If the AI goes rogue, the vault **refuses** to execute. Worst case: 0 intents pa
 10. `AegisGovernor(owners, threshold)`
 11. (optional, `TRANSFER_ADMINS=1`) Rotate all admin roles → governor
 
-### 9.2 Per-vault Deployment
+### 10.2 Per-vault Deployment
 
 Each user vault is a fresh `AegisVault` contract cloned via `factory.createVault()`. Gas cost is ~2-3M per clone. Future optimization: minimal proxy (EIP-1167).
 
 ---
 
-## 10. Upgrade Path
+## 11. Upgrade Path
 
 Aegis Vault uses **no proxies** — all contracts are immutable by design. Upgrades happen via:
 
@@ -421,7 +514,7 @@ This is deliberate — immutability is a security feature for a vault protocol. 
 
 ---
 
-## 11. References
+## 12. References
 
 - [Decision Engine v1 Spec](Aegis_Vault_Decision_Matrix_v1.md) — 8 regimes, 15 veto rules, dynamic position sizing
 - [0G Integration Design](Aegis_Vault_0G_Architecture.md) — how vault ↔ compute ↔ storage interact

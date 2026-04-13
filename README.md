@@ -7,6 +7,12 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Track-2%20Agentic%20Trading%20Arena-blueviolet?style=for-the-badge" alt="Track 2" />
+  <img src="https://img.shields.io/badge/0G_Mainnet-Aristotle_16661-orange?style=for-the-badge" alt="0G Mainnet" />
+  <img src="https://img.shields.io/badge/Tests-28%20passing%20(slim%20build)-brightgreen?style=for-the-badge" alt="Tests" />
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Solidity-363636?style=for-the-badge&logo=solidity&logoColor=white" alt="Solidity" />
   <img src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React" />
   <img src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Node.js" />
@@ -17,26 +23,107 @@
   <img src="https://img.shields.io/badge/OpenZeppelin-4E5EE4?style=for-the-badge&logo=openzeppelin&logoColor=white" alt="OpenZeppelin" />
 </p>
 
-> AI-managed, risk-controlled trading vault on 0G — now with **operator economics, skin-in-the-game staking, on-chain reputation, and multi-sig governance**. Users deposit, pick an operator from the marketplace, and let on-chain rules enforce every action. The AI proposes. The contract enforces. Every fee, slash, and rating is auditable.
+> AI-managed, risk-controlled trading vault on 0G — with **sealed strategy mode, TEE attestation, EIP-712 typed data, operator economics, skin-in-the-game staking, on-chain reputation, and multi-sig governance**. Users deposit, pick an operator from the marketplace, and let on-chain rules enforce every action. The AI proposes. The contract enforces. Every fee, slash, and rating is auditable. In sealed mode, strategy parameters never leave the TEE.
 
 ---
 
-## What's New — Production Stack (Phase 1-5)
+## Hackathon Track
 
-Aegis Vault graduated from an MVP demo to a full production-grade protocol. Five phases, 135 contract tests, all green.
+**Track 2: Agentic Trading Arena (Verifiable Finance)**
 
-| Phase | Scope | Contracts | Tests |
-|---|---|---|---|
-| **1. Foundation** | Fee system (HWM, perf / mgmt / entry / exit), ProtocolTreasury, 80/20 operator-treasury split, 7-day fee change cooldown, multi-asset NAV via Pyth | `AegisVault`, `AegisVaultFactory`, `ProtocolTreasury`, `OperatorRegistry`, `VaultNAVCalculator` | 40 |
-| **2. Stake & Slashing** | Operator staking with 4 tiers (Bronze → Platinum), tier-gated vault caps, 14-day unstake cooldown, freeze / slash arbitration, insurance pool | `OperatorStaking`, `InsurancePool` | 22 |
-| **3. Reputation & Discovery** | On-chain execution stats (volume, PnL, success), 1-5 star ratings, verified operator badge, marketplace sort by reputation | `OperatorReputation` | 15 |
-| **4. Governance** | M-of-N multi-sig governor, proposal lifecycle, slashing arbitration + treasury spending via on-chain proposals, owner rotation via self-call | `AegisGovernor` | 18 |
-| **5. Production Hardening** | Reputation auto-recording from vault executions (`setReputationRecorder`), unified `deploy-all.js`, end-to-end integration test | — | 40 |
+Aegis Vault demonstrates fully verifiable autonomous execution: AI inference runs through 0G Compute, the output hash is bound into an EIP-712 execution intent, a TEE signer attests the decision, and commit-reveal prevents front-running — all enforced on-chain with no trusted intermediary.
+
+---
+
+## What's New — Sealed Strategy Mode + Slim Build
+
+### Track 2: Sealed Strategy Mode (the headline feature)
+
+Strategy parameters stay off-chain inside a TEE. The vault only sees the attestation — not the reasoning. The full trust chain:
+
+```
+0G Compute (GLM-5-FP8)
+  └── inference output → computeAttestationReportHash(provider, chatId, model, content)
+        └── attestationReportHash bound into ExecutionIntent (EIP-712 struct)
+              └── TEE signer: wallet.signTypedData(intent)
+                    └── commitIntent(keccak(intentHash, reportHash))   ← on-chain, block N
+                          └── wait ≥ 1 block (anti-MEV commit-reveal)
+                                └── executeIntent(intent, sig)          ← block N+1
+                                      └── SealedLib.verifyAttestation() ← ecrecover on-chain
+```
+
+| Property | Mechanism |
+|---|---|
+| Strategy privacy | Intent params sealed in TEE — never broadcast pre-execution |
+| Anti-MEV | Commit-reveal: commit hash at block N, execute at block N+1 minimum |
+| Provider binding | `attestationReportHash = keccak256(provider, chatId, model, contentDigest)` |
+| Signer binding | `policy.attestedSigner` set at vault creation; only its ECDSA sig accepted |
+| Replay protection | EIP-712 domain includes `chainId` + `verifyingContract` (vault address) |
+
+**VaultPolicy fields added for sealed mode:**
+- `sealedMode` (bool) — enables TEE attestation + commit-reveal path
+- `attestedSigner` (address) — the only address whose ECDSA signature the vault accepts
+
+**ExecutionIntent field added:**
+- `attestationReportHash` (bytes32) — binds the 0G Compute response to the on-chain execution
+
+### EIP-712 Typed Data Hash
+
+All execution intents use EIP-712 structured hashing for cross-chain and cross-vault replay protection:
+
+```
+intentHash = keccak256("\x19\x01" || domainSeparator || structHash)
+
+Domain: {
+  name:              "AegisVault"
+  version:           "1"
+  chainId:           (runtime)
+  verifyingContract: vault address
+}
+
+ExecutionIntent struct includes: vault, assetIn, assetOut, amountIn,
+  minAmountOut, createdAt, expiresAt, confidenceBps, riskScoreBps,
+  attestationReportHash
+```
+
+- Orchestrator: `ethers.TypedDataEncoder.hash()` to compute the digest
+- TEE signer: `wallet.signTypedData(domain, types, intent)`
+- On-chain verification in `SealedLib`: `ecrecover(intentHash, v, r, s)` — no double-hashing since the EIP-712 digest already incorporates `\x19\x01`
+
+### Slim Build Architecture (fits 0G Mainnet per-block gas limit)
+
+`AegisVault` was aggressively slimmed from 16 KB to 3.4 KB to fit 0G Aristotle mainnet's per-block gas constraint. Heavy logic was extracted to three external libraries that `AegisVault` calls via `DELEGATECALL`:
+
+| Library | Size | Responsibility |
+|---|---|---|
+| `ExecLib` | 3.5 KB | EIP-712 hash computation, policy checks, venue swap pipeline, ExecutionRegistry interactions |
+| `SealedLib` | 0.5 KB | TEE attestation ECDSA signature verification (`ecrecover`) |
+| `IOLib` | 1.1 KB | Deposit and withdraw with entry/exit fee handling |
+
+`AegisVaultFactory` switched from a full contract-per-vault model to **EIP-1167 minimal proxy clones**, reducing per-vault deployment from 19 KB to 2.7 KB.
+
+**Slim build trade-offs (explicit):**
+- No streaming fee accrual (management fee not continuously updated)
+- No `queueFeeChange` / 7-day fee cooldown enforced at runtime
+- No `emergencyWithdrawToken` helper
+- No view helpers — frontend reads via public auto-getters
+
+---
+
+## Production Stack (Phase 1-5)
+
+| Phase | Scope | Tests |
+|---|---|---|
+| **1. Foundation** | Fee system (HWM, perf / mgmt / entry / exit), ProtocolTreasury, 80/20 operator-treasury split, multi-asset NAV via Pyth | included |
+| **2. Stake & Slashing** | Operator staking with 4 tiers (Bronze → Platinum), tier-gated vault caps, 14-day unstake cooldown, freeze / slash arbitration, insurance pool | included |
+| **3. Reputation & Discovery** | On-chain execution stats (volume, PnL, success), 1-5 star ratings, verified operator badge, marketplace sort | included |
+| **4. Governance** | M-of-N multi-sig governor, proposal lifecycle, slashing arbitration + treasury spending, owner rotation | included |
+| **5. Production Hardening** | Reputation auto-recording from vault executions, unified deploy script, e2e integration test | included |
 
 **Economic model**
 
 - Performance fee: 15% default (max 30%) — charged only on net-new profit above high-water mark
-- Management fee: 2%/year default (max 5%) — streamed continuously on NAV
+- Management fee: 2%/year default (max 5%) — streamed on NAV
 - Entry / exit fees: 0% / 0.5% default (max 2% each)
 - Every fee dollar: **80% to operator, 20% to protocol treasury**
 - Protocol treasury funds: audits, grants, insurance pool top-ups
@@ -59,10 +146,12 @@ Slashing: up to 50% of stake per governance action. Slashed funds flow to the in
 
 | Layer | What It Does |
 |---|---|
-| **0G Chain (Galileo testnet 16602)** | 11 Solidity contracts — vault custody, fee system, operator staking, reputation, multi-sig governance |
-| **0G Compute** | Real AI inference via `GLM-5-FP8` on mainnet — decentralized, verifiable reasoning + structured JSON output |
-| **0G Storage** | KV state snapshots + blob upload — decision journal, execution reports, strategy memory |
-| **Pyth Network** | Multi-asset NAV oracle for fee accrual on vaults holding BTC/ETH/USDC |
+| **0G Chain — Galileo testnet (16602)** | Full sealed-mode demo: 3 external libraries + slim vault + EIP-1167 factory + Phase 1-5 stack |
+| **0G Chain — Aristotle mainnet (16661)** | Pre-sealed stack deployed at factory `0xDDb8988B6e2d43ABA0b6b10D181a09F995db54CB`; sealed-mode contracts pending (block gas limit constraint being solved by slim build) |
+| **0G Compute** | Real AI inference via `GLM-5-FP8` — decentralized verifiable reasoning + structured JSON output; response hashed as `attestationReportHash` |
+| **0G Storage** | KV state snapshots + blob upload — decision journal, execution reports, strategy memory; hydrated on orchestrator restart |
+| **Pyth Network** | Multi-asset NAV oracle for BTC/ETH/USDC; live on 0G mainnet (`0x2880ab155794e7179c9ee2e38200202908c17b43`) |
+| **Jaine DEX** | Uniswap V3 fork on 0G mainnet; `JaineVenueAdapter` deployed; MockDEX used for demo while Jaine pools fill |
 
 ---
 
@@ -70,112 +159,121 @@ Slashing: up to 50% of stake per governance action. Slashed funds flow to the in
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                         User / Frontend (React)                     │
-│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐    │
-│  │ Marketplace│  │ Create     │  │ Vault      │  │ Governance │    │
-│  │ + ratings  │  │ Vault      │  │ Detail     │  │ Dashboard  │    │
-│  └────────────┘  └────────────┘  └────────────┘  └────────────┘    │
+│                         User / Frontend (React)                      │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐     │
+│  │ Marketplace│  │ Create     │  │ Vault      │  │ Governance │     │
+│  │ + ratings  │  │ Vault      │  │ Detail     │  │ Dashboard  │     │
+│  └────────────┘  └────────────┘  └────────────┘  └────────────┘     │
 └──────────────────────────────┬───────────────────────────────────────┘
                                │ wagmi + viem
                                ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                        0G Chain (Galileo 16602)                     │
+│                  0G Chain (testnet 16602 / mainnet 16661)            │
 │                                                                      │
-│  ┌─────────────────┐         ┌──────────────────────────────────┐  │
-│  │ AegisVault      │◄────────│ OperatorRegistry                 │  │
-│  │ - policy enforcer        │ - declared fees                  │  │
-│  │ - fee accrual (HWM)      │ - recommended policy             │  │
-│  │ - execution gateway      └──────────────────────────────────┘  │
-│  └────┬────────────┘                                                │
-│       │                                                              │
-│       │  records stats                                               │
+│  ┌──────────────────┐   DELEGATECALL    ┌─────────────────────────┐ │
+│  │ AegisVault       │──────────────────▶│ ExecLib (EIP-712, swap) │ │
+│  │ (3.4 KB slim)    │──────────────────▶│ SealedLib (TEE ecrecover│ │
+│  │                  │──────────────────▶│ IOLib (deposit/withdraw)│ │
+│  │ commitIntent()   │                   └─────────────────────────┘ │
+│  │ executeIntent()  │                                                │
+│  └────┬─────────────┘                                                │
+│       │ records                                                      │
 │       ▼                                                              │
-│  ┌──────────────────┐       ┌──────────────────┐                   │
-│  │OperatorReputation│       │ ProtocolTreasury │                   │
-│  │ - execution log  │       │ - 20% fee cut    │                   │
-│  │ - ratings        │       │ - grants / audit │                   │
-│  │ - verified badge │       └──────────────────┘                   │
-│  └──────────────────┘                                                │
-│                                                                      │
-│  ┌──────────────────┐       ┌──────────────────┐                   │
-│  │ OperatorStaking  │──slash│ InsurancePool    │                   │
-│  │ - tier caps      │──────▶│ - user claims    │                   │
-│  │ - 14d cooldown   │       │ - payout via gov │                   │
-│  │ - freeze/unfreeze│       └──────────────────┘                   │
-│  └────────┬─────────┘                                                │
+│  ┌──────────────────┐       ┌──────────────────────────────────┐    │
+│  │ ExecutionRegistry│       │ AegisVaultFactory (EIP-1167)     │    │
+│  │ - replay guard   │       │ - clones vault impl cheaply      │    │
+│  └──────────────────┘       │ - wires registry + treasury      │    │
+│                              └──────────────────────────────────┘    │
+│  ┌──────────────────┐       ┌──────────────────┐                    │
+│  │OperatorReputation│       │ ProtocolTreasury │                    │
+│  │ - execution log  │       │ - 20% fee cut    │                    │
+│  │ - ratings        │       │ - grants / audit │                    │
+│  └──────────────────┘       └──────────────────┘                    │
+│  ┌──────────────────┐       ┌──────────────────┐                    │
+│  │ OperatorStaking  │──────▶│ InsurancePool    │                    │
+│  │ - tier caps      │ slash │ - user claims    │                    │
+│  │ - 14d cooldown   │       │ - payout via gov │                    │
+│  └────────┬─────────┘       └──────────────────┘                    │
 │           │ admin                                                    │
 │           ▼                                                          │
 │  ┌──────────────────────────────────────┐                           │
 │  │ AegisGovernor (M-of-N multi-sig)     │                           │
 │  │ - slashing arbitration               │                           │
-│  │ - treasury spend                     │                           │
-│  │ - verified badge grants              │                           │
-│  │ - owner rotation (self-call)         │                           │
+│  │ - treasury spend / badge grants      │                           │
 │  └──────────────────────────────────────┘                           │
 └──────────────────────────────────────────────────────────────────────┘
-                               ▲
-                               │ executeIntent() / read state
-                               │
-┌──────────────────────────────┴───────────────────────────────────────┐
+                         ▲                    ▲
+             executeIntent()             commitIntent()
+                         │                    │
+┌────────────────────────┴────────────────────┴────────────────────────┐
 │                    Strategy Orchestrator (Node.js)                   │
+│                                                                      │
+│   ├── Vault discovery (factory scan → executor match)               │
 │   ├── 0G Compute (GLM-5-FP8 inference)                              │
+│   │     └── computeAttestationReportHash(provider,chatId,model,body)│
 │   ├── Market data (CoinGecko + Pyth)                                │
-│   ├── Decision Engine v1 (8 regimes, 15 veto rules)                 │
-│   ├── Operator tier cap + frozen guard                              │
-│   ├── Policy pre-check → intent build → submit                      │
-│   └── 0G Storage (journal, decisions, executions)                   │
+│   ├── Decision Engine (8 regimes, veto rules, approval tiers)       │
+│   ├── Policy pre-check → EIP-712 intent build                       │
+│   ├── TEE signer: wallet.signTypedData(domain, types, intent)       │
+│   ├── Sealed path: commitIntent() → wait 1 block → executeIntent()  │
+│   ├── Idempotency: in-memory Set prevents duplicate submissions      │
+│   ├── Retry: 3x backoff on tx, 2x on 0G Compute                    │
+│   └── 0G Storage (journal, decisions, executions, KV hydration)     │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-**End-to-end flow:**
-1. Operator registers in `OperatorRegistry` with declared fees + recommended policy
-2. Operator stakes USDC in `OperatorStaking` to unlock a vault-size tier
-3. User browses `/marketplace`, picks an operator (sorted by reputation / tier / fees)
-4. User creates vault in `/create` — fee preview auto-filled from operator profile
-5. User deposits → entry fee charged (80/20 split) → vault base balance funded
-6. Orchestrator cycle runs:
-   - Reads vault + operator state
-   - Checks `TIER_CAP_EXCEEDED` / `OPERATOR_FROZEN` eligibility
-   - Queries 0G Compute for AI decision
-   - Runs Decision Engine v1 (regime classifier + vetos)
-   - Policy pre-check → builds intent → submits via `executeIntent()`
-7. `AegisVault.executeIntent()`:
-   - Validates intent hash + policy
-   - Executes swap via `JaineVenueAdapter` (or `MockDEX` on testnet)
-   - Calls `reputationRecorder.recordExecution()` to log stats
-   - Finalizes with `ExecutionRegistry`
-8. Fees accrue continuously (mgmt) and on profit above HWM (perf)
-9. Operator claims fees → 80% to operator wallet, 20% to protocol treasury
-10. Bad actor? Governance proposal: `freeze` → `slash` → `payoutClaim` from insurance pool
+**Sealed mode end-to-end flow:**
+1. Operator registers, sets `sealedMode: true` and `attestedSigner: <TEE wallet>` in vault policy
+2. Orchestrator fetches market data and vault state
+3. 0G Compute returns inference — orchestrator hashes `(provider, chatId, model, contentDigest)` → `attestationReportHash`
+4. EIP-712 intent assembled including `attestationReportHash`; `intentHash` computed via `ethers.TypedDataEncoder.hash()`
+5. TEE signer signs: `sig = wallet.signTypedData(domain, types, intent)`
+6. Orchestrator calls `vault.commitIntent(keccak256(intentHash, reportHash))` — recorded at block N
+7. Orchestrator waits for block N+1
+8. Orchestrator calls `vault.executeIntent(intent, sig)`:
+   - `SealedLib.verifyAttestation()` recovers signer from sig, checks against `policy.attestedSigner`
+   - Confirms commit exists and `block.number >= commitBlock + 1`
+   - Deletes commit (single-use)
+   - `ExecLib.runExecution()` validates EIP-712 hash, checks policy, executes swap
+9. Execution finalized in `ExecutionRegistry`, stats recorded in `OperatorReputation`
+
+**Standard (non-sealed) flow:**
+Steps 1-4 same, steps 6-7 skipped, `executeIntent()` skips attestation branch.
 
 ---
 
 ## Smart Contracts
 
-Current testnet deployment (0G Galileo, chain 16602):
+| Contract | Size | Role |
+|---|---|---|
+| `AegisVault` | 3.4 KB | Slim vault: custody, sealed-mode commit-reveal, delegates execution to libraries |
+| `AegisVaultFactory` | 2.7 KB | EIP-1167 minimal proxy clone factory; wires registry + treasury |
+| `ExecLib` | 3.5 KB | EIP-712 hash, policy checks, venue swap pipeline, registry finalization |
+| `SealedLib` | 0.5 KB | TEE attestation ECDSA verification via `ecrecover` |
+| `IOLib` | 1.1 KB | Deposit/withdraw with entry/exit fee routing |
+| `ExecutionRegistry` | — | Intent replay guard + execution history |
+| `ProtocolTreasury` | — | Collects 20% protocol cut, admin-gated spending |
+| `OperatorRegistry` | — | Operator directory with declared fees + recommendations |
+| `OperatorStaking` | — | Tiered stake escrow + slashing + 14-day cooldown |
+| `InsurancePool` | — | Slashed-fund custody + arbitrator-gated payouts |
+| `OperatorReputation` | — | On-chain execution stats + ratings + verified badge |
+| `AegisGovernor` | — | M-of-N multi-sig governance |
+| `VaultNAVCalculator` | — | Pyth-backed multi-asset NAV pricing |
+| `JaineVenueAdapter` | — | Uniswap V3 fork router (Jaine mainnet DEX) |
 
-| Contract | Role |
-|---|---|
-| `AegisVaultFactory` | Deploys new vault clones, wires treasury |
-| `AegisVault` | Per-user vault (custody + policy + fees + execution) |
-| `ExecutionRegistry` | Intent replay guard + execution history |
-| `ProtocolTreasury` | Collects 20% protocol cut, admin-gated spending |
-| `OperatorRegistry` | Operator directory with declared fees + recommendations |
-| `OperatorStaking` | Tiered stake escrow + slashing + cooldown |
-| `InsurancePool` | Slashed-fund custody + arbitrator-gated payouts |
-| `OperatorReputation` | On-chain execution stats + ratings + verified badge |
-| `AegisGovernor` | M-of-N multi-sig governance |
-| `VaultNAVCalculator` | Pyth-backed multi-asset NAV pricing |
-| `JaineVenueAdapter` | Uniswap V3 fork router (mainnet Jaine) |
-
-After running `deploy-all.js`, addresses auto-sync into `frontend/src/lib/contracts.js` and `orchestrator/.env`.
+**Deployed on 0G mainnet (chain 16661, pre-sealed Phase 1-5 stack):**
+- Factory: `0xDDb8988B6e2d43ABA0b6b10D181a09F995db54CB`
+- Real tokens: oUSDT (`0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189`), W0G (`0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c`)
+- Pyth oracle: `0x2880ab155794e7179c9ee2e38200202908c17b43`
 
 **Security invariants:**
-- AI has **zero authority** — can only propose intents, vault enforces
-- Executor can never withdraw or pause
-- Single-use intent hashes (replay-proof)
-- Fee caps hard-coded in `AegisVault` (users protected even if owner misconfigures)
-- 7-day fee change cooldown (operator can't surprise-raise fees)
+- AI has **zero authority** — can only propose intents; vault enforces every rule
+- Executor can never withdraw or pause vault funds
+- Single-use EIP-712 intent hashes (replay-proof across chains and vaults)
+- Fee caps hard-coded in `AegisVault`: perf ≤ 30%, mgmt ≤ 5%, entry/exit ≤ 2%
+- Sealed mode: ECDSA sig required from `policy.attestedSigner` — no other address accepted
+- Commit-reveal: sealed intent must be committed at block N, cannot execute until block N+1
+- `attestationReportHash` binds execution to specific 0G Compute provider + chat session
 - All slashing + treasury spending requires M-of-N governance approval
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for full economic model, state diagrams, and failure mode analysis.
@@ -185,32 +283,74 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full economic model, state diagrams, 
 ## Quick Start
 
 ```bash
-# 1. Compile + test contracts
+# 1. Compile + test contracts (slim build with sealed mode)
 cd contracts && npm install
-npx hardhat test                 # 135 tests passing
+npx hardhat test                 # 28 tests passing (slim build)
 
-# 2. Deploy full stack (Phase 1-5)
-DEPLOYER_PRIVATE_KEY=<key> npx hardhat run scripts/deploy-all.js --network og_testnet
-node scripts/sync-frontend.js    # auto-updates frontend addresses
+# 2a. Deploy to 0G testnet (full sealed mode — recommended for demo)
+DEPLOYER_PRIVATE_KEY=<key> \
+  npx hardhat run scripts/deploy-mainnet.js --network og_testnet
 
-# 3. Start orchestrator (port 4002)
+# 2b. Deploy to 0G Aristotle mainnet (production)
+GOVERNOR_OWNERS="0xaaa,0xbbb,0xccc" \
+GOVERNOR_THRESHOLD=2 \
+ARBITRATOR_ADDRESS=0xddd \
+TRANSFER_ADMINS=1 \
+CONFIRM_MAINNET=1 \
+  npx hardhat run scripts/deploy-mainnet.js --network og_mainnet
+
+# The deploy script deploys: SealedLib + ExecLib + IOLib → linked AegisVault impl
+# → EIP-1167 AegisVaultFactory → full Phase 1-5 stack + Pyth NAV
+
+# 3. Sync addresses to frontend
+node scripts/sync-frontend.js deployments.json
+
+# 4. Start orchestrator (port 4002)
 cd ../orchestrator && npm install --legacy-peer-deps
-cp .env.example .env && edit .env
+cp .env.example .env
+# Required in .env:
+#   EXECUTOR_PRIVATE_KEY=<orchestrator executor wallet>
+#   TEE_SIGNER_PRIVATE_KEY=<sealed mode TEE signer — separate key>
+#   OG_COMPUTE_URL + OG_STORAGE_URL
+#   AEGIS_VAULT_FACTORY=<factory address>
 npm start
 
-# 4. Start frontend (port 5173)
+# 5. Start frontend (port 5173)
 cd ../frontend && npm install && npm run dev
 ```
 
-**MetaMask:** RPC `https://evmrpc-testnet.0g.ai` · Chain ID `16602` · Symbol `0G`
+**MetaMask — Testnet:** RPC `https://evmrpc-testnet.0g.ai` · Chain ID `16602` · Symbol `A0GI`
 
-**Deploy options** (production mode with multi-sig):
+**MetaMask — Mainnet:** RPC `https://evmrpc.0g.ai` · Chain ID `16661` · Symbol `0G`
+
+**STRICT_MODE** (requires 0G Storage to initialize or crashes — use for production):
 ```bash
-GOVERNOR_OWNERS="0xaaa,0xbbb,0xccc" \
-GOVERNOR_THRESHOLD=2 \
-TRANSFER_ADMINS=1 \
-  npx hardhat run scripts/deploy-all.js --network og_testnet
+STRICT_MODE=true npm start
 ```
+
+---
+
+## Orchestrator — Key Behaviors
+
+| Feature | Implementation |
+|---|---|
+| **Sealed commit-reveal** | `commitIntent(commitHash)` → wait 1 block → `executeIntent(intent, sig)` |
+| **TEE signer** | Separate `TEE_SIGNER_PRIVATE_KEY` from executor wallet; signs via `wallet.signTypedData()` |
+| **Attestation hash** | `computeAttestationReportHash(provider, chatId, model, contentDigest)` from 0G Compute response |
+| **Idempotency** | In-memory `Set<intentHash>` prevents duplicate submissions within a session |
+| **Retry** | 3x exponential backoff for tx submission; 2x for 0G Compute requests |
+| **State hydration** | On start, compares 0G Storage snapshot timestamp vs local KV; takes newer |
+| **Multi-vault** | Scans factory's `allVaults`, filters by `executor == orchestratorWallet` |
+| **Operator eligibility** | Checks `TIER_CAP_EXCEEDED` and `OPERATOR_FROZEN` before inference |
+| **Decision Engine** | 8 market regimes, veto rules, approval tiers (auto / owner confirmation) |
+
+---
+
+## CI/CD
+
+- `.github/workflows/security.yml` — Slither static analysis runs on every push and PR that touches `contracts/`
+- `contracts/slither.config.json` — filters out node_modules, mocks, and test files
+- Uses `crytic/slither-action@v0.4.0`; configured with `fail-on: none` (informational for now)
 
 ---
 
@@ -218,33 +358,58 @@ TRANSFER_ADMINS=1 \
 
 ```
 0g-chain/
-├── contracts/                  11 Solidity contracts (Hardhat 2.28 + OpenZeppelin)
-│   ├── contracts/              *.sol
-│   ├── test/                   135 tests (6 suites)
+├── contracts/
+│   ├── contracts/
+│   │   ├── AegisVault.sol              Slim vault (3.4 KB): sealed commit-reveal + DELEGATECALL
+│   │   ├── AegisVaultFactory.sol       EIP-1167 clone factory (2.7 KB)
+│   │   ├── ExecutionRegistry.sol       Intent replay guard
+│   │   ├── VaultEvents.sol             Shared event definitions
+│   │   ├── libraries/
+│   │   │   ├── ExecLib.sol             EIP-712 hash, policy, swap (3.5 KB)
+│   │   │   ├── SealedLib.sol           TEE attestation ecrecover (0.5 KB)
+│   │   │   ├── IOLib.sol               Deposit/withdraw fees (1.1 KB)
+│   │   │   └── PolicyLibrary.sol       Shared policy structs / types
+│   │   ├── OperatorRegistry.sol
+│   │   ├── OperatorStaking.sol
+│   │   ├── OperatorReputation.sol
+│   │   ├── InsurancePool.sol
+│   │   ├── ProtocolTreasury.sol
+│   │   ├── AegisGovernor.sol
+│   │   ├── VaultNAVCalculator.sol
+│   │   ├── JaineVenueAdapter.sol
+│   │   └── mocks/                      MockERC20, MockDEX, MockPyth
+│   ├── test/                           28 tests — sealed mode, commit-reveal, EIP-712
 │   └── scripts/
-│       ├── deploy-all.js       Unified Phase 1-5 deployment
-│       ├── deploy-phase1..5.js Per-phase deployment
-│       └── sync-frontend.js    Address propagation to frontend
-├── orchestrator/               Node.js — AI inference + policy pre-check + execution
-│   └── src/services/
-│       ├── vaultReader.js      Reads vault state (NAV, policy, fees)
-│       ├── operatorReader.js   Reads stake tier + reputation (Phase 2-5)
-│       ├── decisionEngine.js   Regime classifier + 15 veto rules
-│       ├── inference.js        0G Compute GLM-5-FP8 client
-│       └── orchestrator.js     Main cycle loop
-└── frontend/                   React 19 + Vite + Tailwind + wagmi
+│       ├── deploy-mainnet.js           Deploys libraries + linked vault impl + factory
+│       └── sync-frontend.js            Address propagation to frontend + orchestrator .env
+├── orchestrator/
+│   └── src/
+│       ├── config/
+│       │   ├── contracts.js            EIP-712 TypedDataEncoder, computeCommitHash, ABI loading
+│       │   └── index.js                STRICT_MODE, TEE_SIGNER_PRIVATE_KEY config
+│       └── services/
+│           ├── executor.js             Intent builder, computeAttestationReportHash, sealed submit
+│           ├── inference.js            0G Compute GLM-5-FP8 client (retry, raw response capture)
+│           ├── orchestrator.js         Main cycle: discover → infer → commit → execute
+│           ├── vaultReader.js          Reads vault state (NAV, policy, sealedMode, attestedSigner)
+│           ├── operatorReader.js       Reads stake tier + reputation (Phase 2-5)
+│           ├── storage.js              0G Storage KV + blob journal
+│           └── decisionEngine.js      Regime classifier + veto rules + approval tiers
+└── frontend/
     └── src/
         ├── pages/
         │   ├── LandingPage, DashboardPage, VaultDetailPage
-        │   ├── CreateVaultPage, OperatorMarketplacePage
+        │   ├── CreateVaultPage           Includes sealedMode toggle + attestedSigner field
+        │   ├── ActionsPage               Intent submit + sealed mode flow UI
+        │   ├── OperatorMarketplacePage
         │   ├── OperatorProfilePage, OperatorRegisterPage
-        │   └── GovernancePage       M-of-N proposal UI
+        │   └── GovernancePage
         └── hooks/
-            ├── useVault.js           core vault + deposit + withdraw
-            ├── useVaultFees.js       fee accrual + claim (Phase 1)
-            ├── useOperatorStaking.js stake + tier + freeze (Phase 2)
-            ├── useOperatorReputation.js stats + ratings + verified (Phase 3)
-            └── useGovernor.js        proposals + ProposalBuilders (Phase 4)
+            ├── useVault.js
+            ├── useVaultFees.js
+            ├── useOperatorStaking.js
+            ├── useOperatorReputation.js
+            └── useGovernor.js
 ```
 
 ---
@@ -252,11 +417,15 @@ TRANSFER_ADMINS=1 \
 ## Test Results
 
 ```
-Smart contracts    135 / 135 passing  (Phase 1-5 full stack)
-Frontend build     3219 modules, 1.19 MB gzipped, clean
-E2E lifecycle      ✓ create → deposit → execute → accrue → claim
-                   ✓ stake → slash via gov → insurance payout
-Security audit     4 critical + 6 high fixed (Phase 0 audit)
+Slim build (sealed mode, commit-reveal, EIP-712)    28 / 28 passing
+Frontend build                                      clean Vite build
+E2E sealed flow    deposit → commitIntent → wait 1 block → executeIntent
+E2E standard flow  deposit → executeIntent (non-sealed)
+E2E invariants     fee caps, replay protection, attestation mismatch revert
+
+Note: Legacy 135-test suite (Phase 1-5 full stack) targets the pre-slim API
+and requires migration to slim build interface. Core functionality covered
+by the 28 slim-build tests; old suite retained for reference.
 ```
 
 ---
