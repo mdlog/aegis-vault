@@ -23,6 +23,8 @@ contract AegisVault {
     address public venue;
     address internal registry;
     VaultPolicy internal policy;
+    address[] internal _allowedAssets;
+    uint256 public totalDeposited;
     uint256 public lastExecutionTime;
     uint256 internal dailyActionCount;
     uint256 internal dailyActionResetTime;
@@ -35,7 +37,7 @@ contract AegisVault {
         address _registry,
         address _venue,
         VaultPolicy calldata _policy,
-        address[] calldata /*assets_*/,
+        address[] calldata assets_,
         address /*_protocolTreasury*/
     ) external {
         require(owner == address(0), "init");
@@ -48,13 +50,15 @@ contract AegisVault {
         executor = _executor;
         registry = _registry;
         policy = _policy;
+        for (uint256 i = 0; i < assets_.length; i++) _allowedAssets.push(assets_[i]);
         dailyActionResetTime = block.timestamp + 1 days;
         emit VaultEvents.VaultCreated(address(this), _owner, _baseAsset);
     }
 
     function deposit(uint256 amount) external {
         require(msg.sender == owner && !policy.paused, "d");
-        IOLib.doDeposit(address(baseAsset), msg.sender, amount, policy.feeRecipient, policy.entryFeeBps);
+        uint256 net = IOLib.doDeposit(address(baseAsset), msg.sender, amount, policy.feeRecipient, policy.entryFeeBps);
+        totalDeposited += net;
     }
 
     function withdraw(uint256 amount) external {
@@ -92,8 +96,12 @@ contract AegisVault {
         dailyActionCount += 1;
     }
 
-    // Slim build: views removed. Frontend reads via auto-getters on public state.
-    // For getPolicy / getAllowedAssets, use eth_getStorageAt or read VaultPolicy
-    // fields one-at-a-time via dedicated public getters in this contract (none here
-    // to keep size minimal).
+    function getAllowedAssets() external view returns (address[] memory) { return _allowedAssets; }
+    function getPolicy() external view returns (VaultPolicy memory) { return policy; }
+    function getVaultSummary() external view returns (
+        address, address, address, uint256, uint256, uint256, uint256, bool, bool
+    ) {
+        return (owner, executor, address(baseAsset), baseAsset.balanceOf(address(this)),
+                totalDeposited, lastExecutionTime, dailyActionCount, policy.paused, policy.autoExecution);
+    }
 }

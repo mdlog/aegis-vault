@@ -213,6 +213,162 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "getAllowedAssets",
+    "outputs": [
+      {
+        "internalType": "address[]",
+        "name": "",
+        "type": "address[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getPolicy",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "maxPositionBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxDailyLossBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "stopLossBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "cooldownSeconds",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "confidenceThresholdBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxActionsPerDay",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "autoExecution",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "performanceFeeBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "managementFeeBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "entryFeeBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "exitFeeBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "feeRecipient",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "sealedMode",
+            "type": "bool"
+          },
+          {
+            "internalType": "address",
+            "name": "attestedSigner",
+            "type": "address"
+          }
+        ],
+        "internalType": "struct VaultPolicy",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getVaultSummary",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -323,7 +479,7 @@
       },
       {
         "internalType": "address[]",
-        "name": "",
+        "name": "assets_",
         "type": "address[]"
       },
       {
@@ -358,6 +514,19 @@
         "internalType": "address",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "totalDeposited",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
