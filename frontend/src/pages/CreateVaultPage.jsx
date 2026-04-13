@@ -97,7 +97,7 @@ export default function CreateVaultPage() {
   const detectedExecutor = orchStatus?.executorAddress || '';
   const canUseDetectedExecutor = Boolean(detectedExecutor);
   const activeExecutorMode =
-    executorMode || (canUseDetectedExecutor && !customExecutor ? 'orchestrator' : 'marketplace');
+    executorMode || (canUseDetectedExecutor ? 'orchestrator' : customExecutor ? 'custom' : 'custom');
 
   // Selected operator full metadata (for fee preview + recommended policy preset)
   const selectedOperatorData =
@@ -119,6 +119,9 @@ export default function CreateVaultPage() {
   else resolvedExecutor = customExecutor.trim();
 
   const executorReady = Boolean(resolvedExecutor) && isAddress(resolvedExecutor);
+  const _btnDisabled = createPending || !executorReady;
+  const _showsDeploy = step >= steps.length - 1;
+  console.log('[CV]', { step, stepsLen: steps.length, _showsDeploy, isConnected, executorReady, _btnDisabled, resolvedExecutor, customExecutor, activeExecutorMode });
   const shortExecutor = executorReady
     ? `${resolvedExecutor.slice(0, 8)}...${resolvedExecutor.slice(-6)}`
     : 'Not configured';
@@ -850,7 +853,8 @@ export default function CreateVaultPage() {
               <ControlButton
                 variant="primary"
                 size="lg"
-                disabled={createPending || !executorReady || exceedsTierCap || selectedOperatorTier?.frozen}
+                disabled={createPending || !executorReady}
+                title={!executorReady ? `executor="${resolvedExecutor}" mode=${activeExecutorMode} custom="${customExecutor}"` : ''}
                 onClick={() => {
                   // Track 2: when sealed mode is enabled, the on-chain attested signer
                   // defaults to the operator/executor address. Off-chain, the orchestrator

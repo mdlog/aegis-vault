@@ -27,9 +27,9 @@
     "oUSDT": "0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189",
     "W0G": "0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c",
     "mockUSDC": "0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189",
-    "mockWBTC": "",
-    "mockWETH": "",
-    "mockDEX": "",
+    "mockWBTC": "0x5959097B719cBACD35D11f8d959c145EBbb88f33",
+    "mockWETH": "0x4f69AC64BBB4D73a098c398af498024A3715ff57",
+    "mockDEX": "0xE21dbC01424533ABc96237BfAeaE5d625d58e359",
     "demoVault": "",
     "orchestratorWallet": ""
   }
