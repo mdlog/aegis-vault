@@ -8,7 +8,7 @@ import { useVaultList } from '../../hooks/useVault';
 import { useAlerts, useOrchestratorStatus } from '../../hooks/useOrchestrator';
 import { getDefaultVaultAddress, getDeployments, getNetworkLabel, getSettingsRoute, getVaultRoute } from '../../lib/contracts';
 import {
-  LayoutDashboard, Shield, Activity, FileText, Settings, Cpu, Vote,
+  LayoutDashboard, Shield, Activity, FileText, Settings, Cpu, Vote, Droplets,
   ChevronDown, Bell, Globe, Menu, X
 } from 'lucide-react';
 
@@ -47,9 +47,9 @@ export default function AppShell({ children }) {
     { label: 'Vault Detail', path: getVaultRoute(activeVaultAddress), icon: Shield, active: location.pathname.startsWith('/app/vault') },
     { label: 'Marketplace', path: '/marketplace', icon: Cpu, active: location.pathname === '/marketplace' || location.pathname.startsWith('/operator') },
     { label: 'Governance', path: '/governance', icon: Vote, active: location.pathname === '/governance' },
-    { label: 'AI Actions', path: '/app/actions', icon: Activity, active: location.pathname === '/app/actions' },
-    { label: 'Journal', path: '/app/journal', icon: FileText, active: location.pathname === '/app/journal' },
+    { label: 'AI Actions', path: '/app/actions', icon: Activity, active: location.pathname === '/app/actions' || location.pathname === '/app/journal' },
     { label: 'Settings', path: getSettingsRoute(activeVaultAddress), icon: Settings, active: location.pathname.startsWith('/app/settings') },
+    { label: 'Faucet', path: '/faucet', icon: Droplets, active: location.pathname === '/faucet' },
   ];
   const alertCount = Math.max(alerts?.length || 0, orchStatus?.pendingApprovalCount || 0);
 
