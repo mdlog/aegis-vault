@@ -21,9 +21,38 @@ const { time, mine } = require("@nomicfoundation/hardhat-network-helpers");
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// EIP-712 type definition matching ExecLib.EXECUTION_INTENT_TYPEHASH
+const INTENT_TYPES = {
+  ExecutionIntent: [
+    { name: "vault",                 type: "address" },
+    { name: "assetIn",               type: "address" },
+    { name: "assetOut",              type: "address" },
+    { name: "amountIn",              type: "uint256" },
+    { name: "minAmountOut",          type: "uint256" },
+    { name: "createdAt",             type: "uint256" },
+    { name: "expiresAt",             type: "uint256" },
+    { name: "confidenceBps",         type: "uint256" },
+    { name: "riskScoreBps",          type: "uint256" },
+    { name: "attestationReportHash", type: "bytes32" },
+  ],
+};
+
+/**
+ * Build an EIP-712 domain for a given vault address.
+ * chainId 31337 matches Hardhat's default network.
+ */
+function intentDomain(vaultAddress) {
+  return {
+    name: "AegisVault",
+    version: "1",
+    chainId: 31337,
+    verifyingContract: vaultAddress,
+  };
+}
+
 /**
  * Build an ExecutionIntent object.
- * attestationReportHash is included in the hash preimage (slim build).
+ * intentHash is computed as an EIP-712 typed data hash matching ExecLib.computeIntentHash().
  * Pass attestationReportHash as ethers.ZeroHash for non-sealed mode.
  */
 async function buildIntent(overrides = {}) {
@@ -43,25 +72,21 @@ async function buildIntent(overrides = {}) {
     ...overrides,
   };
 
-  // intentHash includes attestationReportHash (slim build change)
-  base.intentHash = ethers.keccak256(
-    ethers.AbiCoder.defaultAbiCoder().encode(
-      [
-        "address", "address", "address",
-        "uint256", "uint256",
-        "uint256", "uint256",
-        "uint256", "uint256",
-        "bytes32",
-      ],
-      [
-        base.vault, base.assetIn, base.assetOut,
-        base.amountIn, base.minAmountOut,
-        base.createdAt, base.expiresAt,
-        base.confidenceBps, base.riskScoreBps,
-        base.attestationReportHash,
-      ]
-    )
-  );
+  // intentHash = EIP-712 digest: keccak256(\x19\x01 || domainSeparator || structHash)
+  // This matches ExecLib.computeIntentHash() exactly.
+  const value = {
+    vault:                 base.vault,
+    assetIn:               base.assetIn,
+    assetOut:              base.assetOut,
+    amountIn:              base.amountIn,
+    minAmountOut:          base.minAmountOut,
+    createdAt:             base.createdAt,
+    expiresAt:             base.expiresAt,
+    confidenceBps:         base.confidenceBps,
+    riskScoreBps:          base.riskScoreBps,
+    attestationReportHash: base.attestationReportHash,
+  };
+  base.intentHash = ethers.TypedDataEncoder.hash(intentDomain(base.vault), INTENT_TYPES, value);
 
   return base;
 }
@@ -503,14 +528,10 @@ describe("AegisVault (slim build)", function () {
       // Advance one block (commit-reveal delay)
       await mine(1);
 
-      // TEE signer signs the intentHash
-      const ethSignedHash = ethers.keccak256(
-        ethers.solidityPacked(
-          ["string", "bytes32"],
-          ["\x19Ethereum Signed Message:\n32", intent.intentHash]
-        )
-      );
-      const sig = await sealedWallet.signMessage(ethers.getBytes(intent.intentHash));
+      // TEE signer signs the raw EIP-712 digest — no EIP-191 prefix.
+      // SealedLib._recoverSigner uses ecrecover directly on the intentHash.
+      const rawSig = sealedWallet.signingKey.sign(ethers.getBytes(intent.intentHash));
+      const sig = ethers.Signature.from(rawSig).serialized;
 
       // Execute with valid sig — SealedIntentExecuted is emitted by AegisVault directly
       // (it's in executeIntent body, not in ExecLib), so we can check it on vault
@@ -543,9 +564,10 @@ describe("AegisVault (slim build)", function () {
       await sealedVault.connect(executor).commitIntent(commitHash);
       await mine(1);
 
-      // Sign with wrong key
+      // Sign with wrong key (raw EIP-712 digest, no EIP-191 prefix)
       const wrongSigner = ethers.Wallet.createRandom();
-      const wrongSig = await wrongSigner.signMessage(ethers.getBytes(intent.intentHash));
+      const wrongRawSig = wrongSigner.signingKey.sign(ethers.getBytes(intent.intentHash));
+      const wrongSig = ethers.Signature.from(wrongRawSig).serialized;
 
       await expect(
         sealedVault.connect(executor).executeIntent(intent, wrongSig)
@@ -568,7 +590,9 @@ describe("AegisVault (slim build)", function () {
         attestationReportHash: reportHash,
       });
 
-      const sig = await sealedWallet.signMessage(ethers.getBytes(intent.intentHash));
+      // Raw EIP-712 digest signing — no EIP-191 prefix
+      const rawSig2 = sealedWallet.signingKey.sign(ethers.getBytes(intent.intentHash));
+      const sig = ethers.Signature.from(rawSig2).serialized;
 
       // No commitIntent call — should revert at "cr"
       await expect(

@@ -282,10 +282,15 @@ export async function submitIntent(intent, opts = {}) {
       const commitReceipt = await commitTx.wait();
       logger.info(`  Commit mined at block ${commitReceipt.blockNumber}`);
 
-      // Step 3: Wait at least one fresh block before reveal
+      // Step 3: Wait at least one fresh block before reveal (with timeout)
       const provider = getProvider();
       let currentBlock = await provider.getBlockNumber();
+      const maxWaitMs = 60_000; // 60s max wait for next block
+      const waitStart = Date.now();
       while (currentBlock < commitReceipt.blockNumber + 1) {
+        if (Date.now() - waitStart > maxWaitMs) {
+          throw new Error(`Sealed mode: timed out waiting for reveal block after ${maxWaitMs}ms (commit at block ${commitReceipt.blockNumber}, current ${currentBlock})`);
+        }
         await new Promise((r) => setTimeout(r, 1000));
         currentBlock = await provider.getBlockNumber();
       }

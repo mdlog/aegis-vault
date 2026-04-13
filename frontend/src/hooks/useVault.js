@@ -63,6 +63,9 @@ export function useVaultPolicy(vaultAddress) {
       entryFeeBps: Number(data.entryFeeBps || 0),
       exitFeeBps: Number(data.exitFeeBps || 0),
       feeRecipient: data.feeRecipient || '',
+      // Track 2: Sealed Strategy Mode
+      sealedMode: !!data.sealedMode,
+      attestedSigner: data.attestedSigner || '',
       // Derived
       maxPositionPct: Number(data.maxPositionBps) / 100,
       maxDailyLossPct: Number(data.maxDailyLossBps) / 100,

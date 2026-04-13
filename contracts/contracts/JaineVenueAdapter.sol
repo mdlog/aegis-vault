@@ -57,9 +57,23 @@ interface IJaineFactory {
     function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool);
 }
 
-/// @notice Minimal Uniswap V3 Pool interface for liquidity check
+/// @notice Minimal Uniswap V3 Pool interface for liquidity check and price
 interface IJainePool {
     function liquidity() external view returns (uint128);
+    function slot0()
+        external
+        view
+        returns (
+            uint160 sqrtPriceX96,
+            int24  tick,
+            uint16 observationIndex,
+            uint16 observationCardinality,
+            uint16 observationCardinalityNext,
+            uint8  feeProtocol,
+            bool   unlocked
+        );
+    function token0() external view returns (address);
+    function token1() external view returns (address);
 }
 
 contract JaineVenueAdapter is ReentrancyGuard {
@@ -228,15 +242,105 @@ contract JaineVenueAdapter is ReentrancyGuard {
     }
 
     /**
-     * @notice Get estimated output for a swap (simplified — accurate quoting needs Quoter contract)
+     * @notice Get estimated output for a swap using pool's current sqrtPriceX96.
+     *
+     * @dev This is a spot-price estimate, NOT a Quoter simulation.  It ignores
+     *      fee deduction, tick crossing, and price impact — treat it as an
+     *      approximate pre-flight check rather than an exact quote.
+     *
+     *      Math (Uniswap V3 Q64.96 fixed-point):
+     *        sqrtPriceX96  = sqrt(token1 / token0) * 2^96
+     *        price(1→0)    = (sqrtPriceX96)^2 / 2^192  (token1 per token0)
+     *
+     *      To avoid uint256 overflow (sqrtPriceX96 can be up to ~2^160):
+     *        Split into two 96-bit shifts:
+     *          If tokenIn == token0:
+     *            amountOut = amountIn * (sqrtPriceX96 / 2^96)^2
+     *                      = amountIn * sqrtPriceX96 / 2^96 * sqrtPriceX96 / 2^96
+     *          If tokenIn == token1:
+     *            amountOut = amountIn * 2^192 / sqrtPriceX96^2
+     *                      = amountIn * (2^96 / sqrtPriceX96)^2
+     *
+     *      Returns 0 (does NOT revert) when:
+     *        - no pool found for the pair
+     *        - pool slot0 / token0 / token1 calls revert
+     *        - sqrtPriceX96 is 0 (uninitialized pool)
+     *        - amountIn is 0
+     *
+     * @param tokenIn  Token being sold
+     * @param tokenOut Token being bought
+     * @param amountIn Amount of tokenIn
+     * @return estimated output amount of tokenOut (spot-price estimate)
      */
     function getAmountOut(
         address tokenIn,
         address tokenOut,
-        uint256 /* amountIn */
+        uint256 amountIn
     ) external view returns (uint256) {
-        _findPoolWithLiquidity(tokenIn, tokenOut);
-        return 0;
+        if (amountIn == 0 || tokenIn == tokenOut) return 0;
+
+        // ── Step 1: find best pool fee tier ──────────────────────────────────
+        // _findPoolWithLiquidity reverts if no pool exists; we catch it below.
+        uint24 fee;
+        try this._findPoolWithLiquidityExternal(tokenIn, tokenOut) returns (uint24 f) {
+            fee = f;
+        } catch {
+            return 0;
+        }
+
+        address pool = factory.getPool(tokenIn, tokenOut, fee);
+        if (pool == address(0)) return 0;
+
+        // ── Step 2: read slot0 and token ordering ────────────────────────────
+        uint160 sqrtPriceX96;
+        address poolToken0;
+
+        try IJainePool(pool).slot0() returns (
+            uint160 _sqrtPriceX96, int24, uint16, uint16, uint16, uint8, bool
+        ) {
+            sqrtPriceX96 = _sqrtPriceX96;
+        } catch {
+            return 0;
+        }
+
+        try IJainePool(pool).token0() returns (address t0) {
+            poolToken0 = t0;
+        } catch {
+            return 0;
+        }
+
+        if (sqrtPriceX96 == 0) return 0;
+
+        // ── Step 3: compute spot-price estimate ──────────────────────────────
+        // All arithmetic uses uint256; split the Q96 shift in two to stay
+        // within 256 bits (sqrtPriceX96 <= ~2^160, so one shift brings it to
+        // <=2^64, well inside uint256).
+        uint256 Q96 = 2**96;
+
+        if (tokenIn == poolToken0) {
+            // price = (sqrtPriceX96)^2 / 2^192
+            // amountOut = amountIn * sqrtPriceX96 / 2^96 * sqrtPriceX96 / 2^96
+            uint256 p = (uint256(sqrtPriceX96) * amountIn) / Q96;
+            return (p * uint256(sqrtPriceX96)) / Q96;
+        } else {
+            // tokenIn == token1: price = 2^192 / (sqrtPriceX96)^2
+            // amountOut = amountIn * 2^96 / sqrtPriceX96 * 2^96 / sqrtPriceX96
+            uint256 p = (Q96 * amountIn) / uint256(sqrtPriceX96);
+            return (p * Q96) / uint256(sqrtPriceX96);
+        }
+    }
+
+    /**
+     * @notice Public wrapper around _findPoolWithLiquidity so getAmountOut
+     *         can call it via try/catch (internal functions cannot be try-caught).
+     * @dev Intentionally public; callers get the same result as _findPoolWithLiquidity.
+     */
+    function _findPoolWithLiquidityExternal(address tokenIn, address tokenOut)
+        external
+        view
+        returns (uint24)
+    {
+        return _findPoolWithLiquidity(tokenIn, tokenOut);
     }
 
     // ── Admin ──
