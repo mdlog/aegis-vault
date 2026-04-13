@@ -1,0 +1,6 @@
+{
+  "filter_paths": ["node_modules", "mocks", "test"],
+  "exclude_dependencies": true,
+  "detectors_to_exclude": "naming-convention,solc-version,pragma",
+  "solc_remaps": ["@openzeppelin/=node_modules/@openzeppelin/"]
+}

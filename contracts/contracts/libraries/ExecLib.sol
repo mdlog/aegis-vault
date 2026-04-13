@@ -18,10 +18,33 @@ library ExecLib {
     error SwapOutputMismatch();
     error SlippageTooHigh(uint256 minRequired, uint256 actual);
 
-    // verifyAttestation moved to SealedLib for size budget on 0G mainnet.
+    // ── EIP-712 ──
+    bytes32 internal constant EXECUTION_INTENT_TYPEHASH = keccak256(
+        "ExecutionIntent(address vault,address assetIn,address assetOut,uint256 amountIn,uint256 minAmountOut,uint256 createdAt,uint256 expiresAt,uint256 confidenceBps,uint256 riskScoreBps,bytes32 attestationReportHash)"
+    );
+    bytes32 internal constant DOMAIN_TYPE_HASH = keccak256(
+        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+    );
+    bytes32 internal constant NAME_HASH    = keccak256("AegisVault");
+    bytes32 internal constant VERSION_HASH = keccak256("1");
+
+    function _domainSeparator() private view returns (bytes32) {
+        return keccak256(abi.encode(DOMAIN_TYPE_HASH, NAME_HASH, VERSION_HASH, block.chainid, address(this)));
+    }
+
+    function computeIntentHash(ExecutionIntent calldata intent) internal view returns (bytes32) {
+        bytes32 structHash = keccak256(abi.encode(
+            EXECUTION_INTENT_TYPEHASH,
+            intent.vault, intent.assetIn, intent.assetOut,
+            intent.amountIn, intent.minAmountOut,
+            intent.createdAt, intent.expiresAt,
+            intent.confidenceBps, intent.riskScoreBps,
+            intent.attestationReportHash
+        ));
+        return keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
+    }
 
     /// @notice Inline policy + hash + swap pipeline. DELEGATECALL'd from vault.
-    ///         Slim build: policy checks reduced to essentials with short revert messages.
     function runExecution(
         ExecutionIntent calldata intent,
         VaultPolicy memory _policy,
@@ -31,14 +54,8 @@ library ExecLib {
         uint256 lastExecutionTime,
         uint256 dailyActionCount
     ) external returns (uint256 amountOut, bool success) {
-        // Hash check
-        require(keccak256(abi.encode(
-            intent.vault, intent.assetIn, intent.assetOut,
-            intent.amountIn, intent.minAmountOut,
-            intent.createdAt, intent.expiresAt,
-            intent.confidenceBps, intent.riskScoreBps,
-            intent.attestationReportHash
-        )) == intent.intentHash, "hash");
+        // EIP-712 hash check
+        require(computeIntentHash(intent) == intent.intentHash, "hash");
 
         // Inline essential policy checks (shorter than PolicyLibrary.validateAll)
         require(block.timestamp <= intent.expiresAt, "expired");

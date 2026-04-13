@@ -78,28 +78,46 @@ export function getOperatorReputationContract(address) {
   return new ethers.Contract(addr, ABIs.OperatorReputation, getSigner());
 }
 
-// Utility: compute intent hash (mirrors on-chain logic in AegisVault.executeIntent)
-// Track 2: now binds attestationReportHash so the TEE-attested inference output
-// cannot be swapped out post-attestation.
+// EIP-712 typed data definition matching ExecLib.sol constants
+const EXECUTION_INTENT_TYPES = {
+  ExecutionIntent: [
+    { name: 'vault',                 type: 'address' },
+    { name: 'assetIn',               type: 'address' },
+    { name: 'assetOut',              type: 'address' },
+    { name: 'amountIn',              type: 'uint256' },
+    { name: 'minAmountOut',          type: 'uint256' },
+    { name: 'createdAt',             type: 'uint256' },
+    { name: 'expiresAt',             type: 'uint256' },
+    { name: 'confidenceBps',         type: 'uint256' },
+    { name: 'riskScoreBps',          type: 'uint256' },
+    { name: 'attestationReportHash', type: 'bytes32' },
+  ],
+};
+
+// Utility: compute EIP-712 intent hash (mirrors ExecLib.computeIntentHash on-chain)
 export function computeIntentHash(intent) {
-  return ethers.keccak256(
-    ethers.AbiCoder.defaultAbiCoder().encode(
-      ['address', 'address', 'address', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256', 'bytes32'],
-      [
-        intent.vault,
-        intent.assetIn,
-        intent.assetOut,
-        intent.amountIn,
-        intent.minAmountOut,
-        intent.createdAt,
-        intent.expiresAt,
-        intent.confidenceBps,
-        intent.riskScoreBps,
-        intent.attestationReportHash || ethers.ZeroHash,
-      ]
-    )
-  );
+  const domain = {
+    name: 'AegisVault',
+    version: '1',
+    chainId: config.chainId,
+    verifyingContract: intent.vault,
+  };
+  const value = {
+    vault:                 intent.vault,
+    assetIn:               intent.assetIn,
+    assetOut:              intent.assetOut,
+    amountIn:              intent.amountIn,
+    minAmountOut:          intent.minAmountOut,
+    createdAt:             intent.createdAt,
+    expiresAt:             intent.expiresAt,
+    confidenceBps:         intent.confidenceBps,
+    riskScoreBps:          intent.riskScoreBps,
+    attestationReportHash: intent.attestationReportHash || ethers.ZeroHash,
+  };
+  return ethers.TypedDataEncoder.hash(domain, EXECUTION_INTENT_TYPES, value);
 }
+
+export { EXECUTION_INTENT_TYPES };
 
 // Track 2: commit hash binds intent + attestation. Used for sealed-mode commit-reveal.
 export function computeCommitHash(intentHash, attestationReportHash) {

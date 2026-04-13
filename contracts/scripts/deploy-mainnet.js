@@ -99,11 +99,16 @@ async function main() {
   console.log("");
 
   // ── Pre-flight: chain id guard ──
-  if (Number(network.chainId) !== EXPECTED_CHAIN_ID) {
+  const chainId = Number(network.chainId);
+  const isTestnet = chainId === 16602;
+  if (chainId !== EXPECTED_CHAIN_ID && !isTestnet) {
     throw new Error(
-      `Wrong network: expected chain ${EXPECTED_CHAIN_ID} (0G Aristotle mainnet), got ${network.chainId}. ` +
-      `Run with --network og_mainnet.`
+      `Wrong network: expected chain ${EXPECTED_CHAIN_ID} (0G mainnet) or 16602 (testnet), got ${chainId}. ` +
+      `Run with --network og_mainnet or --network og_testnet.`
     );
+  }
+  if (isTestnet) {
+    console.log("⚠  TESTNET MODE (chain 16602) — for Track 2 demo\n");
   }
 
   // ── Pre-flight: balance guard ──

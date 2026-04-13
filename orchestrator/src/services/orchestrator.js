@@ -19,6 +19,9 @@ import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
 let cycleCount = 0;
+
+// Track 2: idempotency — skip duplicate intent hashes within session
+const submittedIntents = new Set();
 let running = false;
 
 // ── Per-vault position tracking (persists across cycles) ──
@@ -391,6 +394,13 @@ async function runVaultCycle(vaultAddress, marketSummary) {
 
     logger.info(`    Intent: ${intent.intentHash.substring(0, 18)}...`);
 
+    // Idempotency check: skip if this intent was already submitted this session
+    if (submittedIntents.has(intent.intentHash)) {
+      logger.warn(`    Intent ${intent.intentHash.substring(0, 18)} already submitted — skipping duplicate`);
+      vaultResult.status = 'skipped_duplicate';
+      return vaultResult;
+    }
+
     // Track 2: forward sealed-mode policy state from on-chain vault to executor.
     // When sealedMode=true, executor will run commit-reveal + TEE signature flow.
     const execResult = await submitIntent(intent, {
@@ -402,6 +412,7 @@ async function runVaultCycle(vaultAddress, marketSummary) {
     syncExecutionToOG(intent, execResult, decision).catch(() => {});
 
     if (execResult.success) {
+      submittedIntents.add(intent.intentHash);
       logger.info(`    ✓ Executed on-chain. TX: ${execResult.txHash}`);
       vaultResult.status = 'executed';
 

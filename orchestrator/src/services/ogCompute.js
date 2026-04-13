@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
 import { createZGComputeNetworkBroker } from '@0glabs/0g-serving-broker';
+import { withRetry } from '../utils/retry.js';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
@@ -123,19 +124,31 @@ export async function chatCompletion(messages, options = {}) {
 
     logger.info(`0G Compute: Sending inference to ${providerInfo.model}...`);
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...headers,
-      },
-      body: JSON.stringify({
-        model: providerInfo.model,
-        messages,
-        temperature,
-        max_tokens,
-      }),
-      signal: AbortSignal.timeout(60_000),
+    const response = await withRetry(async () => {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+        body: JSON.stringify({
+          model: providerInfo.model,
+          messages,
+          temperature,
+          max_tokens,
+        }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      // Retry on 5xx server errors
+      if (res.status >= 500 && res.status < 600) {
+        throw new Error(`0G Compute server error: ${res.status}`);
+      }
+      return res;
+    }, {
+      maxRetries: 2,
+      baseDelayMs: 3000,
+      label: '0G Compute inference',
+      shouldRetry: (err) => err.message?.includes('server error') || err.message?.includes('ETIMEDOUT'),
     });
 
     if (response.status === 429) {

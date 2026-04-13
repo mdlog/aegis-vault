@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
-import { ABIs, getVaultContract, computeIntentHash, computeCommitHash, getProvider } from '../config/contracts.js';
+import { ABIs, getVaultContract, computeIntentHash, computeCommitHash, getProvider, EXECUTION_INTENT_TYPES } from '../config/contracts.js';
 import { buildAssetAddressMap, getTrackedAsset, normalizeTradeSymbol } from './assets.js';
+import { withRetry } from '../utils/retry.js';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
@@ -207,14 +208,32 @@ function getVaultAssetBalanceRaw(vaultState, symbol) {
  * Track 2: Sign an intent hash with the TEE signer key (EIP-191 prefixed).
  * The vault recovers this signer and requires it to equal policy.attestedSigner.
  */
-async function signIntentHashWithTeeKey(intentHash) {
+async function signIntentHashWithTeeKey(intentHash, intent) {
   const pk = (config.teeSigner.privateKey || '').replace(/^0x/, '');
   if (!pk) {
     throw new Error('TEE_SIGNER_PRIVATE_KEY missing — required for sealed-mode vaults');
   }
   const wallet = new ethers.Wallet(pk);
-  // ethers v6 signMessage produces an EIP-191 signature, matching MessageHashUtils.toEthSignedMessageHash on-chain
-  const sig = await wallet.signMessage(ethers.getBytes(intentHash));
+  // EIP-712 signTypedData — matches \x19\x01 + domain + structHash in ExecLib.sol
+  const domain = {
+    name: 'AegisVault',
+    version: '1',
+    chainId: config.chainId,
+    verifyingContract: intent.vault,
+  };
+  const value = {
+    vault: intent.vault,
+    assetIn: intent.assetIn,
+    assetOut: intent.assetOut,
+    amountIn: intent.amountIn,
+    minAmountOut: intent.minAmountOut,
+    createdAt: intent.createdAt,
+    expiresAt: intent.expiresAt,
+    confidenceBps: intent.confidenceBps,
+    riskScoreBps: intent.riskScoreBps,
+    attestationReportHash: intent.attestationReportHash || ethers.ZeroHash,
+  };
+  const sig = await wallet.signTypedData(domain, EXECUTION_INTENT_TYPES, value);
   return { signer: wallet.address, signature: sig };
 }
 
@@ -249,7 +268,7 @@ export async function submitIntent(intent, opts = {}) {
     let attestationSig = '0x';
     if (sealedMode) {
       // Step 1: Sign intent hash with the TEE-attested signer key
-      const { signer, signature } = await signIntentHashWithTeeKey(intent.intentHash);
+      const { signer, signature } = await signIntentHashWithTeeKey(intent.intentHash, intent);
       attestationSig = signature;
       logger.info(`  TEE signer: ${signer}`);
       if (opts.attestedSigner && signer.toLowerCase() !== opts.attestedSigner.toLowerCase()) {
@@ -273,8 +292,25 @@ export async function submitIntent(intent, opts = {}) {
       logger.info(`  Reveal block ready: ${currentBlock} (commit was ${commitReceipt.blockNumber})`);
     }
 
-    const tx = await vault.executeIntent(intent, attestationSig);
-    const receipt = await tx.wait();
+    const receipt = await withRetry(async () => {
+      const tx = await vault.executeIntent(intent, attestationSig);
+      return tx.wait();
+    }, {
+      maxRetries: 3,
+      baseDelayMs: 2000,
+      label: `submitIntent(${intent.intentHash.substring(0, 10)})`,
+      shouldRetry: (err) => {
+        const msg = err.message || '';
+        // Don't retry contract reverts (permanent failures)
+        if (msg.includes('PolicyCheckFailed') || msg.includes('IntentHashMismatch') ||
+            msg.includes('IntentVaultMismatch') || msg.includes('AutoExecutionDisabled') ||
+            msg.includes('OnlyExecutor') || msg.includes('VaultPaused') ||
+            msg.includes('revert') || msg.includes('CALL_EXCEPTION')) {
+          return false;
+        }
+        return true; // Retry nonce errors, timeouts, network errors
+      },
+    });
     const intentExecutedEvent = receipt.logs
       .map((log) => {
         try {

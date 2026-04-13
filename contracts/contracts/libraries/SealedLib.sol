@@ -23,8 +23,9 @@ library SealedLib {
         if (attestedSigner == address(0)) revert SealedModeRequiresAttestedSigner();
         if (attestationReportHash == bytes32(0)) revert MissingAttestationReport();
 
-        bytes32 ethSignedHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", intentHash));
-        address recovered = _recoverSigner(ethSignedHash, sig);
+        // intentHash is already an EIP-712 digest (\x19\x01 + domain + struct),
+        // so we verify the raw hash — no additional EIP-191 prefix.
+        address recovered = _recoverSigner(intentHash, sig);
         if (recovered != attestedSigner) revert InvalidAttestationSignature();
 
         commitHash = keccak256(abi.encodePacked(intentHash, attestationReportHash));
