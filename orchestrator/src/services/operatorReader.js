@@ -187,8 +187,9 @@ export function checkOperatorEligibility(vaultState, operatorState, options = {}
     };
   }
 
-  // Tier cap check (only if staking contract available)
-  if (operatorState.stake && !operatorState.stake.isUnlimited) {
+  // Tier cap check (only if staking contract available AND operator has active stake)
+  // Skip if operator hasn't staked yet (tier=None) in non-strict mode — allows demo
+  if (operatorState.stake && operatorState.stake.amountUsd > 0 && !operatorState.stake.isUnlimited) {
     const nav = vaultState?.nav || 0;
     if (nav > operatorState.stake.maxVaultSizeUsd) {
       return {
