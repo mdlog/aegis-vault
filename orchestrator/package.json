@@ -17,11 +17,13 @@
     "@0glabs/0g-ts-sdk": "^0.3.3",
     "@pythnetwork/hermes-client": "^2.0.0",
     "axios": "^1.14.0",
+    "better-sqlite3": "^12.9.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "ethers": "^6.16.0",
     "express": "^5.2.1",
     "node-cron": "^4.2.1",
+    "p-limit": "^7.3.0",
     "winston": "^3.19.0"
   },
   "type": "module"

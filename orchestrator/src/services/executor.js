@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-import { ABIs, getVaultContract, computeIntentHash, computeCommitHash, getProvider, EXECUTION_INTENT_TYPES } from '../config/contracts.js';
+import { ABIs, getVaultContract, getShardedVaultContract, computeIntentHash, computeCommitHash, getProvider, EXECUTION_INTENT_TYPES } from '../config/contracts.js';
 import { buildAssetAddressMap, getTrackedAsset, normalizeTradeSymbol } from './assets.js';
 import { withRetry } from '../utils/retry.js';
 import config from '../config/index.js';
@@ -252,7 +252,15 @@ async function signIntentHashWithTeeKey(intentHash, intent) {
  */
 export async function submitIntent(intent, opts = {}) {
   try {
-    const vault = getVaultContract(intent.vault);
+    // Use sharded vault contract: each vault routes tx through its assigned
+    // wallet-pool shard, avoiding nonce collisions when multiple vaults execute
+    // in parallel. Falls back to single-signer getVaultContract() if pool errors.
+    let vault;
+    try {
+      vault = await getShardedVaultContract(intent.vault);
+    } catch {
+      vault = getVaultContract(intent.vault);
+    }
     const iface = new ethers.Interface(ABIs.AegisVault);
 
     const sealedMode = !!opts.sealedMode;

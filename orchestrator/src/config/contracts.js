@@ -48,6 +48,20 @@ export function getVaultContract(address) {
   return new ethers.Contract(address || config.contracts.vault, ABIs.AegisVault, getSigner());
 }
 
+/**
+ * Get a vault contract bound to the wallet pool shard for this vault.
+ *
+ * Production behavior: vaults are sharded across multiple executor wallets
+ * (walletPool) for parallel tx submission without nonce collisions. Executor
+ * logic should call this instead of getVaultContract() when submitting txs.
+ */
+export async function getShardedVaultContract(address) {
+  // Lazy-import to avoid circular dependency (walletPool → contracts → walletPool)
+  const { walletForVault } = await import('../services/walletPool.js');
+  const wallet = walletForVault(address);
+  return new ethers.Contract(address, ABIs.AegisVault, wallet);
+}
+
 export function getFactoryContract() {
   return new ethers.Contract(config.contracts.vaultFactory, ABIs.AegisVaultFactory, getSigner());
 }

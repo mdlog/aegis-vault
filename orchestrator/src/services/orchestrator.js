@@ -13,6 +13,9 @@ import {
 import { initOGStorage, isOGStorageAvailable, readVaultStateFromOG } from './ogStorage.js';
 import { initOGCompute, getOGComputeStatus } from './ogCompute.js';
 import { evaluateApprovalTier } from './approvalTier.js';
+import { startIndexer, getVaultsByExecutor, getExecutorVaultCounts } from './vaultIndexer.js';
+import { getPoolAddresses, getPoolStats, getPoolSize } from './walletPool.js';
+import pLimit from 'p-limit';
 import { buildAssetAddressMap } from './assets.js';
 import { getFactoryContract, getSigner } from '../config/contracts.js';
 import config from '../config/index.js';
@@ -161,59 +164,51 @@ export async function initialize() {
   const state = readKVState();
   cycleCount = state.totalCycles || 0;
   restorePositionState(state.positionState);
-  logger.info(`Orchestrator initialized. Previous cycles: ${cycleCount}`);
+
+  // Start the vault indexer (backfill + event polling). Vault discovery becomes
+  // O(1) per cycle regardless of how many vaults exist on the factory.
+  await startIndexer().catch((err) => {
+    logger.warn(`Indexer init failed (will retry on poll): ${err.message}`);
+  });
+
+  logger.info(`Orchestrator initialized. Previous cycles: ${cycleCount} | Executor pool size: ${getPoolSize()}`);
 }
 
 /**
- * Discover all vaults where this orchestrator wallet is the executor.
- * Reads from factory's allVaults, checks each vault's executor.
+ * Discover all vaults where this orchestrator (or any wallet in the pool) is the executor.
+ *
+ * Production-grade flow:
+ *   1. Indexer keeps a SQLite cache of all vaults (populated from VaultDeployed events).
+ *   2. We query the cache filtered by executor address — O(log N) instead of O(N) RPC calls.
+ *   3. If wallet pool is configured, we union vaults across all pool addresses.
+ *
+ * This scales to 100k+ vaults without per-cycle factory scans.
  */
 async function discoverManagedVaults() {
+  // Pool addresses (single-wallet orchestrator returns 1 entry, sharded returns N)
+  const executorAddrs = getPoolAddresses();
+  const seen = new Set();
   const vaults = [];
-  const executorAddr = getSigner().address.toLowerCase();
 
-  try {
-    const factory = getFactoryContract();
-    const total = await factory.totalVaults();
-    const count = Number(total);
-
-    logger.info(`Factory has ${count} total vault(s). Scanning for executor=${executorAddr.slice(0, 10)}...`);
-
-    for (let i = 0; i < count; i++) {
-      try {
-        const vaultAddr = await factory.getVaultAt(i);
-        const state = await readVaultState(vaultAddr);
-
-        if (state.executor.toLowerCase() === executorAddr) {
-          vaults.push(vaultAddr);
-          logger.info(`  ✓ Vault ${vaultAddr.slice(0, 10)}... — NAV: $${state.nav.toLocaleString()} | ${state.paused ? 'PAUSED' : 'ACTIVE'}`);
-        }
-      } catch (e) {
-        logger.debug(`  Skipping vault at index ${i}: ${e.message?.substring(0, 60)}`);
-      }
-    }
-
-    // Also include the .env vault if set and not already found
-    if (config.contracts.vault) {
-      const envVault = config.contracts.vault.toLowerCase();
-      if (!vaults.some(v => v.toLowerCase() === envVault)) {
-        try {
-          const state = await readVaultState(config.contracts.vault);
-          if (state.executor.toLowerCase() === executorAddr) {
-            vaults.push(config.contracts.vault);
-            logger.info(`  ✓ Vault ${config.contracts.vault.slice(0, 10)}... (from .env) — NAV: $${state.nav.toLocaleString()}`);
-          }
-        } catch {}
-      }
-    }
-  } catch (e) {
-    logger.warn(`Factory scan failed: ${e.message}. Falling back to .env vault.`);
-    if (config.contracts.vault) {
-      vaults.push(config.contracts.vault);
+  for (const addr of executorAddrs) {
+    const rows = getVaultsByExecutor(addr);
+    for (const row of rows) {
+      if (seen.has(row.address)) continue;
+      seen.add(row.address);
+      vaults.push(row.address);
     }
   }
 
-  logger.info(`Managing ${vaults.length} vault(s)`);
+  // Always include .env vault as a backstop (helpful while indexer backfills)
+  if (config.contracts.vault) {
+    const envVault = config.contracts.vault;
+    if (!seen.has(envVault)) {
+      vaults.push(envVault);
+      seen.add(envVault);
+    }
+  }
+
+  logger.info(`Indexer: ${vaults.length} vault(s) assigned to ${executorAddrs.length} executor wallet(s)`);
   return vaults;
 }
 
@@ -529,16 +524,24 @@ export async function runCycle() {
     cycleResult.marketSummary = marketSummary.summary;
     logger.info(`  ${marketSummary.summary}`);
 
-    // ── Step 3: Run cycle for each vault ──
-    for (const vaultAddr of managedVaults) {
-      try {
-        const result = await runVaultCycle(vaultAddr, marketSummary);
-        cycleResult.vaultResults.push(result);
-      } catch (err) {
-        logger.error(`  Vault ${vaultAddr.slice(0, 10)} error: ${err.message}`);
-        cycleResult.vaultResults.push({ vault: vaultAddr, status: 'error', error: err.message });
-      }
-    }
+    // ── Step 3: Run cycle for each vault (parallel, bounded concurrency) ──
+    // Concurrency cap: default 5 vaults in-flight at once. Tune via
+    // VAULT_CONCURRENCY env for larger deployments. Each vault is sharded onto
+    // its assigned wallet (walletPool), so nonces don't conflict across workers.
+    const concurrency = Math.max(1, parseInt(process.env.VAULT_CONCURRENCY || '5', 10));
+    const limit = pLimit(concurrency);
+
+    const results = await Promise.all(
+      managedVaults.map((vaultAddr) => limit(async () => {
+        try {
+          return await runVaultCycle(vaultAddr, marketSummary);
+        } catch (err) {
+          logger.error(`  Vault ${vaultAddr.slice(0, 10)} error: ${err.message}`);
+          return { vault: vaultAddr, status: 'error', error: err.message };
+        }
+      }))
+    );
+    cycleResult.vaultResults.push(...results);
 
     // Summarize
     const executed = cycleResult.vaultResults.filter(r => r.status === 'executed').length;
@@ -613,5 +616,13 @@ export function getStatus() {
     ogCompute: getOGComputeStatus(),
     managedVaults: Object.keys(vaultPositions),
     managedVaultCount: Object.keys(vaultPositions).length,
+    // Production-grade metadata
+    poolSize: getPoolSize(),
+    poolStats: getPoolStats(
+      Object.fromEntries(
+        getExecutorVaultCounts().map((r) => [r.executor.toLowerCase(), r.count])
+      )
+    ),
+    vaultConcurrency: parseInt(process.env.VAULT_CONCURRENCY || '5', 10),
   };
 }
