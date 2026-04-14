@@ -208,3 +208,78 @@ export function useActivateOperator() {
 
   return { activate, hash, isPending, isConfirming, isSuccess, error };
 }
+
+
+// ── Track 2 / v2: Strategy Manifest + AI Model commitment ──
+
+// Read: extended metadata (manifest + AI commitment)
+export function useOperatorExtended(registryAddress, walletAddress) {
+  return useReadContract({
+    address: registryAddress,
+    abi: OperatorRegistryABI,
+    functionName: "getOperatorExtended",
+    args: [walletAddress],
+    query: { enabled: !!registryAddress && !!walletAddress, refetchInterval: 60000 },
+  });
+}
+
+// Write: publish strategy manifest
+export function usePublishManifest() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const publish = (registryAddress, { uri, hash: manifestHash, bonded }) => {
+    writeContract({
+      address: registryAddress,
+      abi: OperatorRegistryABI,
+      functionName: "publishManifest",
+      args: [uri, manifestHash, bonded],
+    });
+  };
+
+  return { publish, hash, isPending, isConfirming, isSuccess, error };
+}
+
+// Write: declare AI model commitment
+export function useDeclareAIModel() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const declare = (registryAddress, { aiModel, aiProvider, aiEndpoint }) => {
+    writeContract({
+      address: registryAddress,
+      abi: OperatorRegistryABI,
+      functionName: "declareAIModel",
+      args: [aiModel, aiProvider, aiEndpoint || ""],
+    });
+  };
+
+  return { declare, hash, isPending, isConfirming, isSuccess, error };
+}
+
+
+
+// Read: extended metadata for many operators (batch via useReadContracts)
+export function useOperatorExtendedBatch(registryAddress, walletAddresses = []) {
+  const contracts = walletAddresses.map((wallet) => ({
+    address: registryAddress,
+    abi: OperatorRegistryABI,
+    functionName: "getOperatorExtended",
+    args: [wallet],
+  }));
+  const { data, isLoading } = useReadContracts({
+    contracts,
+    query: { enabled: !!registryAddress && walletAddresses.length > 0, refetchInterval: 60000 },
+  });
+  const byAddress = {};
+  if (data) {
+    walletAddresses.forEach((w, i) => {
+      const r = data[i];
+      if (r?.status === "success" && r.result) {
+        byAddress[w.toLowerCase()] = r.result;
+      }
+    });
+  }
+  return { byAddress, isLoading };
+}
+

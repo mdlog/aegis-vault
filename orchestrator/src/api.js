@@ -7,6 +7,7 @@ import { readOperatorState } from './services/operatorReader.js';
 import { fetchMarketData, buildMarketSummary } from './services/marketData.js';
 import { readKVState, readJournal, flushJournalBuffer } from './services/storage.js';
 import { isOGStorageAvailable, kvGet, readVaultStateFromOG } from './services/ogStorage.js';
+import { listAvailableModels } from './services/ogCompute.js';
 import { fetchPythPrices, calculateMultiAssetNAV } from './services/pythPrice.js';
 import logger from './utils/logger.js';
 
@@ -278,6 +279,17 @@ export function createApp(overrides = {}) {
     res.json(alerts.slice(-limit).reverse());
   });
 
+  // ── 0G Compute (model discovery for operator registration UI) ──
+
+  app.get('/api/og-compute/models', async (req, res) => {
+    try {
+      const models = await listAvailableModels();
+      res.json({ models, count: models.length });
+    } catch (err) {
+      res.status(500).json({ error: err.message, models: [] });
+    }
+  });
+
   // ── 0G Storage ──
 
   app.get('/api/og/status', (req, res) => {
@@ -337,6 +349,7 @@ export function startAPI() {
     logger.info('  GET  /api/journal/decisions   — AI decisions');
     logger.info('  GET  /api/journal/executions  — Execution log');
     logger.info('  GET  /api/alerts             — Alerts / approvals');
+    logger.info('  GET  /api/og-compute/models  — Available AI models (0G Compute)');
     logger.info('  GET  /api/og/status          — 0G Storage status');
     logger.info('  GET  /api/og/state           — 0G KV state');
     logger.info('  GET  /api/og/kv/:key         — Read 0G KV key');

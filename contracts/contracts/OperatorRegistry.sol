@@ -61,6 +61,29 @@ contract OperatorRegistry {
     address[] public operatorList;
     mapping(address => uint256) private operatorIndex; // wallet => index+1 (0 = not present)
 
+    // ── Track 2 / v2: Extended metadata (strategy manifest + AI commitment) ──
+    // Additive: existing operators keep working without setting these. Opt-in to
+    // increase trust signal for vault owners.
+    struct OperatorExtended {
+        // Strategy manifest commitment
+        string  manifestURI;        // ipfs://Qm... | https://... | arweave://... | 0gstorage://...
+        bytes32 manifestHash;       // keccak256 of the manifest JSON content (off-chain)
+        uint256 manifestVersion;    // monotonically increases on every update
+        uint256 manifestUpdatedAt;  // timestamp of last manifest publish
+
+        // AI model commitment (which 0G Compute service the operator pledges to use)
+        string  aiModel;            // e.g. "zai-org/GLM-5-FP8"
+        address aiProvider;         // 0G Compute provider wallet address (immutable per provider)
+        string  aiEndpoint;         // optional service URL for transparency
+
+        // Bond between manifest publication and on-chain commitment.
+        // If decision logs prove operator deviated from manifest, governance can slash.
+        bool    manifestBonded;     // operator stakes their reputation on this manifest
+    }
+
+    // wallet => extended metadata
+    mapping(address => OperatorExtended) public operatorExtended;
+
     // ── Events ──
     event OperatorRegistered(
         address indexed wallet,
@@ -78,6 +101,21 @@ contract OperatorRegistry {
     event OperatorActivated(address indexed wallet);
     event OperatorDeactivated(address indexed wallet);
 
+    // ── Extended metadata events ──
+    event ManifestPublished(
+        address indexed operator,
+        bytes32 indexed manifestHash,
+        string manifestURI,
+        uint256 version,
+        bool bonded
+    );
+    event AIModelDeclared(
+        address indexed operator,
+        string aiModel,
+        address indexed aiProvider,
+        string aiEndpoint
+    );
+
     // ── Errors ──
     error AlreadyRegistered();
     error NotRegistered();
@@ -87,11 +125,18 @@ contract OperatorRegistry {
     error EndpointTooLong();
     error NotOperatorOwner();
     error FeeAboveMax();
+    error ManifestURITooLong();
+    error AIModelTooLong();
+    error AIEndpointTooLong();
+    error EmptyManifestHash();
 
     // ── Constants ──
     uint256 public constant MAX_NAME_LENGTH = 64;
     uint256 public constant MAX_DESCRIPTION_LENGTH = 500;
     uint256 public constant MAX_ENDPOINT_LENGTH = 200;
+    uint256 public constant MAX_MANIFEST_URI_LENGTH = 256;
+    uint256 public constant MAX_AI_MODEL_LENGTH = 64;
+    uint256 public constant MAX_AI_ENDPOINT_LENGTH = 200;
 
     // ── Modifiers ──
     modifier onlyRegistered(address wallet) {
@@ -276,5 +321,87 @@ contract OperatorRegistry {
         if (mgmtBps > MAX_MANAGEMENT_FEE_BPS) revert FeeAboveMax();
         if (entryBps > MAX_ENTRY_FEE_BPS) revert FeeAboveMax();
         if (exitBps > MAX_EXIT_FEE_BPS) revert FeeAboveMax();
+    }
+
+    // ── Track 2 / v2: Strategy Manifest + AI Model commitment ──
+
+    /**
+     * @notice Publish or update strategy manifest.
+     *
+     * @dev Manifest is a JSON document hosted off-chain (IPFS / Arweave / 0G Storage).
+     *      The keccak256 hash + URI are committed on-chain so vault owners can verify
+     *      the manifest content matches what the operator promised. Off-chain content
+     *      is described in docs/STRATEGY_MANIFEST.md.
+     *
+     *      `bonded=true` signals the operator stakes their reputation on this manifest
+     *      and accepts that governance can slash their stake if execution provably
+     *      deviates from the published rules.
+     *
+     * @param uri    Off-chain location of the manifest JSON
+     * @param hash   keccak256 of the canonical manifest JSON content
+     * @param bonded Whether operator pledges reputation against this manifest
+     */
+    function publishManifest(
+        string calldata uri,
+        bytes32 hash,
+        bool bonded
+    ) external onlyRegistered(msg.sender) {
+        if (bytes(uri).length > MAX_MANIFEST_URI_LENGTH) revert ManifestURITooLong();
+        if (hash == bytes32(0)) revert EmptyManifestHash();
+
+        OperatorExtended storage ext = operatorExtended[msg.sender];
+        ext.manifestURI = uri;
+        ext.manifestHash = hash;
+        ext.manifestVersion += 1;
+        ext.manifestUpdatedAt = block.timestamp;
+        ext.manifestBonded = bonded;
+
+        emit ManifestPublished(msg.sender, hash, uri, ext.manifestVersion, bonded);
+    }
+
+    /**
+     * @notice Declare which 0G Compute model + provider this operator commits to using.
+     *
+     * @dev Vault owners filter operators by AI model in the marketplace. Decision events
+     *      include the actual provider/model used per execution; if it doesn't match
+     *      the declared values, that's evidence for governance slashing.
+     *
+     * @param aiModel    e.g. "zai-org/GLM-5-FP8"
+     * @param aiProvider 0G Compute provider wallet address
+     * @param aiEndpoint optional service URL (transparency)
+     */
+    function declareAIModel(
+        string calldata aiModel,
+        address aiProvider,
+        string calldata aiEndpoint
+    ) external onlyRegistered(msg.sender) {
+        if (bytes(aiModel).length > MAX_AI_MODEL_LENGTH) revert AIModelTooLong();
+        if (bytes(aiEndpoint).length > MAX_AI_ENDPOINT_LENGTH) revert AIEndpointTooLong();
+
+        OperatorExtended storage ext = operatorExtended[msg.sender];
+        ext.aiModel = aiModel;
+        ext.aiProvider = aiProvider;
+        ext.aiEndpoint = aiEndpoint;
+
+        emit AIModelDeclared(msg.sender, aiModel, aiProvider, aiEndpoint);
+    }
+
+    /**
+     * @notice Read extended metadata (manifest + AI commitment) for an operator.
+     */
+    function getOperatorExtended(address wallet) external view returns (OperatorExtended memory) {
+        if (operatorIndex[wallet] == 0) revert NotRegistered();
+        return operatorExtended[wallet];
+    }
+
+    /**
+     * @notice Convenience: read base + extended metadata in a single call.
+     */
+    function getOperatorFull(address wallet) external view returns (
+        Operator memory base,
+        OperatorExtended memory extended
+    ) {
+        if (operatorIndex[wallet] == 0) revert NotRegistered();
+        return (operators[wallet], operatorExtended[wallet]);
     }
 }

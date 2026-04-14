@@ -221,3 +221,33 @@ export function getOGComputeStatus() {
     network: 'mainnet',
   };
 }
+
+/**
+ * List all available chatbot services on 0G Compute (for operator registration UI).
+ *
+ * Each entry is { model, provider, url, serviceType, verified } as returned by
+ * `broker.inference.listService()`. Frontend uses this to populate the AI model
+ * dropdown in `/operator/register` so operators commit to a specific model.
+ */
+export async function listAvailableModels() {
+  if (!initialized || !broker) {
+    const ok = await initOGCompute();
+    if (!ok) return [];
+  }
+
+  try {
+    const services = await broker.inference.listService();
+    return services
+      .filter((s) => s.serviceType === 'chatbot')
+      .map((s) => ({
+        model: s.model,
+        provider: s.provider,
+        url: s.url,
+        serviceType: s.serviceType,
+        verified: s.verifiable !== false,
+      }));
+  } catch (err) {
+    logger.error(`0G Compute: listAvailableModels failed: ${err.message}`);
+    return [];
+  }
+}

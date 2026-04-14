@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
-import { getDeployments } from '../lib/contracts';
+import { getDeployments, getExplorerTxHref, shortHexLabel } from '../lib/contracts';
 import {
   useIsRegistered, useOperator, useRegisterOperator, useUpdateOperator, Mandate,
+  useOperatorExtended, usePublishManifest, useDeclareAIModel,
 } from '../hooks/useOperatorRegistry';
+import { useAvailableAIModels } from '../hooks/useOrchestrator';
+import { keccak256, toBytes } from 'viem';
 import GlassPanel from '../components/ui/GlassPanel';
 import ControlButton from '../components/ui/ControlButton';
 import StatusPill from '../components/ui/StatusPill';
 import WalletButton from '../components/ui/WalletButton';
+import ExplorerAnchor from '../components/ui/ExplorerAnchor';
 import { ArrowLeft, Cpu, Globe, Tag, FileText, ShieldCheck, AlertTriangle } from 'lucide-react';
 
 const DEFAULT_OPERATOR_FORM = {
@@ -82,8 +86,35 @@ export default function OperatorRegisterPage() {
 
   const { data: isRegistered } = useIsRegistered(registryAddress, address);
   const { data: existingOp } = useOperator(registryAddress, isRegistered ? address : undefined);
-  const { register, isPending: registering, isSuccess: registerSuccess } = useRegisterOperator();
-  const { update, isPending: updating, isSuccess: updateSuccess } = useUpdateOperator();
+  const { register, hash: registerHash, isPending: registering, isSuccess: registerSuccess } = useRegisterOperator();
+  const { update, hash: updateHash, isPending: updating, isSuccess: updateSuccess } = useUpdateOperator();
+
+  // ── v2: Strategy Manifest + AI commitment ──
+  const { data: extended } = useOperatorExtended(registryAddress, isRegistered ? address : undefined);
+  const { publish: publishManifest, hash: manifestHash, isPending: publishingManifest, isSuccess: manifestSuccess } = usePublishManifest();
+  const { declare: declareAI, hash: aiHash, isPending: declaringAI, isSuccess: aiSuccess } = useDeclareAIModel();
+  const { data: availableModels } = useAvailableAIModels();
+  const [aiModel, setAIModel] = useState('');
+  const [aiProvider, setAIProvider] = useState('');
+  const [aiEndpoint, setAIEndpoint] = useState('');
+  const [manifestURI, setManifestURI] = useState('');
+  const [manifestJSON, setManifestJSON] = useState('');
+  const [manifestBonded, setManifestBonded] = useState(true);
+
+  // Pre-fill AI/manifest fields from on-chain extended data (after register/refresh)
+  useEffect(() => {
+    if (extended && isRegistered) {
+      if (extended.aiModel && !aiModel) setAIModel(extended.aiModel);
+      if (extended.aiProvider && extended.aiProvider !== '0x0000000000000000000000000000000000000000' && !aiProvider) {
+        setAIProvider(extended.aiProvider);
+      }
+      if (extended.aiEndpoint && !aiEndpoint) setAIEndpoint(extended.aiEndpoint);
+      if (extended.manifestURI && !manifestURI) setManifestURI(extended.manifestURI);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extended, isRegistered]);
+
+  const computedManifestHash = manifestJSON.trim() ? keccak256(toBytes(manifestJSON.trim())) : '0x0000000000000000000000000000000000000000000000000000000000000000';
 
   const [draft, setDraft] = useState(null);
 
@@ -107,6 +138,8 @@ export default function OperatorRegisterPage() {
   const canSubmit = isConnected && registryAddress && form.name.trim().length > 0 && !submitting
     && form.performanceFeePct <= 30 && form.managementFeePct <= 5 && form.entryFeePct <= 2 && form.exitFeePct <= 2;
   const remainingChars = 500 - form.description.length;
+  const latestRegistryHash = updateHash || registerHash;
+  const latestRegistryTxHref = getExplorerTxHref(chainId, latestRegistryHash);
 
   const handleSubmit = () => {
     if (!canSubmit) return;
@@ -465,7 +498,171 @@ export default function OperatorRegisterPage() {
       {success && (
         <div className="mt-4 text-center">
           <StatusPill label="On-chain confirmed" variant="active" />
+          {latestRegistryTxHref && (
+            <div className="mt-2">
+              <ExplorerAnchor
+                href={latestRegistryTxHref}
+                label={`Tx ${shortHexLabel(latestRegistryHash, 10, 6)}`}
+                className="text-[10px] font-mono text-cyan/60 hover:text-cyan transition-colors"
+              />
+            </div>
+          )}
         </div>
+      )}
+
+      {/* ── v2: Strategy Manifest + AI Commitment (only after register) ── */}
+      {isRegistered && (
+        <>
+          <div className="mt-10 mb-4 flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-gold" />
+            <h2 className="text-base font-display font-semibold text-white">Strategy & AI Commitments</h2>
+            <StatusPill label="v2" variant="info" />
+          </div>
+          <p className="text-[11px] text-steel/50 mb-4">
+            Optional but recommended: publicly commit to which AI model you use and what your strategy rules are.
+            Vault owners filter operators by this. Bonded manifests are slashable if execution deviates from the rules.
+          </p>
+
+          {/* AI Model Declaration */}
+          <GlassPanel className="p-5 mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Cpu className="w-4 h-4 text-cyan" />
+              <h3 className="text-sm font-display font-semibold text-white">AI Model Commitment</h3>
+              {extended?.aiModel && <StatusPill label="Declared" variant="active" />}
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-mono uppercase tracking-wider text-steel/40 block mb-1.5">
+                  Model (from 0G Compute network)
+                </label>
+                <select
+                  value={aiModel}
+                  onChange={(e) => {
+                    setAIModel(e.target.value);
+                    const m = availableModels?.models?.find(x => x.model === e.target.value);
+                    if (m) {
+                      setAIProvider(m.provider);
+                      setAIEndpoint(m.url);
+                    }
+                  }}
+                  className="w-full px-3 py-2 rounded-md bg-obsidian/60 border border-white/[0.08] text-xs font-mono text-white"
+                >
+                  <option value="">— Select a model —</option>
+                  {availableModels?.models?.map((m) => (
+                    <option key={`${m.model}-${m.provider}`} value={m.model}>
+                      {m.model} ({m.provider.slice(0, 10)}...)
+                    </option>
+                  ))}
+                </select>
+                {!availableModels?.models?.length && (
+                  <p className="mt-1.5 text-[10px] text-amber-warn/60">
+                    Cannot fetch model list — orchestrator API unavailable. You can still type a model name manually below.
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-mono uppercase tracking-wider text-steel/40 block mb-1.5">
+                    Provider Address
+                  </label>
+                  <input
+                    type="text"
+                    value={aiProvider}
+                    onChange={(e) => setAIProvider(e.target.value.trim())}
+                    placeholder="0x..."
+                    className="w-full px-3 py-2 rounded-md bg-obsidian/60 border border-white/[0.08] text-xs font-mono text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-mono uppercase tracking-wider text-steel/40 block mb-1.5">
+                    Endpoint URL (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={aiEndpoint}
+                    onChange={(e) => setAIEndpoint(e.target.value.trim())}
+                    placeholder="https://..."
+                    className="w-full px-3 py-2 rounded-md bg-obsidian/60 border border-white/[0.08] text-xs font-mono text-white"
+                  />
+                </div>
+              </div>
+
+              <ControlButton
+                variant="gold"
+                className="w-full"
+                disabled={!aiModel || !aiProvider || declaringAI}
+                onClick={() => declareAI(registryAddress, { aiModel, aiProvider, aiEndpoint })}
+              >
+                {declaringAI ? 'Declaring on-chain...' : aiSuccess ? 'Declared ✓' : 'Declare AI Model'}
+              </ControlButton>
+            </div>
+          </GlassPanel>
+
+          {/* Strategy Manifest */}
+          <GlassPanel className="p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <FileText className="w-4 h-4 text-gold" />
+              <h3 className="text-sm font-display font-semibold text-white">Strategy Manifest</h3>
+              {extended?.manifestURI && <StatusPill label={`v${Number(extended.manifestVersion || 0)}`} variant="active" />}
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-mono uppercase tracking-wider text-steel/40 block mb-1.5">
+                  Manifest URI (IPFS / 0G Storage / HTTPS)
+                </label>
+                <input
+                  type="text"
+                  value={manifestURI}
+                  onChange={(e) => setManifestURI(e.target.value.trim())}
+                  placeholder="ipfs://Qm... or https://your-domain.com/manifest.json"
+                  className="w-full px-3 py-2 rounded-md bg-obsidian/60 border border-white/[0.08] text-xs font-mono text-white"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-mono uppercase tracking-wider text-steel/40 block mb-1.5">
+                  Manifest JSON content (paste full JSON — hash auto-computed)
+                </label>
+                <textarea
+                  value={manifestJSON}
+                  onChange={(e) => setManifestJSON(e.target.value)}
+                  rows={6}
+                  placeholder='{ "strategy": { "name": "Momentum Breakout", "type": "trend_following", ... } }'
+                  className="w-full px-3 py-2 rounded-md bg-obsidian/60 border border-white/[0.08] text-[11px] font-mono text-white"
+                />
+                <p className="mt-1.5 text-[10px] text-steel/40">
+                  Computed hash: <span className="font-mono text-cyan/60">{computedManifestHash.slice(0, 18)}...{computedManifestHash.slice(-8)}</span>
+                </p>
+              </div>
+
+              <label className="flex items-center gap-2 text-[11px] text-steel/60">
+                <input
+                  type="checkbox"
+                  checked={manifestBonded}
+                  onChange={(e) => setManifestBonded(e.target.checked)}
+                  className="w-4 h-4 rounded"
+                />
+                <span><strong className="text-gold">Bonded:</strong> stake my reputation on this manifest. Governance can slash me if executions deviate.</span>
+              </label>
+
+              <ControlButton
+                variant="gold"
+                className="w-full"
+                disabled={!manifestURI || !manifestJSON.trim() || publishingManifest}
+                onClick={() => publishManifest(registryAddress, {
+                  uri: manifestURI,
+                  hash: computedManifestHash,
+                  bonded: manifestBonded,
+                })}
+              >
+                {publishingManifest ? 'Publishing on-chain...' : manifestSuccess ? 'Published ✓' : 'Publish Manifest'}
+              </ControlButton>
+            </div>
+          </GlassPanel>
+        </>
       )}
     </div>
   );

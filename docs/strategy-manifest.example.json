@@ -1,0 +1,46 @@
+{
+  "$schema": "https://aegisvault.io/schemas/strategy-manifest-v1.json",
+  "version": "1.0.0",
+  "operator": {
+    "address": "0xc067ACbd7942Ec4d0ac849be9990141Ba6AeF5F9",
+    "name": "Aegis Demo Operator",
+    "contact": "demo@aegisvault.io"
+  },
+  "strategy": {
+    "name": "Conservative Momentum",
+    "type": "trend_following",
+    "timeframe": "5min",
+    "supportedAssets": ["BTC", "ETH"],
+    "leverage": 1,
+    "minVaultSize": 1000,
+    "maxVaultSize": 100000
+  },
+  "ai": {
+    "provider": "0g-compute",
+    "model": "zai-org/GLM-5-FP8",
+    "providerAddress": "0xd9966e13a6026Fcca4b13E7ff95c94DE268C471C"
+  },
+  "indicators": [
+    { "name": "RSI", "period": 14, "thresholds": { "oversold": 30, "overbought": 70 } },
+    { "name": "MACD", "fast": 12, "slow": 26, "signal": 9 },
+    { "name": "EMA", "periods": [50, 200] },
+    { "name": "ATR", "period": 14 }
+  ],
+  "rules": {
+    "entry": "AI confidence >= 60% AND regime = TRENDING_UP AND RSI between 40-65 AND price > EMA-50",
+    "exit": "Trailing stop 5% OR RSI > 75 OR regime change to RANGE_NOISY",
+    "veto": ["high_volatility", "low_volume", "stop_loss_breach", "policy_check_fail"]
+  },
+  "guarantees": {
+    "maxDrawdown": "15%",
+    "expectedSharpe": 1.2,
+    "backtestPeriod": "2024-01 to 2025-12",
+    "backtestUrl": null
+  },
+  "commitments": {
+    "minNoticeForChange": "30 days",
+    "willNotChangeWithoutVote": false,
+    "reservedRights": ["pause", "emergencyExit"]
+  },
+  "publishedAt": "2026-04-15T10:00:00Z"
+}

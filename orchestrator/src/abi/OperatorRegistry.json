@@ -1,12 +1,27 @@
 [
   {
     "inputs": [],
+    "name": "AIEndpointTooLong",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "AIModelTooLong",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "AlreadyRegistered",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "DescriptionTooLong",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "EmptyManifestHash",
     "type": "error"
   },
   {
@@ -26,6 +41,11 @@
   },
   {
     "inputs": [],
+    "name": "ManifestURITooLong",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "NameTooLong",
     "type": "error"
   },
@@ -38,6 +58,74 @@
     "inputs": [],
     "name": "NotRegistered",
     "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "operator",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "aiModel",
+        "type": "string"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "aiProvider",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "aiEndpoint",
+        "type": "string"
+      }
+    ],
+    "name": "AIModelDeclared",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "operator",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "manifestHash",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "manifestURI",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "version",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "bonded",
+        "type": "bool"
+      }
+    ],
+    "name": "ManifestPublished",
+    "type": "event"
   },
   {
     "anonymous": false,
@@ -123,6 +211,32 @@
   },
   {
     "inputs": [],
+    "name": "MAX_AI_ENDPOINT_LENGTH",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MAX_AI_MODEL_LENGTH",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "MAX_DESCRIPTION_LENGTH",
     "outputs": [
       {
@@ -188,6 +302,19 @@
   },
   {
     "inputs": [],
+    "name": "MAX_MANIFEST_URI_LENGTH",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "MAX_NAME_LENGTH",
     "outputs": [
       {
@@ -222,6 +349,29 @@
   {
     "inputs": [],
     "name": "deactivate",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "aiModel",
+        "type": "string"
+      },
+      {
+        "internalType": "address",
+        "name": "aiProvider",
+        "type": "address"
+      },
+      {
+        "internalType": "string",
+        "name": "aiEndpoint",
+        "type": "string"
+      }
+    ],
+    "name": "declareAIModel",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -348,6 +498,220 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "wallet",
+        "type": "address"
+      }
+    ],
+    "name": "getOperatorExtended",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "string",
+            "name": "manifestURI",
+            "type": "string"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "manifestHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "manifestVersion",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "manifestUpdatedAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "aiModel",
+            "type": "string"
+          },
+          {
+            "internalType": "address",
+            "name": "aiProvider",
+            "type": "address"
+          },
+          {
+            "internalType": "string",
+            "name": "aiEndpoint",
+            "type": "string"
+          },
+          {
+            "internalType": "bool",
+            "name": "manifestBonded",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct OperatorRegistry.OperatorExtended",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "wallet",
+        "type": "address"
+      }
+    ],
+    "name": "getOperatorFull",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "wallet",
+            "type": "address"
+          },
+          {
+            "internalType": "string",
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "description",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "endpoint",
+            "type": "string"
+          },
+          {
+            "internalType": "enum OperatorRegistry.Mandate",
+            "name": "mandate",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "registeredAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "updatedAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "performanceFeeBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "managementFeeBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "entryFeeBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "exitFeeBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "recommendedMaxPositionBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "recommendedConfidenceMinBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "recommendedStopLossBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "recommendedCooldownSeconds",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "recommendedMaxActionsPerDay",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct OperatorRegistry.Operator",
+        "name": "base",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "string",
+            "name": "manifestURI",
+            "type": "string"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "manifestHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "manifestVersion",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "manifestUpdatedAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "aiModel",
+            "type": "string"
+          },
+          {
+            "internalType": "address",
+            "name": "aiProvider",
+            "type": "address"
+          },
+          {
+            "internalType": "string",
+            "name": "aiEndpoint",
+            "type": "string"
+          },
+          {
+            "internalType": "bool",
+            "name": "manifestBonded",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct OperatorRegistry.OperatorExtended",
+        "name": "extended",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "offset",
         "type": "uint256"
@@ -401,6 +765,60 @@
       {
         "internalType": "bool",
         "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "operatorExtended",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "manifestURI",
+        "type": "string"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "manifestHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "manifestVersion",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "manifestUpdatedAt",
+        "type": "uint256"
+      },
+      {
+        "internalType": "string",
+        "name": "aiModel",
+        "type": "string"
+      },
+      {
+        "internalType": "address",
+        "name": "aiProvider",
+        "type": "address"
+      },
+      {
+        "internalType": "string",
+        "name": "aiEndpoint",
+        "type": "string"
+      },
+      {
+        "internalType": "bool",
+        "name": "manifestBonded",
         "type": "bool"
       }
     ],
@@ -523,6 +941,29 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "uri",
+        "type": "string"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "hash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bool",
+        "name": "bonded",
+        "type": "bool"
+      }
+    ],
+    "name": "publishManifest",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

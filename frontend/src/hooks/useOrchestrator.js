@@ -188,3 +188,10 @@ export function useOrchestratorVault(vaultAddress) {
   const endpoint = `/api/vault${buildQuery({ vault: vaultAddress })}`;
   return useAPI(endpoint, { interval: 10000, enabled: !!vaultAddress });
 }
+
+
+// ── 0G Compute model discovery (for operator register dropdown) ──
+export function useAvailableAIModels() {
+  return useAPI("/api/og-compute/models", { interval: 0 }); // fetch once
+}
+

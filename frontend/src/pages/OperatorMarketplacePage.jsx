@@ -1,8 +1,19 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useChainId } from 'wagmi';
-import { getDeployments } from '../lib/contracts';
-import { useOperatorList, MandateLabel } from '../hooks/useOperatorRegistry';
+import {
+  ENABLE_DEMO_FALLBACKS,
+  getDeployments,
+  getExplorerAddressHref,
+  isConfiguredAddress,
+  shortHexLabel,
+} from '../lib/contracts';
+import {
+  demoOperators,
+  demoOperatorReputations,
+  demoOperatorTiers,
+} from '../data/demoContent';
+import { useOperatorList, MandateLabel, useOperatorExtendedBatch } from '../hooks/useOperatorRegistry';
 import { formatBps } from '../hooks/useVaultFees';
 import {
   useOperatorTiers, TIER_LABELS, TIER_COLORS, formatVaultCap,
@@ -14,9 +25,10 @@ import GlassPanel from '../components/ui/GlassPanel';
 import StatusPill from '../components/ui/StatusPill';
 import SectionLabel from '../components/ui/SectionLabel';
 import ControlButton from '../components/ui/ControlButton';
+import ExplorerAnchor from '../components/ui/ExplorerAnchor';
 import {
   Cpu, Search, Plus, ArrowRight, Users, Activity, ShieldCheck, Globe, Tag,
-  TrendingUp, Percent, DollarSign, Award, Lock, Star, BadgeCheck,
+  TrendingUp, Percent, DollarSign, Award, Lock, Star, BadgeCheck, ExternalLink, FileText,
 } from 'lucide-react';
 
 const MANDATE_FILTERS = [
@@ -44,6 +56,7 @@ export default function OperatorMarketplacePage() {
   const allOperatorAddrs = operators.filter((op) => op.loaded).map((op) => op.wallet);
   const { tiersByAddress } = useOperatorTiers(stakingAddress, allOperatorAddrs);
   const { reputationByAddress } = useOperatorReputations(reputationAddress, allOperatorAddrs);
+  const { byAddress: extendedByAddress } = useOperatorExtendedBatch(registryAddress, allOperatorAddrs);
 
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -53,8 +66,15 @@ export default function OperatorMarketplacePage() {
   const [sortBy, setSortBy] = useState('newest');
 
   const registryConfigured = Boolean(registryAddress);
+  const activeLiveOperators = operators.filter((op) => op.loaded && op.active);
+  const useDemoOperators = ENABLE_DEMO_FALLBACKS && (!registryConfigured || (!isLoading && activeLiveOperators.length === 0));
+  const operatorSource = useDemoOperators ? demoOperators : operators;
+  const countLabel = useDemoOperators ? demoOperators.length : count;
+  const tierSource = useDemoOperators ? demoOperatorTiers : tiersByAddress;
+  const reputationSource = useDemoOperators ? demoOperatorReputations : reputationByAddress;
+  const registryExplorerHref = getExplorerAddressHref(chainId, registryAddress);
 
-  const filtered = operators
+  const filtered = operatorSource
     .filter((op) => op.loaded && op.active)
     .filter((op) => {
       if (filter === 'all') return true;
@@ -68,12 +88,12 @@ export default function OperatorMarketplacePage() {
     })
     .filter((op) => {
       if (tierFilter === 'all') return true;
-      const tier = tiersByAddress[op.wallet?.toLowerCase()]?.tier || 0;
+      const tier = tierSource[op.wallet?.toLowerCase()]?.tier || 0;
       return tier >= Number(tierFilter);
     })
     .filter((op) => {
       if (!verifiedOnly) return true;
-      return reputationByAddress[op.wallet?.toLowerCase()]?.verified || false;
+      return reputationSource[op.wallet?.toLowerCase()]?.verified || false;
     })
     .filter((op) => {
       if (!search.trim()) return true;
@@ -89,18 +109,18 @@ export default function OperatorMarketplacePage() {
         return (a.performanceFeeBps || 0) - (b.performanceFeeBps || 0);
       }
       if (sortBy === 'highestTier') {
-        const ta = tiersByAddress[a.wallet?.toLowerCase()]?.tier || 0;
-        const tb = tiersByAddress[b.wallet?.toLowerCase()]?.tier || 0;
+        const ta = tierSource[a.wallet?.toLowerCase()]?.tier || 0;
+        const tb = tierSource[b.wallet?.toLowerCase()]?.tier || 0;
         return tb - ta;
       }
       if (sortBy === 'reputation') {
-        const ra = reputationScore(reputationByAddress[a.wallet?.toLowerCase()]);
-        const rb = reputationScore(reputationByAddress[b.wallet?.toLowerCase()]);
+        const ra = reputationScore(reputationSource[a.wallet?.toLowerCase()]);
+        const rb = reputationScore(reputationSource[b.wallet?.toLowerCase()]);
         return rb - ra;
       }
       if (sortBy === 'mostExecutions') {
-        const ea = reputationByAddress[a.wallet?.toLowerCase()]?.totalExecutions || 0;
-        const eb = reputationByAddress[b.wallet?.toLowerCase()]?.totalExecutions || 0;
+        const ea = reputationSource[a.wallet?.toLowerCase()]?.totalExecutions || 0;
+        const eb = reputationSource[b.wallet?.toLowerCase()]?.totalExecutions || 0;
         return eb - ea;
       }
       if (sortBy === 'name') {
@@ -130,6 +150,51 @@ export default function OperatorMarketplacePage() {
         </Link>
       </div>
 
+      {useDemoOperators && (
+        <GlassPanel gold className="p-4 mb-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-gold/75 mb-1">
+                Demo Roster Active
+              </div>
+              <p className="text-sm text-steel/55 max-w-3xl">
+                The marketplace is preloaded with three differentiated operators so the product demo always shows selection,
+                pricing, staking tiers, and reputation even before the on-chain registry is populated.
+              </p>
+            </div>
+            <Link to="/governance" className="text-[11px] font-mono text-cyan/60 hover:text-cyan transition-colors">
+              View governance oversight
+            </Link>
+          </div>
+        </GlassPanel>
+      )}
+
+      {!useDemoOperators && registryConfigured && (
+        <GlassPanel className="p-4 mb-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-cyan/75 mb-1">
+                Live Registry
+              </div>
+              <p className="text-sm text-steel/55 max-w-3xl">
+                This marketplace is reading the real operator registry on-chain. If the roster is still small, that is
+                genuine live state, not missing mock data.
+              </p>
+            </div>
+            {registryExplorerHref && (
+              <a
+                href={registryExplorerHref}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] font-mono text-cyan/60 hover:text-cyan transition-colors"
+              >
+                View registry on explorer <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
+        </GlassPanel>
+      )}
+
       {/* Stats Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <GlassPanel className="p-4">
@@ -137,7 +202,7 @@ export default function OperatorMarketplacePage() {
             <Users className="w-3.5 h-3.5 text-cyan/60" />
             <span className="text-[10px] font-mono uppercase tracking-wider text-steel/50">Operators</span>
           </div>
-          <div className="text-2xl font-display font-semibold text-white">{count}</div>
+          <div className="text-2xl font-display font-semibold text-white">{countLabel}</div>
         </GlassPanel>
         <GlassPanel className="p-4">
           <div className="flex items-center gap-2 mb-1">
@@ -145,7 +210,7 @@ export default function OperatorMarketplacePage() {
             <span className="text-[10px] font-mono uppercase tracking-wider text-steel/50">Active</span>
           </div>
           <div className="text-2xl font-display font-semibold text-emerald-soft">
-            {operators.filter((o) => o.loaded && o.active).length}
+            {operatorSource.filter((o) => o.loaded && o.active).length}
           </div>
         </GlassPanel>
         <GlassPanel className="p-4">
@@ -154,7 +219,7 @@ export default function OperatorMarketplacePage() {
             <span className="text-[10px] font-mono uppercase tracking-wider text-steel/50">Strategies</span>
           </div>
           <div className="text-2xl font-display font-semibold text-gold">
-            {new Set(operators.filter((o) => o.loaded).map((o) => o.mandateLabel)).size}
+            {new Set(operatorSource.filter((o) => o.loaded).map((o) => o.mandateLabel)).size}
           </div>
         </GlassPanel>
         <GlassPanel className="p-4">
@@ -163,7 +228,11 @@ export default function OperatorMarketplacePage() {
             <span className="text-[10px] font-mono uppercase tracking-wider text-steel/50">Registry</span>
           </div>
           <div className="text-[10px] font-mono text-white/50 break-all">
-            {registryAddress ? `${registryAddress.slice(0, 8)}...${registryAddress.slice(-6)}` : 'Not deployed'}
+            {useDemoOperators
+              ? 'Hackathon demo roster'
+              : registryAddress
+                ? `${registryAddress.slice(0, 8)}...${registryAddress.slice(-6)}`
+                : 'Not deployed'}
           </div>
         </GlassPanel>
       </div>
@@ -277,7 +346,7 @@ export default function OperatorMarketplacePage() {
       </div>
 
       {/* Operator Grid */}
-      {!registryConfigured ? (
+      {!registryConfigured && !useDemoOperators ? (
         <GlassPanel className="p-8 text-center">
           <Cpu className="w-10 h-10 text-steel/20 mx-auto mb-3" />
           <p className="text-sm text-steel/50">Operator Registry not deployed on this network yet.</p>
@@ -292,145 +361,183 @@ export default function OperatorMarketplacePage() {
         <GlassPanel className="p-12 text-center border-dashed">
           <Users className="w-10 h-10 text-steel/20 mx-auto mb-3" />
           <p className="text-sm text-steel/50">
-            {operators.length === 0
+            {operatorSource.length === 0
               ? 'No operators registered yet — be the first.'
               : 'No operators match your filters.'}
           </p>
-          {operators.length === 0 && (
-            <Link to="/operator/register" className="inline-block mt-4">
-              <ControlButton variant="gold" size="sm">
-                <Plus className="w-3 h-3" /> Register as Operator
-              </ControlButton>
-            </Link>
+          <p className="text-[11px] text-steel/35 mt-1 max-w-xl mx-auto leading-relaxed">
+            {operatorSource.length === 0
+              ? 'The registry is live, but nobody has published an active operator profile yet. Vaults can still use a custom executor while the marketplace warms up.'
+              : 'The live registry has entries, but your current filters are hiding all of them. Reset filters or search a broader term.'}
+          </p>
+          {operatorSource.length === 0 && (
+            <div className="mt-4 flex items-center justify-center gap-2 flex-wrap">
+              <Link to="/operator/register">
+                <ControlButton variant="gold" size="sm">
+                  <Plus className="w-3 h-3" /> Register as Operator
+                </ControlButton>
+              </Link>
+              <Link to="/create">
+                <ControlButton variant="secondary" size="sm">
+                  <Cpu className="w-3 h-3" /> Use Custom Executor
+                </ControlButton>
+              </Link>
+            </div>
           )}
         </GlassPanel>
       ) : (
         <div className="grid lg:grid-cols-2 gap-4">
           {filtered.map((op) => {
-            const tierData = tiersByAddress[op.wallet?.toLowerCase()];
+            const tierData = tierSource[op.wallet?.toLowerCase()];
             const tier = tierData?.tier || 0;
-            const repData = reputationByAddress[op.wallet?.toLowerCase()];
+            const repData = reputationSource[op.wallet?.toLowerCase()];
+            const operatorExplorerHref = getExplorerAddressHref(chainId, op.wallet);
             return (
-            <Link key={op.wallet} to={`/operator/${op.wallet}`}>
-              <GlassPanel className="p-5 group hover:border-gold/20 transition-all cursor-pointer h-full" hover>
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-gold/10 flex items-center justify-center flex-shrink-0">
-                      <Cpu className="w-5 h-5 text-gold/70" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <h3 className="text-base font-display font-semibold text-white">{op.name}</h3>
-                        {repData?.verified && (
-                          <BadgeCheck className="w-3.5 h-3.5 text-cyan" title="Verified Operator" />
+              <div key={op.wallet}>
+                <GlassPanel className="p-5 group hover:border-gold/20 transition-all h-full" hover>
+                  <Link to={`/operator/${op.wallet}`} className="block">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-gold/10 flex items-center justify-center flex-shrink-0">
+                          <Cpu className="w-5 h-5 text-gold/70" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <h3 className="text-base font-display font-semibold text-white">{op.name}</h3>
+                            {repData?.verified && (
+                              <BadgeCheck className="w-3.5 h-3.5 text-cyan" title="Verified Operator" />
+                            )}
+                          </div>
+                          <span className="text-[10px] font-mono text-steel/40">
+                            {shortHexLabel(op.wallet)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <span
+                          className={`text-[9px] font-mono px-2 py-0.5 rounded border ${
+                            MANDATE_COLORS[op.mandateLabel] || 'text-steel/50 bg-white/[0.02] border-white/[0.06]'
+                          }`}
+                        >
+                          {op.mandateLabel}
+                        </span>
+                        {tier > 0 && (
+                          <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border bg-white/[0.02] border-white/[0.06] flex items-center gap-1 ${TIER_COLORS[tier]}`}>
+                            <Award className="w-2.5 h-2.5" />
+                            {TIER_LABELS[tier]}
+                          </span>
+                        )}
+                        {tierData?.frozen && (
+                          <span className="text-[9px] font-mono text-red-warn/80 px-1.5 py-0.5 rounded bg-red-warn/10 border border-red-warn/20">FROZEN</span>
                         )}
                       </div>
-                      <span className="text-[10px] font-mono text-steel/40">
-                        {op.wallet.slice(0, 8)}...{op.wallet.slice(-6)}
-                      </span>
                     </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span
-                      className={`text-[9px] font-mono px-2 py-0.5 rounded border ${
-                        MANDATE_COLORS[op.mandateLabel] || 'text-steel/50 bg-white/[0.02] border-white/[0.06]'
-                      }`}
-                    >
-                      {op.mandateLabel}
-                    </span>
-                    {tier > 0 && (
-                      <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border bg-white/[0.02] border-white/[0.06] flex items-center gap-1 ${TIER_COLORS[tier]}`}>
-                        <Award className="w-2.5 h-2.5" />
-                        {TIER_LABELS[tier]}
-                      </span>
-                    )}
-                    {tierData?.frozen && (
-                      <span className="text-[9px] font-mono text-red-warn/80 px-1.5 py-0.5 rounded bg-red-warn/10 border border-red-warn/20">FROZEN</span>
-                    )}
-                  </div>
-                </div>
 
-                <p className="text-[11px] text-steel/55 leading-relaxed mb-3 line-clamp-3 min-h-[42px]">
-                  {op.description || 'No description provided.'}
-                </p>
+                    <p className="text-[11px] text-steel/55 leading-relaxed mb-3 line-clamp-3 min-h-[42px]">
+                      {op.description || 'No description provided.'}
+                    </p>
 
-                {/* Fee Badges */}
-                <div className="grid grid-cols-4 gap-1.5 mb-3">
-                  <div className="rounded-md bg-gold/[0.04] border border-gold/15 px-2 py-1.5">
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <TrendingUp className="w-2.5 h-2.5 text-gold/60" />
-                      <span className="text-[8px] font-mono uppercase tracking-wider text-steel/40">Perf</span>
+                    <div className="grid grid-cols-4 gap-1.5 mb-3">
+                      <div className="rounded-md bg-gold/[0.04] border border-gold/15 px-2 py-1.5">
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <TrendingUp className="w-2.5 h-2.5 text-gold/60" />
+                          <span className="text-[8px] font-mono uppercase tracking-wider text-steel/40">Perf</span>
+                        </div>
+                        <div className="text-[11px] font-mono text-gold tabular-nums">
+                          {formatBps(op.performanceFeeBps)}
+                        </div>
+                      </div>
+                      <div className="rounded-md bg-cyan/[0.04] border border-cyan/15 px-2 py-1.5">
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <Percent className="w-2.5 h-2.5 text-cyan/60" />
+                          <span className="text-[8px] font-mono uppercase tracking-wider text-steel/40">Mgmt</span>
+                        </div>
+                        <div className="text-[11px] font-mono text-cyan tabular-nums">
+                          {formatBps(op.managementFeeBps)}
+                        </div>
+                      </div>
+                      <div className="rounded-md bg-white/[0.02] border border-white/[0.06] px-2 py-1.5">
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <DollarSign className="w-2.5 h-2.5 text-steel/40" />
+                          <span className="text-[8px] font-mono uppercase tracking-wider text-steel/40">Entry</span>
+                        </div>
+                        <div className="text-[11px] font-mono text-steel/70 tabular-nums">
+                          {formatBps(op.entryFeeBps)}
+                        </div>
+                      </div>
+                      <div className="rounded-md bg-white/[0.02] border border-white/[0.06] px-2 py-1.5">
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <DollarSign className="w-2.5 h-2.5 text-steel/40" />
+                          <span className="text-[8px] font-mono uppercase tracking-wider text-steel/40">Exit</span>
+                        </div>
+                        <div className="text-[11px] font-mono text-steel/70 tabular-nums">
+                          {formatBps(op.exitFeeBps)}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-[11px] font-mono text-gold tabular-nums">
-                      {formatBps(op.performanceFeeBps)}
-                    </div>
-                  </div>
-                  <div className="rounded-md bg-cyan/[0.04] border border-cyan/15 px-2 py-1.5">
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <Percent className="w-2.5 h-2.5 text-cyan/60" />
-                      <span className="text-[8px] font-mono uppercase tracking-wider text-steel/40">Mgmt</span>
-                    </div>
-                    <div className="text-[11px] font-mono text-cyan tabular-nums">
-                      {formatBps(op.managementFeeBps)}
-                    </div>
-                  </div>
-                  <div className="rounded-md bg-white/[0.02] border border-white/[0.06] px-2 py-1.5">
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <DollarSign className="w-2.5 h-2.5 text-steel/40" />
-                      <span className="text-[8px] font-mono uppercase tracking-wider text-steel/40">Entry</span>
-                    </div>
-                    <div className="text-[11px] font-mono text-steel/70 tabular-nums">
-                      {formatBps(op.entryFeeBps)}
-                    </div>
-                  </div>
-                  <div className="rounded-md bg-white/[0.02] border border-white/[0.06] px-2 py-1.5">
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <DollarSign className="w-2.5 h-2.5 text-steel/40" />
-                      <span className="text-[8px] font-mono uppercase tracking-wider text-steel/40">Exit</span>
-                    </div>
-                    <div className="text-[11px] font-mono text-steel/70 tabular-nums">
-                      {formatBps(op.exitFeeBps)}
-                    </div>
-                  </div>
-                </div>
+                  </Link>
 
-                <div className="flex items-center justify-between pt-3 border-t border-white/[0.04]">
-                  <div className="flex items-center gap-3 text-[10px] font-mono text-steel/40">
-                    <span className="flex items-center gap-1">
-                      <Tag className="w-3 h-3" />
-                      Since {new Date(op.registeredAt * 1000).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
-                    </span>
-                    {op.endpoint && (
-                      <span className="flex items-center gap-1 text-cyan/40">
-                        <Globe className="w-3 h-3" />
-                        API
+                  <div className="flex items-center justify-between pt-3 border-t border-white/[0.04] gap-3">
+                    <div className="flex items-center gap-3 text-[10px] font-mono text-steel/40 flex-wrap">
+                      <span className="flex items-center gap-1">
+                        <Tag className="w-3 h-3" />
+                        Since {new Date(op.registeredAt * 1000).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
                       </span>
-                    )}
-                    {tierData && tierData.maxVaultSize > 0 && (
-                      <span className="flex items-center gap-1 text-emerald-soft/50">
-                        <Lock className="w-3 h-3" />
-                        Cap {formatVaultCap(tierData.maxVaultSize, tierData.isUnlimited)}
-                      </span>
-                    )}
-                    {repData && repData.totalExecutions > 0 && (
-                      <span className="flex items-center gap-1 text-cyan/40">
-                        <Activity className="w-3 h-3" />
-                        {repData.totalExecutions}
-                      </span>
-                    )}
-                    {repData && repData.ratingCount > 0 && (
-                      <span className="flex items-center gap-1 text-amber-warn/60">
-                        <Star className="w-3 h-3" fill="currentColor" />
-                        {repData.averageRating.toFixed(1)}
-                      </span>
-                    )}
+                      {op.endpoint && (
+                        <span className="flex items-center gap-1 text-cyan/40">
+                          <Globe className="w-3 h-3" />
+                          API
+                        </span>
+                      )}
+                      {extendedByAddress[op.wallet?.toLowerCase()]?.aiModel && (
+                        <span className="flex items-center gap-1 text-cyan/60" title={`AI Model: ${extendedByAddress[op.wallet.toLowerCase()].aiModel}`}>
+                          <Cpu className="w-3 h-3" />
+                          {extendedByAddress[op.wallet.toLowerCase()].aiModel.split('/').pop()?.split('-')[0] || 'AI'}
+                        </span>
+                      )}
+                      {extendedByAddress[op.wallet?.toLowerCase()]?.manifestURI && (
+                        <span
+                          className={`flex items-center gap-1 ${extendedByAddress[op.wallet.toLowerCase()].manifestBonded ? 'text-gold/70' : 'text-steel/50'}`}
+                          title={extendedByAddress[op.wallet.toLowerCase()].manifestBonded ? 'Bonded strategy manifest — slashable on deviation' : 'Strategy manifest published'}
+                        >
+                          <FileText className="w-3 h-3" />
+                          {extendedByAddress[op.wallet.toLowerCase()].manifestBonded ? 'Bonded' : 'Manifest'}
+                        </span>
+                      )}
+                      {tierData && tierData.maxVaultSize > 0 && (
+                        <span className="flex items-center gap-1 text-emerald-soft/50">
+                          <Lock className="w-3 h-3" />
+                          Cap {formatVaultCap(tierData.maxVaultSize, tierData.isUnlimited)}
+                        </span>
+                      )}
+                      {repData && repData.totalExecutions > 0 && (
+                        <span className="flex items-center gap-1 text-cyan/40">
+                          <Activity className="w-3 h-3" />
+                          {repData.totalExecutions}
+                        </span>
+                      )}
+                      {repData && repData.ratingCount > 0 && (
+                        <span className="flex items-center gap-1 text-amber-warn/60">
+                          <Star className="w-3 h-3" fill="currentColor" />
+                          {repData.averageRating.toFixed(1)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {operatorExplorerHref && (
+                        <ExplorerAnchor
+                          href={operatorExplorerHref}
+                          label="Explorer"
+                          className="text-[10px] font-mono text-cyan/60 hover:text-cyan transition-colors"
+                        />
+                      )}
+                      <Link to={`/operator/${op.wallet}`} className="flex items-center gap-1 text-[11px] text-gold/60 group-hover:text-gold transition-colors">
+                        View <ArrowRight className="w-3 h-3" />
+                      </Link>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 text-[11px] text-gold/60 group-hover:text-gold transition-colors">
-                    View <ArrowRight className="w-3 h-3" />
-                  </div>
-                </div>
-              </GlassPanel>
-            </Link>
+                </GlassPanel>
+              </div>
             );
           })}
         </div>
