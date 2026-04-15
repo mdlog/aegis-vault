@@ -1,41 +1,41 @@
 # Aegis Vault — Decision Matrix Buy / Sell / Hold v1
 
-## 1. Tujuan Dokumen
+## 1. Document Objective
 
-Dokumen ini menyusun **decision matrix Buy / Sell / Hold v1** yang sangat konkret untuk **Aegis Vault**, agar bisa langsung dipakai oleh **orchestrator** untuk:
+This document lays out a highly concrete **Buy / Sell / Hold v1 decision matrix** for **Aegis Vault**, so it can be directly consumed by the **orchestrator** to:
 
-- membaca kondisi market,
-- menentukan kapan **Buy**,
-- menentukan kapan **Sell / Reduce**,
-- menentukan kapan **Hold / No Trade**,
-- menentukan **ukuran posisi**,
-- menerapkan **risk veto**,
-- dan menghasilkan **JSON output** yang dapat langsung divalidasi sebelum dibentuk menjadi execution intent.
+- read market conditions,
+- determine when to **Buy**,
+- determine when to **Sell / Reduce**,
+- determine when to **Hold / No Trade**,
+- determine **position sizing**,
+- apply **risk veto**,
+- and produce **JSON output** that can be validated immediately before being shaped into an execution intent.
 
-Dokumen ini dirancang konsisten dengan prinsip Aegis Vault sebagai:
+This document is designed to be consistent with the Aegis Vault principle as:
 
 > **AI-guided, rules-constrained, regime-aware trading vault**
 
-Fokus utamanya adalah membuat sistem lebih **andal**, **tidak mudah overtrade**, **tidak mudah flip buy/sell karena noise**, dan tetap **mudah didemokan**.
+The primary focus is making the system more **reliable**, **not prone to overtrading**, **not prone to flipping buy/sell due to noise**, while remaining **easy to demo**.
 
 ---
 
-## 2. Prinsip Inti v1
+## 2. Core Principles v1
 
-Decision engine v1 mengikuti 6 prinsip inti:
+Decision engine v1 follows 6 core principles:
 
-1. **AI tidak pernah menjadi otoritas tunggal**.
-2. **Semua keputusan harus melewati hard risk veto layer**.
-3. **Buy / Sell / Hold ditentukan oleh gabungan rule + score + regime**.
-4. **Hold adalah aksi aktif**, bukan keadaan pasif.
-5. **Masuk dan keluar memakai hysteresis** agar tidak flip terus-menerus.
-6. **Position sizing harus dinamis**, bukan fixed size.
+1. **AI is never the sole authority**.
+2. **Every decision must pass through a hard risk veto layer**.
+3. **Buy / Sell / Hold is determined by a combination of rules + score + regime**.
+4. **Hold is an active action**, not a passive state.
+5. **Entry and exit use hysteresis** to prevent continuous flipping.
+6. **Position sizing must be dynamic**, not fixed size.
 
 ---
 
-## 3. Output yang Harus Dihasilkan Engine
+## 3. Output the Engine Must Produce
 
-Setiap siklus evaluasi, decision engine harus menghasilkan salah satu dari aksi berikut:
+Every evaluation cycle, the decision engine must produce one of the following actions:
 
 - `BUY`
 - `SELL`
@@ -44,7 +44,7 @@ Setiap siklus evaluasi, decision engine harus menghasilkan salah satu dari aksi 
 - `HOLD_FLAT`
 - `NO_TRADE`
 
-Agar v1 tetap sederhana di UI, frontend bisa menampilkan 3 kategori besar:
+To keep the v1 UI simple, the frontend can display 3 broad categories:
 
 - **Buy** → `BUY`
 - **Sell** → `SELL`, `REDUCE`
@@ -52,9 +52,9 @@ Agar v1 tetap sederhana di UI, frontend bisa menampilkan 3 kategori besar:
 
 ---
 
-## 4. Data Input Minimum untuk Orchestrator
+## 4. Minimum Data Input for Orchestrator
 
-Sebelum memanggil agent / model, orchestrator harus lebih dulu membangun input terstruktur berikut.
+Before calling the agent / model, the orchestrator must first build the following structured input.
 
 ### 4.1 Market Inputs
 
@@ -122,9 +122,9 @@ Sebelum memanggil agent / model, orchestrator harus lebih dulu membangun input t
 
 ---
 
-## 5. Struktur Decision Engine v1
+## 5. Decision Engine v1 Structure
 
-Decision engine v1 dibagi menjadi 6 layer:
+Decision engine v1 is divided into 6 layers:
 
 1. **Precompute Indicators**
 2. **Regime Classification**
@@ -137,9 +137,9 @@ Decision engine v1 dibagi menjadi 6 layer:
 
 ## 6. Regime Classification v1
 
-Sebelum menentukan Buy / Sell / Hold, sistem harus lebih dulu mengklasifikasikan market regime.
+Before determining Buy / Sell / Hold, the system must first classify the market regime.
 
-### 6.1 Regime yang Dipakai
+### 6.1 Regimes Used
 
 - `TREND_UP_STRONG`
 - `TREND_UP_WEAK`
@@ -150,78 +150,78 @@ Sebelum menentukan Buy / Sell / Hold, sistem harus lebih dulu mengklasifikasikan
 - `PANIC_VOLATILE`
 - `LOW_LIQUIDITY`
 
-### 6.2 Threshold Regime
+### 6.2 Regime Thresholds
 
 #### A. TREND_UP_STRONG
-Pilih jika semua terpenuhi:
+Select if all conditions are met:
 
 - `price > ema_20 > ema_50 > ema_200`
-- `rsi_14` antara `58` dan `74`
+- `rsi_14` between `58` and `74`
 - `macd_histogram > 0`
 - `atr_14_pct <= 2.8`
 - `mtf_alignment == bullish`
 
 #### B. TREND_UP_WEAK
-Pilih jika:
+Select if:
 
 - `price > ema_20 > ema_50`
 - `ema_50 >= ema_200`
-- `rsi_14` antara `52` dan `65`
+- `rsi_14` between `52` and `65`
 - `macd_histogram >= 0`
 - `atr_14_pct <= 3.2`
 
 #### C. RANGE_STABLE
-Pilih jika:
+Select if:
 
 - `abs(price - ema_50) / ema_50 <= 0.015`
-- `rsi_14` antara `42` dan `58`
+- `rsi_14` between `42` and `58`
 - `atr_14_pct <= 2.0`
-- tidak memenuhi syarat trend up/down kuat
+- does not satisfy strong trend up/down criteria
 
 #### D. RANGE_NOISY
-Pilih jika:
+Select if:
 
-- `rsi_14` antara `40` dan `60`
-- `atr_14_pct` antara `2.0` dan `3.8`
-- struktur EMA tidak rapi / saling berdekatan
+- `rsi_14` between `40` and `60`
+- `atr_14_pct` between `2.0` and `3.8`
+- EMA structure is disorganized / tightly clustered
 - `mtf_alignment == mixed`
 
 #### E. TREND_DOWN_WEAK
-Pilih jika:
+Select if:
 
 - `price < ema_20 < ema_50`
 - `ema_50 <= ema_200`
-- `rsi_14` antara `35` dan `48`
+- `rsi_14` between `35` and `48`
 - `macd_histogram <= 0`
 
 #### F. TREND_DOWN_STRONG
-Pilih jika semua terpenuhi:
+Select if all conditions are met:
 
 - `price < ema_20 < ema_50 < ema_200`
-- `rsi_14` antara `20` dan `42`
+- `rsi_14` between `20` and `42`
 - `macd_histogram < 0`
 - `atr_14_pct <= 3.0`
 - `mtf_alignment == bearish`
 
 #### G. PANIC_VOLATILE
-Pilih jika salah satu terpenuhi:
+Select if any one of the following is met:
 
 - `atr_14_pct > 3.8`
 - `realized_vol_1h_pct > 4.2`
-- candle expansion ratio ekstrem
-- spread/slippage meningkat tajam
+- extreme candle expansion ratio
+- sharp increase in spread/slippage
 
 #### H. LOW_LIQUIDITY
-Pilih jika salah satu terpenuhi:
+Select if any one of the following is met:
 
 - `spread_bps > 20`
 - `slippage_estimate_bps > 30`
-- depth tidak memadai
-- volume turun ekstrem
+- insufficient depth
+- extreme drop in volume
 
 ### 6.3 Regime Priority Order
 
-Jika beberapa regime cocok, pakai prioritas berikut:
+If multiple regimes match, use the following priority:
 
 1. `LOW_LIQUIDITY`
 2. `PANIC_VOLATILE`
@@ -236,70 +236,70 @@ Jika beberapa regime cocok, pakai prioritas berikut:
 
 ## 7. Signal Scoring v1
 
-Setelah regime ditentukan, sistem menghitung skor numerik.
+After the regime is determined, the system computes a numeric score.
 
 ### 7.1 Subscores
 
-Semua subscore menggunakan rentang `0–100`.
+All subscores use the `0–100` range.
 
 #### A. Trend Score
 
-Penilaian:
+Scoring:
 
-- `+30` jika `price > ema_20`
-- `+20` jika `ema_20 > ema_50`
-- `+20` jika `ema_50 > ema_200`
-- `+15` jika slope ema_20 positif
-- `+15` jika slope ema_50 positif
+- `+30` if `price > ema_20`
+- `+20` if `ema_20 > ema_50`
+- `+20` if `ema_50 > ema_200`
+- `+15` if ema_20 slope is positive
+- `+15` if ema_50 slope is positive
 
-Clamp hasil ke `0–100`.
+Clamp the result to `0–100`.
 
 #### B. Momentum Score
 
-Penilaian:
+Scoring:
 
-- `+25` jika `rsi_14 >= 55 && rsi_14 <= 70`
-- `+15` jika `rsi_14 > 70` tapi belum ekstrem
-- `+20` jika `macd_histogram > 0`
-- `+20` jika histogram meningkat dibanding window sebelumnya
-- `+20` jika `price_vs_vwap_pct > 0`
+- `+25` if `rsi_14 >= 55 && rsi_14 <= 70`
+- `+15` if `rsi_14 > 70` but not yet extreme
+- `+20` if `macd_histogram > 0`
+- `+20` if histogram is increasing versus the previous window
+- `+20` if `price_vs_vwap_pct > 0`
 
 #### C. Volatility Suitability Score
 
-Tujuan score ini bukan “semakin volatil semakin bagus”, tetapi menilai apakah volatilitas **masih layak diperdagangkan**.
+The purpose of this score is not "the more volatile the better", but to assess whether volatility is **still tradable**.
 
-- `100` jika `atr_14_pct <= 2.0`
-- `80` jika `2.0 < atr_14_pct <= 2.6`
-- `60` jika `2.6 < atr_14_pct <= 3.2`
-- `35` jika `3.2 < atr_14_pct <= 3.8`
-- `10` jika `atr_14_pct > 3.8`
+- `100` if `atr_14_pct <= 2.0`
+- `80` if `2.0 < atr_14_pct <= 2.6`
+- `60` if `2.6 < atr_14_pct <= 3.2`
+- `35` if `3.2 < atr_14_pct <= 3.8`
+- `10` if `atr_14_pct > 3.8`
 
 #### D. Liquidity / Execution Score
 
-Mulai dari `100`, lalu kurangi:
+Start from `100`, then subtract:
 
 - `-2 * spread_bps`
 - `-1.5 * slippage_estimate_bps`
-- `-10` jika depth tipis
-- `-10` jika route tidak stabil
+- `-10` if depth is thin
+- `-10` if route is unstable
 
-Clamp hasil ke `0–100`.
+Clamp the result to `0–100`.
 
 #### E. Risk State Score
 
-Mulai dari `100`, lalu kurangi:
+Start from `100`, then subtract:
 
 - `-10 * consecutive_losses`
-- `-2 * abs(daily_pnl_pct)` jika negatif
+- `-2 * abs(daily_pnl_pct)` if negative
 - `-3 * rolling_drawdown_pct`
-- `-15` jika `actions_last_60m >= 2`
-- `-15` jika `time_since_last_trade_sec < cooldown_seconds`
+- `-15` if `actions_last_60m >= 2`
+- `-15` if `time_since_last_trade_sec < cooldown_seconds`
 
-Clamp hasil ke `0–100`.
+Clamp the result to `0–100`.
 
 #### F. AI Context Score
 
-Didapat dari model / agent, juga dalam skala `0–100`, berdasarkan:
+Obtained from the model / agent, also on a `0–100` scale, based on:
 
 - clarity of setup,
 - regime suitability,
@@ -307,9 +307,9 @@ Didapat dari model / agent, juga dalam skala `0–100`, berdasarkan:
 - entry timing quality,
 - absence of contradictory signals.
 
-### 7.2 Bobot Final
+### 7.2 Final Weighting
 
-Gunakan formula:
+Use the formula:
 
 ```text
 final_edge_score =
@@ -321,42 +321,42 @@ final_edge_score =
   0.10 * ai_context_score
 ```
 
-Hasil dibulatkan ke skala `0–100`.
+The result is rounded to the `0–100` scale.
 
 ---
 
 ## 8. Hysteresis Thresholds v1
 
-Agar sistem tidak flip terus-menerus, gunakan ambang masuk / tahan / keluar yang berbeda.
+To prevent the system from flipping constantly, use different entry / hold / exit thresholds.
 
-### 8.1 Threshold Utama
+### 8.1 Main Thresholds
 
 - **Enter Buy Threshold**: `72`
 - **Stay-in-Position Threshold**: `58`
 - **Reduce Threshold**: `52`
 - **Exit Threshold**: `48`
 
-### 8.2 Makna Threshold
+### 8.2 Threshold Meanings
 
-- `>= 72` → setup cukup kuat untuk masuk posisi baru
-- `58–71` → posisi existing boleh ditahan, tetapi jangan tambah
-- `52–57` → posisi mulai dilemahkan / reduce
-- `< 48` → keluar penuh atau no-trade
+- `>= 72` → setup is strong enough to enter a new position
+- `58–71` → existing position may be held, but do not add
+- `52–57` → position starts being weakened / reduced
+- `< 48` → full exit or no-trade
 
 ---
 
 ## 9. Hard Risk Veto Layer v1
 
-Layer ini dieksekusi **sebelum** action final diputuskan.
+This layer is executed **before** the final action is decided.
 
-Jika salah satu veto aktif, maka sistem **tidak boleh buy** meski final score tinggi.
+If any veto is active, then the system **must not buy** even if the final score is high.
 
 ### 9.1 Hard Veto Conditions
 
-Set `hard_veto = true` bila salah satu terpenuhi:
+Set `hard_veto = true` if any of the following is met:
 
 1. `pause == true`
-2. asset tidak ada di whitelist
+2. asset is not in the whitelist
 3. `open_intents > 0`
 4. `time_since_last_trade_sec < cooldown_seconds`
 5. `actions_last_60m >= max_actions_per_60m`
@@ -373,7 +373,7 @@ Set `hard_veto = true` bila salah satu terpenuhi:
 
 ### 9.2 Effect of Hard Veto
 
-Jika `hard_veto = true`, action hanya boleh menjadi salah satu dari:
+If `hard_veto = true`, the action can only be one of:
 
 - `HOLD_FLAT`
 - `HOLD_POSITION`
@@ -381,24 +381,24 @@ Jika `hard_veto = true`, action hanya boleh menjadi salah satu dari:
 - `SELL`
 - `NO_TRADE`
 
-`BUY` dilarang.
+`BUY` is prohibited.
 
 ---
 
 ## 10. Soft Filters v1
 
-Soft filter tidak langsung memblokir trade, tetapi menurunkan kualitas setup.
+Soft filters do not directly block a trade, but they degrade the setup quality.
 
 ### 10.1 Soft Filter Conditions
 
-- `distance_to_local_resistance_pct < 1.2` untuk long entry
+- `distance_to_local_resistance_pct < 1.2` for long entry
 - `rsi_14 > 72`
 - `price_vs_vwap_pct > 1.5`
-- volume tidak mendukung breakout
-- multi-timeframe alignment mixed
-- market baru saja spike satu candle tanpa retest
+- volume does not support the breakout
+- multi-timeframe alignment is mixed
+- market just spiked on a single candle without retest
 
-Jika 2 atau lebih soft filter aktif, kurangi:
+If 2 or more soft filters are active, subtract:
 
 - `trade_quality_score - 10`
 - `size_multiplier - 0.15`
@@ -409,13 +409,13 @@ Jika 2 atau lebih soft filter aktif, kurangi:
 
 ## 11.1 BUY Matrix
 
-### BUY hanya boleh terjadi jika semua syarat inti terpenuhi:
+### BUY may only occur if all core requirements are met:
 
 1. `hard_veto == false`
-2. `regime` adalah salah satu:
+2. `regime` is one of:
    - `TREND_UP_STRONG`
    - `TREND_UP_WEAK`
-   - `RANGE_STABLE` **hanya jika** support reversal valid
+   - `RANGE_STABLE` **only if** a valid support reversal is present
 3. `final_edge_score >= 72`
 4. `confidence >= 0.75`
 5. `risk_score <= 0.28`
@@ -427,12 +427,12 @@ Jika 2 atau lebih soft filter aktif, kurangi:
 
 ### BUY timing conditions
 
-Minimal salah satu harus terpenuhi:
+At least one of the following must be met:
 
-- breakout + retest valid
-- dua candle close di atas resistance minor
-- price above VWAP + volume mendukung
-- dip ke ema20 lalu memantul di trend up
+- valid breakout + retest
+- two candles closing above a minor resistance
+- price above VWAP + supportive volume
+- dip to ema20 followed by a bounce in an uptrend
 
 ### BUY size bands
 
@@ -440,62 +440,62 @@ Minimal salah satu harus terpenuhi:
 - confidence `0.81–0.87` → `size_bps = 900–1200`
 - confidence `> 0.87` → `size_bps = 1200–1500`
 
-Tetap tidak boleh melebihi `max_position_bps` policy.
+Must still not exceed the `max_position_bps` policy.
 
 ---
 
 ## 11.2 SELL Matrix
 
-SELL dibagi menjadi 3 jenis.
+SELL is divided into 3 types.
 
 ### A. Defensive SELL
 
-Trigger SELL penuh jika salah satu terpenuhi:
+Trigger a full SELL if any of the following is met:
 
 - `current_position_pnl_pct <= -(stop_loss_bps / 100)`
 - `rolling_drawdown_pct >= 6.0`
 - `atr_14_pct > 4.2`
 - `confidence < 0.40`
 - `risk_score > 0.55`
-- regime berubah menjadi `TREND_DOWN_STRONG` atau `PANIC_VOLATILE`
-- venue abnormal / market data rusak
+- regime changes to `TREND_DOWN_STRONG` or `PANIC_VOLATILE`
+- abnormal venue / broken market data
 
 ### B. Tactical SELL
 
-Trigger SELL penuh jika semua terpenuhi:
+Trigger a full SELL if all of the following are met:
 
 - `final_edge_score < 48`
 - `confidence < 0.55`
-- momentum rusak
-- price turun di bawah ema20 dan gagal reclaim
+- momentum is broken
+- price drops below ema20 and fails to reclaim
 
 ### C. Profit Realization SELL
 
-Jika posisi untung:
+If the position is profitable:
 
-- `current_position_pnl_pct >= 2.5` dan score turun di bawah `58` → trim / reduce
-- `current_position_pnl_pct >= 4.5` dan momentum melemah → SELL atau reduce besar
-- trailing stop tersentuh → SELL
+- `current_position_pnl_pct >= 2.5` and score falls below `58` → trim / reduce
+- `current_position_pnl_pct >= 4.5` and momentum weakens → SELL or large reduce
+- trailing stop is hit → SELL
 
 ---
 
 ## 11.3 REDUCE Matrix
 
-Gunakan `REDUCE` saat posisi existing belum harus ditutup penuh, tetapi edge melemah.
+Use `REDUCE` when an existing position does not yet need full closure, but the edge is weakening.
 
-### REDUCE jika semua terpenuhi:
+### REDUCE if all of the following are met:
 
 1. `current_position_side != flat`
 2. `final_edge_score >= 48 && final_edge_score < 58`
 3. `confidence >= 0.50 && confidence < 0.65`
-4. regime bukan `TREND_UP_STRONG`
-5. tidak ada defensive sell trigger
+4. regime is not `TREND_UP_STRONG`
+5. no defensive sell trigger is active
 
-### Besaran reduce
+### Reduce amount
 
-- reduce `25%` posisi jika score `54–57`
-- reduce `50%` posisi jika score `50–53`
-- reduce `75%` posisi jika score `48–49`
+- reduce `25%` of the position if score is `54–57`
+- reduce `50%` of the position if score is `50–53`
+- reduce `75%` of the position if score is `48–49`
 
 ---
 
@@ -503,53 +503,53 @@ Gunakan `REDUCE` saat posisi existing belum harus ditutup penuh, tetapi edge mel
 
 ### HOLD_POSITION
 
-Pilih `HOLD_POSITION` jika semua terpenuhi:
+Select `HOLD_POSITION` if all of the following are met:
 
 1. `current_position_side != flat`
 2. `final_edge_score >= 58`
 3. `confidence >= 0.60`
 4. `risk_score <= 0.40`
-5. tidak ada hard veto yang memaksa exit
+5. no hard veto is forcing an exit
 
 ### HOLD_FLAT
 
-Pilih `HOLD_FLAT` jika semua terpenuhi:
+Select `HOLD_FLAT` if all of the following are met:
 
 1. `current_position_side == flat`
 2. `final_edge_score >= 52 && final_edge_score < 72`
-3. atau `confidence >= 0.55 && confidence < 0.75`
-4. atau regime = `RANGE_NOISY`
-5. tidak ada setup timing yang valid
+3. or `confidence >= 0.55 && confidence < 0.75`
+4. or regime = `RANGE_NOISY`
+5. no valid timing setup
 
 ### NO_TRADE
 
-Pilih `NO_TRADE` jika:
+Select `NO_TRADE` if:
 
 - `hard_veto == true`
-- atau regime = `LOW_LIQUIDITY`
-- atau regime = `PANIC_VOLATILE`
-- atau data stale
+- or regime = `LOW_LIQUIDITY`
+- or regime = `PANIC_VOLATILE`
+- or data is stale
 
 ---
 
-## 12. Decision Table Ringkas
+## 12. Summary Decision Table
 
-| Kondisi | Action |
+| Condition | Action |
 |---|---|
-| hard veto aktif + flat | NO_TRADE |
-| hard veto aktif + ada posisi | HOLD_POSITION / REDUCE / SELL sesuai severity |
-| regime bullish + score >= 72 + confidence >= 0.75 + risk_score <= 0.28 + timing valid | BUY |
-| ada posisi + score >= 58 | HOLD_POSITION |
-| ada posisi + score 48–57 | REDUCE |
-| ada posisi + score < 48 | SELL |
-| flat + score 52–71 tapi timing belum valid | HOLD_FLAT |
-| regime noisy / panic / low liquidity | HOLD_FLAT / NO_TRADE |
+| hard veto active + flat | NO_TRADE |
+| hard veto active + position open | HOLD_POSITION / REDUCE / SELL depending on severity |
+| bullish regime + score >= 72 + confidence >= 0.75 + risk_score <= 0.28 + valid timing | BUY |
+| position open + score >= 58 | HOLD_POSITION |
+| position open + score 48–57 | REDUCE |
+| position open + score < 48 | SELL |
+| flat + score 52–71 but timing not yet valid | HOLD_FLAT |
+| noisy / panic / low liquidity regime | HOLD_FLAT / NO_TRADE |
 
 ---
 
 ## 13. Trade Quality Score v1
 
-Trade quality dipakai sebagai filter akhir sebelum intent dibentuk.
+Trade quality is used as a final filter before the intent is constructed.
 
 ### 13.1 Formula
 
@@ -562,7 +562,7 @@ trade_quality_score =
   0.15 * confidence_score_scaled
 ```
 
-### 13.2 Threshold
+### 13.2 Thresholds
 
 - `>= 78` → execute normal
 - `70–77` → execute small only
@@ -573,7 +573,7 @@ trade_quality_score =
 
 ## 14. Position Sizing v1
 
-Gunakan sizing dinamis berikut.
+Use the following dynamic sizing.
 
 ### 14.1 Base Formula
 
@@ -582,7 +582,7 @@ position_size_bps =
   base_size_bps * confidence_multiplier * volatility_multiplier * drawdown_multiplier
 ```
 
-### 14.2 Rekomendasi Nilai
+### 14.2 Recommended Values
 
 #### base_size_bps
 - conservative: `700`
@@ -610,7 +610,7 @@ position_size_bps =
 
 - minimum size: `300 bps`
 - recommended normal max: `1500 bps`
-- hard cap: `max_position_bps` dari policy
+- hard cap: `max_position_bps` from policy
 
 ---
 
@@ -678,11 +678,11 @@ flowchart TD
 
 ---
 
-## 16. JSON Output Schema untuk Agent
+## 16. JSON Output Schema for Agent
 
-Output agent harus selalu terstruktur dan mudah divalidasi.
+The agent output must always be structured and easy to validate.
 
-## 16.1 Schema Ringkas
+## 16.1 Concise Schema
 
 ```json
 {
@@ -891,27 +891,27 @@ Output agent harus selalu terstruktur dan mudah divalidasi.
 
 ---
 
-## 18. Validation Rules untuk Orchestrator
+## 18. Validation Rules for Orchestrator
 
-Sebelum JSON output agent dipakai, orchestrator wajib melakukan validasi berikut.
+Before the agent's JSON output is used, the orchestrator must perform the following validations.
 
 ### 18.1 Schema Validation
 
-- semua field wajib ada
-- enum valid
-- angka berada pada rentang yang benar
-- `confidence` harus `0.0–1.0`
-- `risk_score` harus `0.0–1.0`
-- `final_edge_score` harus `0–100`
-- `size_bps` harus `0–max_position_bps`
+- all required fields must be present
+- enums are valid
+- numbers fall within the correct ranges
+- `confidence` must be `0.0–1.0`
+- `risk_score` must be `0.0–1.0`
+- `final_edge_score` must be `0–100`
+- `size_bps` must be `0–max_position_bps`
 
 ### 18.2 Logical Validation
 
-- jika `action == BUY`, maka `hard_veto` wajib `false`
-- jika `action == BUY`, `size_bps > 0`
-- jika `action == HOLD_*`, `execution_mode` sebaiknya `DO_NOT_EXECUTE`
-- jika `action == SELL`, asset_in dan asset_out harus terbalik terhadap posisi
-- jika `ttl_sec <= 0`, reject
+- if `action == BUY`, then `hard_veto` must be `false`
+- if `action == BUY`, `size_bps > 0`
+- if `action == HOLD_*`, `execution_mode` should be `DO_NOT_EXECUTE`
+- if `action == SELL`, asset_in and asset_out must be reversed relative to the position
+- if `ttl_sec <= 0`, reject
 
 ### 18.3 Policy Validation
 
@@ -926,7 +926,7 @@ Sebelum JSON output agent dipakai, orchestrator wajib melakukan validasi berikut
 
 ---
 
-## 19. Pseudocode untuk Orchestrator
+## 19. Pseudocode for Orchestrator
 
 ```ts
 function decideAction(input: DecisionInput): AgentDecision {
@@ -980,7 +980,7 @@ function decideAction(input: DecisionInput): AgentDecision {
 
 ## 20. Recommended Defaults v1
 
-Untuk MVP solo builder, berikut default yang disarankan:
+For a solo-builder MVP, the following defaults are suggested:
 
 ### Conservative
 - `max_position_bps = 1000`
@@ -1008,9 +1008,9 @@ Untuk MVP solo builder, berikut default yang disarankan:
 
 ---
 
-## 21. Apa yang Harus Ditampilkan di UI
+## 21. What Should Be Displayed in the UI
 
-Agar decision engine mudah dijelaskan, dashboard sebaiknya menampilkan:
+To make the decision engine easy to explain, the dashboard should display:
 
 1. **Current Regime**
 2. **Final Edge Score**
@@ -1023,7 +1023,7 @@ Agar decision engine mudah dijelaskan, dashboard sebaiknya menampilkan:
 9. **Reason Summary**
 10. **Why not Buy / Why not Sell**
 
-Contoh label yang baik:
+Example of good labels:
 
 - `Regime: Trend Up Strong`
 - `Action: BUY`
@@ -1035,30 +1035,30 @@ Contoh label yang baik:
 
 ---
 
-## 22. Kesimpulan Implementasi v1
+## 22. Implementation Conclusion v1
 
-Decision matrix v1 ini membuat Aegis Vault lebih handal karena:
+This v1 decision matrix makes Aegis Vault more reliable because:
 
-- tidak bergantung pada satu sinyal,
-- tidak membiarkan AI langsung mengeksekusi tanpa filter,
-- punya definisi **Buy** yang ketat,
-- punya definisi **Sell** yang terstruktur,
-- punya definisi **Hold** yang aktif,
-- memakai **hysteresis** untuk menghindari flip noise,
-- dan menghasilkan **JSON output** yang bisa langsung dipakai orchestrator.
+- it does not rely on a single signal,
+- it does not let the AI execute directly without filters,
+- it has a strict definition of **Buy**,
+- it has a structured definition of **Sell**,
+- it has an active definition of **Hold**,
+- it uses **hysteresis** to avoid noise-driven flips,
+- and it produces **JSON output** that the orchestrator can consume directly.
 
-Versi v1 ini sangat cocok untuk MVP karena masih cukup sederhana untuk dibangun, tetapi sudah cukup kuat untuk:
+This v1 version is very suitable for an MVP because it is still simple enough to build, yet already robust enough for:
 
 - demo day,
 - audit log,
 - policy enforcement,
-- dan transisi ke v2 yang lebih adaptif.
+- and the transition to a more adaptive v2.
 
 ---
 
-## 23. Langkah Lanjutan yang Paling Direkomendasikan
+## 23. Most Recommended Next Steps
 
-Setelah v1 ini, dokumen berikut yang paling berguna adalah:
+After this v1, the following documents are the most useful:
 
 1. `orchestrator-implementation-spec.md`
 2. `agent-prompt-spec.md`

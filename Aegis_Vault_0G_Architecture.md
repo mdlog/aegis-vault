@@ -1,77 +1,77 @@
-# Aegis Vault — Arsitektur Produk Lengkap di 0G Chain
+# Aegis Vault — Complete Product Architecture on 0G Chain
 
-## 1. Ringkasan
+## 1. Summary
 
-**Aegis Vault** adalah **AI-managed risk-controlled trading vault** yang dibangun di atas stack 0G.
+**Aegis Vault** is an **AI-managed risk-controlled trading vault** built on top of the 0G stack.
 
-Fungsi utamanya bukan menjadi DEX baru, tetapi menjadi **lapisan kendali risiko, kebijakan eksekusi, dan memori/audit** untuk trading otomatis.
+Its primary function is not to be a new DEX, but to serve as a **layer of risk control, execution policy, and memory/audit** for automated trading.
 
-Dalam versi MVP yang paling realistis untuk hackathon:
+In the most realistic MVP version for the hackathon:
 
-- **0G Chain** dipakai untuk smart contract vault, policy, custody, dan audit event.
-- **0G Compute** dipakai untuk inference agent AI yang memberi keputusan trading.
-- **0G Storage** dipakai untuk menyimpan state, jurnal keputusan, reasoning summary, dan memori strategi.
-- **DEX venue** untuk eksekusi spot/swap adalah **Jaine / 0G Hub route** sebagai target paling realistis untuk MVP.
+- **0G Chain** is used for the smart contract vault, policy, custody, and audit events.
+- **0G Compute** is used for AI agent inference that produces trading decisions.
+- **0G Storage** is used to store state, decision journals, reasoning summaries, and strategy memory.
+- **DEX venue** for spot/swap execution is the **Jaine / 0G Hub route** as the most realistic target for the MVP.
 
-Posisi produk:
+Product positioning:
 
 > **Aegis Vault = verifiable AI risk manager with autonomous execution guardrails**
 
 ---
 
-## 2. Masalah yang Diselesaikan
+## 2. Problems Being Solved
 
-Di DeFi dan on-chain trading, user menghadapi beberapa masalah utama:
+In DeFi and on-chain trading, users face several major problems:
 
-1. **Bot trading biasa sulit dipercaya** karena logic-nya off-chain dan tidak ada guardrail yang benar-benar mengikat.
-2. **Strategi mudah bocor** bila semua sinyal dan parameter tersimpan di backend biasa.
-3. **Manual trading tidak disiplin** dan sering melanggar risk management.
-4. **Autonomous agent tanpa constraint terlalu berbahaya** untuk user retail maupun treasury kecil.
-5. **Riwayat keputusan AI sulit diaudit** jika hanya disimpan di server privat.
+1. **Ordinary trading bots are hard to trust** because their logic is off-chain and there are no truly binding guardrails.
+2. **Strategies leak easily** when all signals and parameters are stored on an ordinary backend.
+3. **Manual trading lacks discipline** and frequently violates risk management.
+4. **Unconstrained autonomous agents are too dangerous** for retail users and small treasuries alike.
+5. **AI decision history is difficult to audit** if it is only stored on a private server.
 
-Aegis Vault menyelesaikan itu dengan cara:
+Aegis Vault solves these by:
 
-- keputusan AI dihasilkan secara terstruktur,
-- policy dan batas risiko dikunci di contract,
-- eksekusi hanya boleh lewat executor yang diotorisasi,
-- hasil aksi dan reasoning dicatat ke 0G Storage,
-- user bisa mem-pause sistem kapan saja.
+- producing AI decisions in a structured manner,
+- locking policy and risk limits inside the contract,
+- allowing execution only through an authorized executor,
+- recording action results and reasoning to 0G Storage,
+- letting users pause the system at any time.
 
 ---
 
-## 3. Kenapa Produk Ini Cocok untuk Track 2
+## 3. Why This Product Fits Track 2
 
-Track 2 berfokus pada:
+Track 2 focuses on:
 
 - intelligent yield optimizers,
 - risk management bots,
 - AI-driven strategy agents,
 - privacy-preserving execution,
-- mitigation terhadap front-running.
+- mitigation against front-running.
 
-Aegis Vault cocok karena:
+Aegis Vault is a good fit because:
 
-- ia adalah **risk-management agent**,
-- ia memakai **AI inference** untuk keputusan,
-- ia punya **verifiable on-chain policy layer**,
-- ia bisa menambahkan **sealed / private strategy mode** di iterasi lanjut,
-- ia mudah didemokan secara live.
+- it is a **risk-management agent**,
+- it uses **AI inference** for decision making,
+- it has a **verifiable on-chain policy layer**,
+- it can add a **sealed / private strategy mode** in later iterations,
+- it is easy to demo live.
 
 ---
 
-## 4. Bentuk Produk yang Direkomendasikan
+## 4. Recommended Product Form
 
-### MVP final yang paling realistis
+### The most realistic final MVP
 
-**Aegis Vault v1 = spot autonomous risk-managed vault di 0G, eksekusi swap ke Jaine / 0G Hub stack**
+**Aegis Vault v1 = spot autonomous risk-managed vault on 0G, with swap execution through the Jaine / 0G Hub stack**
 
-Kenapa bukan perps dulu?
+Why not perps first?
 
-- lebih mudah selesai,
-- lebih jelas venue-nya,
-- lebih mudah didemokan end-to-end,
-- lebih natural untuk integrasi 0G,
-- lebih kecil risiko integration failure.
+- easier to finish,
+- clearer venue,
+- easier to demo end-to-end,
+- more natural for 0G integration,
+- lower risk of integration failure.
 
 ### Roadmap v2
 
@@ -84,28 +84,28 @@ Kenapa bukan perps dulu?
 
 ---
 
-## 5. Prinsip Desain Sistem
+## 5. System Design Principles
 
-Aegis Vault harus dibangun dengan prinsip berikut:
+Aegis Vault must be built with the following principles:
 
-### a. AI tidak pernah memegang kuasa absolut
-AI hanya mengusulkan aksi. Contract tetap menjadi penjaga terakhir.
+### a. AI never holds absolute authority
+The AI only proposes actions. The contract remains the last line of defense.
 
-### b. Semua aksi harus melewati policy engine
-Tidak boleh ada eksekusi di luar rule user.
+### b. All actions must pass through the policy engine
+No execution is permitted outside the user's rules.
 
-### c. Eksekusi dipisah dari reasoning
-Compute menghasilkan keputusan, executor mengurus trade, contract memverifikasi policy.
+### c. Execution is separated from reasoning
+Compute produces the decision, the executor handles the trade, the contract verifies the policy.
 
-### d. State penting harus dapat dipulihkan
-Riwayat policy, snapshot risk, dan journal harus tersimpan.
+### d. Critical state must be recoverable
+Policy history, risk snapshots, and the journal must be stored.
 
-### e. MVP harus demoable
-Alur minimal harus benar-benar hidup: deposit -> inference -> policy check -> swap -> update state.
+### e. The MVP must be demoable
+The minimal flow must truly be alive: deposit -> inference -> policy check -> swap -> update state.
 
 ---
 
-## 6. Arsitektur Tingkat Tinggi
+## 6. High-Level Architecture
 
 ```text
 User
@@ -144,23 +144,23 @@ Execution result
 
 ---
 
-## 7. Komponen Utama
+## 7. Main Components
 
 ## 7.1 Frontend Dashboard
 
-Fungsi frontend:
+Frontend responsibilities:
 
-- buat vault,
+- create a vault,
 - deposit / withdraw,
-- atur policy,
-- lihat risk meter,
-- lihat posisi dan NAV,
-- lihat history action,
+- configure policy,
+- view the risk meter,
+- view positions and NAV,
+- view action history,
 - emergency pause,
-- lihat status executor,
-- lihat ringkasan alasan AI.
+- view executor status,
+- view the AI reasoning summary.
 
-### Halaman yang disarankan
+### Recommended pages
 
 1. **Landing / product overview**
 2. **Create Vault**
@@ -174,22 +174,22 @@ Fungsi frontend:
 
 ## 7.2 Vault Contract (0G Chain)
 
-Ini komponen inti on-chain.
+This is the core on-chain component.
 
-### Tanggung jawab utama
+### Primary responsibilities
 
-- menerima deposit user,
-- memproses withdraw,
-- menyimpan risk policy,
-- menyimpan daftar aset/venue yang boleh dipakai,
-- mengotorisasi executor,
-- mencatat trade request / trade result,
-- mengaktifkan pause mode,
-- menolak aksi yang melanggar batas.
+- accept user deposits,
+- process withdrawals,
+- store the risk policy,
+- store the list of assets/venues that are permitted,
+- authorize the executor,
+- record trade requests / trade results,
+- activate pause mode,
+- reject actions that violate the limits.
 
-### Data yang disimpan
+### Data stored
 
-- owner vault,
+- vault owner,
 - base asset,
 - executor address,
 - allowed assets,
@@ -206,36 +206,36 @@ Ini komponen inti on-chain.
 
 ## 7.3 Strategy Orchestrator Backend
 
-Ini lapisan off-chain yang menghubungkan semua komponen.
+This is the off-chain layer that connects all the components.
 
-### Tanggung jawab
+### Responsibilities
 
-- mengambil market data,
-- membangun input inference,
-- memanggil 0G Compute,
-- memvalidasi hasil awal,
-- menyusun execution intent,
-- mengirim aksi ke executor,
-- menulis hasil ke 0G Storage,
-- mengupdate UI/API.
+- fetch market data,
+- build inference input,
+- call 0G Compute,
+- validate initial results,
+- compose the execution intent,
+- send the action to the executor,
+- write results to 0G Storage,
+- update the UI/API.
 
-### Kenapa backend ini diperlukan
+### Why this backend is needed
 
-Karena contract tidak bisa langsung menarik market data atau menjalankan prompt AI.
+Because the contract cannot directly pull market data or run an AI prompt.
 
 ---
 
 ## 7.4 0G Compute Layer
 
-Fungsi utamanya:
+Its main functions:
 
-- menerima market summary,
-- menghasilkan keputusan trading terstruktur,
-- mengembalikan confidence score,
-- memberi reason summary,
-- optional: berjalan di mode privat / TEE.
+- receive a market summary,
+- produce a structured trading decision,
+- return a confidence score,
+- provide a reason summary,
+- optional: run in private / TEE mode.
 
-### Bentuk output yang direkomendasikan
+### Recommended output shape
 
 ```json
 {
@@ -249,51 +249,51 @@ Fungsi utamanya:
 }
 ```
 
-### Kenapa output harus JSON
+### Why the output must be JSON
 
-- mudah divalidasi,
-- mudah dipetakan ke policy,
-- mudah ditampilkan di UI,
-- mudah disimpan ke 0G Storage.
+- easy to validate,
+- easy to map to policy,
+- easy to display in the UI,
+- easy to store in 0G Storage.
 
 ---
 
 ## 7.5 Executor / Venue Adapter
 
-Ini lapisan yang benar-benar mengeksekusi trade.
+This is the layer that actually executes the trade.
 
-### Jawaban paling praktis: trade dieksekusi lewat mana?
+### The most practical answer: where is the trade executed?
 
-Untuk **MVP Aegis Vault**, trade dieksekusi melalui:
+For the **Aegis Vault MVP**, trades are executed through:
 
-- **Jaine / 0G Hub swap stack** untuk spot/swap execution di ekosistem 0G.
+- the **Jaine / 0G Hub swap stack** for spot/swap execution within the 0G ecosystem.
 
-Jadi Aegis Vault **tidak membuat pasar sendiri**. Ia hanya mengarahkan dana vault untuk melakukan swap secara disiplin.
+So Aegis Vault **does not create its own market**. It merely directs vault funds to perform swaps in a disciplined way.
 
-### Tugas executor
+### Executor duties
 
-- menerima intent yang sudah lolos policy,
-- memanggil venue adapter,
-- mengeksekusi swap,
-- mengambil hasil output,
-- mengirim bukti hasil ke backend / contract,
-- mencatat tx hash dan result metadata.
+- receive intents that have passed the policy,
+- call the venue adapter,
+- execute the swap,
+- read the output result,
+- send execution proof to the backend / contract,
+- record the tx hash and result metadata.
 
-### Model executor yang direkomendasikan
+### Recommended executor model
 
-**Whitelisted executor** yang hanya boleh:
+**Whitelisted executor** that is only permitted to:
 
-- execute jika vault aktif,
-- execute jika intent belum expired,
-- execute jika policy match,
-- execute satu kali per intent,
-- tidak mengubah parameter dari intent.
+- execute if the vault is active,
+- execute if the intent has not expired,
+- execute if the policy matches,
+- execute once per intent,
+- not modify parameters from the intent.
 
 ---
 
 ## 7.6 0G Storage Layer
 
-0G Storage dipakai untuk dua kategori data:
+0G Storage is used for two categories of data:
 
 ### Mutable state (KV)
 
@@ -313,20 +313,20 @@ Jadi Aegis Vault **tidak membuat pasar sendiri**. Ia hanya mengarahkan dana vaul
 - executor reports,
 - demo screenshots / generated reports.
 
-### Kenapa penting
+### Why this matters
 
-Tanpa storage yang rapi, juri hanya melihat bot AI biasa. Dengan storage yang tepat, Aegis Vault terlihat sebagai **autonomous system dengan memory dan audit trail**.
+Without proper storage, judges only see a typical AI bot. With the right storage, Aegis Vault appears as an **autonomous system with memory and audit trail**.
 
 ---
 
-## 8. Cara Kerja Aegis Vault Secara Real
+## 8. How Aegis Vault Actually Works
 
-## Step 1 — User membuat vault
-User connect wallet, lalu menekan **Create Vault**.
+## Step 1 — User creates a vault
+The user connects their wallet, then clicks **Create Vault**.
 
-Input minimum:
+Minimum inputs:
 
-- base asset: misalnya USDC,
+- base asset: e.g. USDC,
 - allowed assets: BTC, ETH,
 - risk profile: Conservative / Balanced / Aggressive,
 - max position size,
@@ -334,113 +334,113 @@ Input minimum:
 - cooldown,
 - auto-execution ON/OFF.
 
-Contract lalu membuat vault baru.
+The contract then creates a new vault.
 
 ---
 
-## Step 2 — User deposit dana
-User mendepositkan aset ke vault contract.
+## Step 2 — User deposits funds
+The user deposits assets into the vault contract.
 
-Dalam MVP, paling aman jika:
+In the MVP, it is safest if:
 
-- hanya satu base asset,
-- deposit sederhana,
-- withdraw hanya boleh jika tidak ada pending execution.
+- only a single base asset is supported,
+- deposits are simple,
+- withdrawals are allowed only when there is no pending execution.
 
 ---
 
-## Step 3 — Orchestrator membaca market data
-Backend mengambil market data yang dibutuhkan, misalnya:
+## Step 3 — Orchestrator reads market data
+The backend pulls the market data it needs, for example:
 
-- harga spot,
-- volatilitas jangka pendek,
+- spot price,
+- short-term volatility,
 - moving average,
 - volume,
 - spread,
-- momentum sederhana.
+- simple momentum.
 
-Untuk hackathon, jangan terlalu rumit. Lebih baik indikator sedikit tapi stabil.
-
----
-
-## Step 4 — Data dikirim ke 0G Compute
-Backend menyusun prompt / input terstruktur, lalu mengirim request inference.
-
-Tujuan inference:
-
-- menentukan aksi,
-- menentukan ukuran posisi,
-- menentukan confidence,
-- menentukan ringkasan alasan.
-
-Output harus selalu terstruktur.
+For a hackathon, keep it simple. A few stable indicators are preferable.
 
 ---
 
-## Step 5 — Policy engine melakukan validasi
-Sebelum eksekusi, hasil AI diperiksa.
+## Step 4 — Data is sent to 0G Compute
+The backend assembles a structured prompt / input, then sends an inference request.
 
-### Validasi minimum
+Inference goals:
 
-- asset masih dalam whitelist,
-- size tidak melewati max limit,
-- cooldown sudah lewat,
-- vault tidak dalam pause mode,
-- intent belum expired,
-- drawdown belum melewati threshold.
+- determine the action,
+- determine the position size,
+- determine the confidence,
+- determine the reason summary.
 
-Jika salah satu gagal, intent ditolak.
+Output must always be structured.
 
 ---
 
-## Step 6 — Executor melakukan swap
-Setelah valid, executor mengirim transaksi ke venue.
+## Step 5 — Policy engine validates
+Before execution, the AI result is inspected.
 
-Untuk MVP:
+### Minimum validations
 
-- swap dilakukan ke route yang ditentukan,
-- executor menyimpan tx hash,
-- hasil nominal output dibaca,
-- status execution dikembalikan ke sistem.
+- asset is still in the whitelist,
+- size does not exceed the max limit,
+- cooldown has elapsed,
+- vault is not in pause mode,
+- intent has not expired,
+- drawdown has not crossed the threshold.
 
----
-
-## Step 7 — Result disimpan
-Setelah swap berhasil:
-
-- contract emit event,
-- backend update snapshot state,
-- reasoning + result ditulis ke 0G Storage,
-- UI menampilkan history baru.
+If any of these fail, the intent is rejected.
 
 ---
 
-## Step 8 — User memonitor dan bisa pause
-User selalu bisa:
+## Step 6 — Executor performs the swap
+After validation, the executor submits the transaction to the venue.
 
-- melihat posisi,
-- melihat reason summary,
-- pause vault,
-- ganti policy,
-- withdraw dana.
+For the MVP:
+
+- the swap is routed through the designated path,
+- the executor stores the tx hash,
+- the realized output amount is read,
+- execution status is returned to the system.
 
 ---
 
-## 9. Struktur Kontrak yang Disarankan
+## Step 7 — Result is stored
+After a successful swap:
 
-Agar modular, kontrak sebaiknya dipisah.
+- the contract emits an event,
+- the backend updates the state snapshot,
+- reasoning + result is written to 0G Storage,
+- the UI displays the new history entry.
+
+---
+
+## Step 8 — User monitors and can pause
+The user can always:
+
+- view positions,
+- view the reason summary,
+- pause the vault,
+- change policy,
+- withdraw funds.
+
+---
+
+## 9. Recommended Contract Structure
+
+For modularity, the contracts should be split apart.
 
 ## 9.1 AegisVaultFactory.sol
 
-Fungsi:
+Functions:
 
-- create vault,
-- simpan mapping owner -> vault list,
-- emit event vault created.
+- create a vault,
+- store the owner -> vault list mapping,
+- emit a vault-created event.
 
 ## 9.2 AegisVault.sol
 
-Fungsi:
+Functions:
 
 - deposit,
 - requestWithdraw,
@@ -454,29 +454,29 @@ Fungsi:
 
 ## 9.3 PolicyLibrary.sol
 
-Berisi:
+Contains:
 
-- validasi max position,
-- validasi cooldown,
-- validasi asset whitelist,
-- validasi loss limit,
-- helper risk checks.
+- max position validation,
+- cooldown validation,
+- asset whitelist validation,
+- loss limit validation,
+- risk check helpers.
 
 ## 9.4 ExecutionRegistry.sol
 
-Fungsi:
+Functions:
 
-- menyimpan intent hash yang sudah dieksekusi,
-- mencegah replay,
-- menyimpan execution status.
+- store intent hashes that have been executed,
+- prevent replay,
+- store execution status.
 
 ## 9.5 VaultEvents.sol
 
-Opsional, jika ingin rapi untuk event struct dan reuse.
+Optional, useful to keep event structs clean and reusable.
 
 ---
 
-## 10. Data Model yang Direkomendasikan
+## 10. Recommended Data Model
 
 ### VaultPolicy
 
@@ -527,168 +527,168 @@ struct ExecutionResult {
 
 ## 11.1 Create Vault Flow
 
-1. User connect wallet.
-2. User pilih base asset.
-3. User set risk profile.
-4. User approve deposit.
-5. User create vault.
-6. Frontend redirect ke dashboard.
+1. User connects the wallet.
+2. User picks a base asset.
+3. User sets a risk profile.
+4. User approves the deposit.
+5. User creates the vault.
+6. Frontend redirects to the dashboard.
 
 ## 11.2 Auto Execution Flow
 
-1. Market data refresh.
-2. Inference request dibuat.
-3. 0G Compute mengembalikan output.
-4. Policy check lolos.
-5. Intent dibentuk.
-6. Executor kirim swap.
-7. Result di-record.
-8. UI refresh.
+1. Market data refreshes.
+2. Inference request is built.
+3. 0G Compute returns an output.
+4. Policy check passes.
+5. Intent is formed.
+6. Executor sends the swap.
+7. Result is recorded.
+8. UI refreshes.
 
 ## 11.3 Emergency Pause Flow
 
-1. User klik pause.
-2. Contract set paused = true.
-3. Executor otomatis berhenti.
-4. Semua intent baru ditolak.
-5. User dapat memilih withdraw atau reconfigure.
+1. User clicks pause.
+2. Contract sets paused = true.
+3. The executor automatically halts.
+4. All new intents are rejected.
+5. User can choose to withdraw or reconfigure.
 
 ---
 
 ## 12. Risk Engine Logic
 
-Aegis Vault harus fokus pada **risk-first automation**, bukan all-in alpha hunting.
+Aegis Vault must focus on **risk-first automation**, not all-in alpha hunting.
 
-### Rule sederhana yang cocok untuk MVP
+### Simple rules that suit the MVP
 
-- maksimum 20% dana per aksi,
-- maksimum 2 aksi dalam window tertentu,
-- cooldown 5–15 menit,
-- no trade jika volatility terlalu tinggi,
-- no trade jika confidence di bawah threshold,
-- no trade jika slippage estimate terlalu besar,
-- no trade jika vault baru saja loss berturut-turut.
+- maximum 20% of funds per action,
+- maximum 2 actions within a given window,
+- cooldown of 5–15 minutes,
+- no trade if volatility is too high,
+- no trade if confidence is below the threshold,
+- no trade if the slippage estimate is too large,
+- no trade if the vault has just taken consecutive losses.
 
-### Rule berbasis score
+### Score-based rules
 
-Anda juga bisa pakai model sederhana:
+You can also apply a simple model:
 
 `final_trade_allowed = confidence_ok && volatility_ok && drawdown_ok && cooldown_ok && policy_ok`
 
-Ini mudah dijelaskan saat demo.
+This is easy to explain during the demo.
 
 ---
 
-## 13. Kenapa Eksekusi Lewat Jaine / 0G Hub Cocok untuk MVP
+## 13. Why Execution Through Jaine / 0G Hub Fits the MVP
 
-Alasan teknis dan produk:
+Technical and product reasoning:
 
-1. **Lebih natural untuk ekosistem 0G**
-2. **Lebih mudah diverifikasi secara on-chain**
-3. **Lebih sederhana untuk demo end-to-end**
-4. **Tidak perlu membangun matching engine sendiri**
-5. **Mengurangi risiko gagal integrasi**
+1. **More natural for the 0G ecosystem**
+2. **Easier to verify on-chain**
+3. **Simpler for an end-to-end demo**
+4. **No need to build your own matching engine**
+5. **Reduces integration failure risk**
 
-Dengan pendekatan ini, Aegis Vault tetap memenuhi karakter agentic trading karena yang dijual adalah:
+With this approach, Aegis Vault still fulfills the agentic trading character, because the product's value proposition is:
 
-- agent memilih aksi,
-- policy mengunci perilaku,
-- executor menjalankan swap,
-- user bisa audit semuanya.
+- the agent picks the action,
+- the policy locks behavior,
+- the executor performs the swap,
+- the user can audit everything.
 
 ---
 
-## 14. Mode Privasi / Sealed Strategy (Roadmap atau Bonus)
+## 14. Privacy Mode / Sealed Strategy (Roadmap or Bonus)
 
-Setelah MVP stabil, fitur kuat berikutnya adalah **sealed strategy mode**.
+Once the MVP is stable, the next strong feature is **sealed strategy mode**.
 
-### Tujuannya
+### Goals
 
-- parameter strategi tidak bocor,
-- prompt tidak terlihat terbuka,
-- reasoning sensitif diproses secara privat,
-- user/protocol bisa memakai proprietary logic.
+- strategy parameters do not leak,
+- prompts are not visible in the open,
+- sensitive reasoning is processed privately,
+- users/protocols can use proprietary logic.
 
-### Bentuk implementasi bertahap
+### Phased implementation
 
-#### Tahap 1
-- inference biasa,
-- reasoning summary publik terbatas.
+#### Phase 1
+- regular inference,
+- limited public reasoning summary.
 
-#### Tahap 2
-- provider TEE-verified,
+#### Phase 2
+- TEE-verified provider,
 - sealed inputs,
 - signed inference metadata.
 
-#### Tahap 3
-- encrypted strategy blobs di 0G Storage,
+#### Phase 3
+- encrypted strategy blobs on 0G Storage,
 - policy-aware sealed execution.
 
 ---
 
 ## 15. Security Considerations
 
-Ini bagian penting untuk submission.
+This is an important section for the submission.
 
-### Risiko utama
+### Main risks
 
-#### a. Executor menyalahgunakan hak
-Mitigasi:
-- whitelist executor,
-- single-use intent hash,
+#### a. Executor abuses its rights
+Mitigations:
+- whitelist the executor,
+- single-use intent hashes,
 - expiry,
 - on-chain policy check,
 - pause mechanism.
 
-#### b. AI memberikan keputusan buruk
-Mitigasi:
-- AI hanya mengusulkan,
-- contract enforce hard limits,
-- size dibatasi,
-- cooldown wajib,
+#### b. AI issues a bad decision
+Mitigations:
+- AI only proposes,
+- contract enforces hard limits,
+- size is capped,
+- cooldown is mandatory,
 - confidence threshold.
 
-#### c. Replay attack pada execution intent
-Mitigasi:
-- simpan intent hash,
-- reject duplicate.
+#### c. Replay attack on an execution intent
+Mitigations:
+- store the intent hash,
+- reject duplicates.
 
-#### d. Withdraw saat state belum sinkron
-Mitigasi:
+#### d. Withdraw while state has not yet synchronized
+Mitigations:
 - pending execution lock,
 - last execution finality check.
 
-#### e. Slippage terlalu besar
-Mitigasi:
+#### e. Slippage is too large
+Mitigations:
 - min amount out,
 - slippage cap per policy,
 - pre-trade estimation.
 
-#### f. Market data rusak / stale
-Mitigasi:
+#### f. Market data is corrupted / stale
+Mitigations:
 - timestamp check,
 - dual-source sanity check,
 - no-trade on stale data.
 
 ---
 
-## 16. Scope MVP yang Paling Aman untuk Solo Builder
+## 16. The Safest MVP Scope for a Solo Builder
 
-Agar benar-benar selesai, scope harus dibatasi.
+To truly finish, the scope must be bounded.
 
-### Fitur yang WAJIB ada
+### Features that MUST exist
 
 - create vault,
 - deposit,
 - update policy,
 - pause/unpause,
-- inference call ke 0G Compute,
-- satu route eksekusi spot,
-- event log on-chain,
-- journal ke 0G Storage,
-- dashboard status vault.
+- inference call to 0G Compute,
+- a single spot execution route,
+- on-chain event log,
+- journal to 0G Storage,
+- vault status dashboard.
 
-### Fitur yang TIDAK wajib untuk MVP
+### Features NOT required for the MVP
 
 - multi-user pooled vault,
 - multi-venue routing,
@@ -700,54 +700,54 @@ Agar benar-benar selesai, scope harus dibatasi.
 
 ---
 
-## 17. Demo Flow yang Kuat untuk Juri
+## 17. A Strong Demo Flow for Judges
 
-Berikut alur demo yang paling efektif:
+Here is the most effective demo flow:
 
 ### Demo Scene 1 — Create and Fund Vault
 - connect wallet,
-- buat vault,
-- set risk policy,
-- deposit dana.
+- create a vault,
+- set the risk policy,
+- deposit funds.
 
 ### Demo Scene 2 — AI Decision
-- tampilkan market signal,
-- panggil 0G Compute,
-- tampilkan output terstruktur,
-- tunjukkan confidence dan reason summary.
+- display the market signal,
+- call 0G Compute,
+- display the structured output,
+- show the confidence and reason summary.
 
 ### Demo Scene 3 — Policy Enforcement
-- tampilkan bahwa size terlalu besar akan ditolak,
-- lalu tunjukkan intent yang valid lolos.
+- show that an oversized size will be rejected,
+- then show a valid intent passing.
 
 ### Demo Scene 4 — Swap Execution
-- executor kirim swap,
-- tampilkan tx hash,
-- tampilkan state berubah.
+- executor submits the swap,
+- show the tx hash,
+- show the state changing.
 
 ### Demo Scene 5 — Audit Trail
-- buka event history,
-- buka reasoning journal dari 0G Storage,
-- tunjukkan bahwa aksi bisa ditelusuri.
+- open the event history,
+- open the reasoning journal from 0G Storage,
+- show that the action can be traced.
 
 ### Demo Scene 6 — Emergency Pause
-- klik pause,
-- tunjukkan bahwa intent baru gagal.
+- click pause,
+- show that a new intent fails.
 
-Ini membuat juri melihat 4 hal sekaligus:
+This lets the judges see four things at once:
 
-- AI-nya nyata,
-- contract-nya nyata,
-- storage-nya nyata,
-- UX-nya jelas.
+- the AI is real,
+- the contracts are real,
+- the storage is real,
+- the UX is clear.
 
 ---
 
-## 18. Tech Stack yang Disarankan
+## 18. Recommended Tech Stack
 
 ### Smart Contract
 - Solidity
-- Hardhat atau Foundry
+- Hardhat or Foundry
 - OpenZeppelin base contracts
 
 ### Frontend
@@ -758,14 +758,14 @@ Ini membuat juri melihat 4 hal sekaligus:
 
 ### Backend / Orchestrator
 - Node.js / TypeScript
-- cron / queue sederhana
+- simple cron / queue
 - inference caller service
 - execution service
 - storage writer service
 
 ### Indexing / Data
-- subgraph atau event listener
-- PostgreSQL lokal opsional untuk cache UI
+- subgraph or event listener
+- optional local PostgreSQL for UI cache
 
 ### 0G Integrations
 - 0G Chain RPC
@@ -774,7 +774,7 @@ Ini membuat juri melihat 4 hal sekaligus:
 
 ---
 
-## 19. Struktur Repo yang Direkomendasikan
+## 19. Recommended Repo Structure
 
 ```text
 AegisVault/
@@ -801,102 +801,102 @@ AegisVault/
 
 ---
 
-## 20. Roadmap Build 7 Hari
+## 20. 7-Day Build Roadmap
 
-## Hari 1
-- setup repo,
-- deploy kontrak basic,
+## Day 1
+- set up the repo,
+- deploy basic contracts,
 - create vault + deposit.
 
-## Hari 2
-- tambah policy storage,
+## Day 2
+- add policy storage,
 - pause/unpause,
 - executor whitelist.
 
-## Hari 3
-- integrasi 0G Compute,
-- standardize JSON output.
+## Day 3
+- integrate 0G Compute,
+- standardize the JSON output.
 
-## Hari 4
-- bangun orchestrator,
+## Day 4
+- build the orchestrator,
 - market input,
 - intent builder.
 
-## Hari 5
-- eksekusi swap adapter,
+## Day 5
+- swap execution adapter,
 - record result,
 - event tracking.
 
-## Hari 6
-- integrasi 0G Storage,
+## Day 6
+- integrate 0G Storage,
 - journal page,
 - risk dashboard.
 
-## Hari 7
-- polish UI,
+## Day 7
+- polish the UI,
 - demo script,
 - README,
-- contract address dan explorer links.
+- contract addresses and explorer links.
 
 ---
 
-## 21. Kenapa Aegis Vault Kuat di Mata Juri
+## 21. Why Aegis Vault Is Strong in the Judges' Eyes
 
-Aegis Vault mencentang semua area penilaian:
+Aegis Vault checks every evaluation area:
 
 ### 0G Technical Integration Depth & Innovation
-- memakai 0G Chain,
-- memakai 0G Compute,
-- memakai 0G Storage,
-- bisa ditambah mode privat.
+- uses 0G Chain,
+- uses 0G Compute,
+- uses 0G Storage,
+- can be extended with a private mode.
 
 ### Technical Implementation & Completeness
-- ada kontrak nyata,
-- ada deployable MVP,
-- ada end-to-end flow,
-- ada on-chain verification.
+- has real contracts,
+- has a deployable MVP,
+- has an end-to-end flow,
+- has on-chain verification.
 
 ### Product Value & Market Potential
-- menyelesaikan masalah risk management,
-- bisa berkembang ke treasury automation,
-- cocok untuk retail power users dan small funds.
+- addresses risk management,
+- can extend into treasury automation,
+- fits retail power users and small funds.
 
 ### User Experience & Demo Quality
-- alurnya mudah dijelaskan,
-- hasilnya visual,
-- live demo bisa kuat.
+- the flow is easy to explain,
+- the results are visual,
+- a live demo can land strongly.
 
 ### Team Capability & Documentation
-- dokumentasi bisa sangat rapi,
-- architecture story jelas,
+- the documentation can be very polished,
+- the architecture story is clear,
 - open-source friendly.
 
 ---
 
-## 22. Kesimpulan
+## 22. Conclusion
 
-Versi paling realistis dari Aegis Vault adalah:
+The most realistic version of Aegis Vault is:
 
-> **AI-managed spot trading vault di 0G yang mengeksekusi swap secara otomatis melalui venue di ekosistem 0G, dengan risk policy on-chain dan audit/memory di 0G Storage.**
+> **An AI-managed spot trading vault on 0G that automatically executes swaps through a venue in the 0G ecosystem, with on-chain risk policy and audit/memory on 0G Storage.**
 
-Ini adalah sweet spot terbaik antara:
+This is the best sweet spot between:
 
-- kelayakan untuk solo builder,
-- kedalaman integrasi 0G,
-- kekuatan demo day,
-- dan peluang benar-benar selesai.
+- feasibility for a solo builder,
+- depth of 0G integration,
+- demo-day impact,
+- and a real chance of actually finishing.
 
-Jika ingin menang, Aegis Vault jangan dijual sebagai “bot trading biasa”.
+If you want to win, Aegis Vault should not be pitched as "just another trading bot."
 
-Narasi yang lebih tepat adalah:
+The more accurate narrative is:
 
 > **Aegis Vault is a verifiable AI risk manager for on-chain execution.**
 
 ---
 
-## 23. Next Documents yang Paling Berguna
+## 23. Most Useful Next Documents
 
-Setelah dokumen ini, tiga file lanjutan yang paling berguna adalah:
+After this document, the three most useful follow-up files are:
 
 1. `smart-contract-architecture.md`
 2. `README_hackathon_submission.md`
