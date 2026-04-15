@@ -117,8 +117,10 @@ export async function buildMarketSummary() {
       ETH: ethVolatility ? (ethVolatility * 100).toFixed(2) + '%' : 'unavailable',
     },
     summary: Object.entries(prices).map(([sym, d]) => {
-      const dir = d.change24h > 0 ? '↑' : d.change24h < 0 ? '↓' : '→';
-      return `${sym}: $${d.price.toLocaleString()} (${dir} ${d.change24h.toFixed(2)}% 24h)`;
+      const price = typeof d.price === 'number' ? d.price : 0;
+      const change = typeof d.change24h === 'number' ? d.change24h : 0;
+      const dir = change > 0 ? '↑' : change < 0 ? '↓' : '→';
+      return `${sym}: $${price.toLocaleString()} (${dir} ${change.toFixed(2)}% 24h)`;
     }).join(' | '),
   };
 }

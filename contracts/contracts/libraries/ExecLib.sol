@@ -91,13 +91,20 @@ library ExecLib {
         uint256 tokenOutBefore = IERC20(tokenOut).balanceOf(address(this));
         uint256 tokenInBefore = IERC20(tokenIn).balanceOf(address(this));
         IERC20(tokenIn).forceApprove(venue, amountIn);
-        (bool ok, ) = venue.call(abi.encodeWithSignature("swap(address,address,uint256,uint256)", tokenIn, tokenOut, amountIn, minAmountOut));
+        (bool ok, bytes memory ret) = venue.call(abi.encodeWithSignature("swap(address,address,uint256,uint256)", tokenIn, tokenOut, amountIn, minAmountOut));
         IERC20(tokenIn).forceApprove(venue, 0);
-        if (!ok) return 0;
+        // Bubble up the venue's revert reason. Previously we silently returned 0
+        // which caused the top-level tx to succeed with success=false, making
+        // failed swaps look identical to executed ones in off-chain logs.
+        if (!ok) {
+            if (ret.length > 0) {
+                assembly { revert(add(ret, 0x20), mload(ret)) }
+            }
+            revert("venue swap failed");
+        }
         uint256 tokenOutAfter = IERC20(tokenOut).balanceOf(address(this));
         amountOut = tokenOutAfter - tokenOutBefore;
         require(IERC20(tokenIn).balanceOf(address(this)) < tokenInBefore, "swap mismatch");
-        if (amountOut == 0) return 0;
         require(amountOut >= minAmountOut, "slippage");
     }
 

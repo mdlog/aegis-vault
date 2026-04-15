@@ -42,6 +42,15 @@ npm run dev
 npm run build
 ```
 
+The frontend is live-first by default. Demo fallbacks stay off unless you explicitly enable them:
+
+```bash
+# Force showcase/demo fallbacks
+VITE_ENABLE_DEMO_FALLBACKS=1 npm run dev
+```
+
+Or append `?demo=1` to any app URL to opt into demo mode in that browser until you clear it with `?demo=0`.
+
 ### Network Configuration
 
 | Network | Chain ID | RPC |

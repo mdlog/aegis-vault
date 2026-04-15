@@ -25,6 +25,8 @@ export async function readVaultState(vaultAddress) {
     const summary = await vault.getVaultSummary();
     const policy = await vault.getPolicy();
     const allowedAssets = await vault.getAllowedAssets();
+    let venue = ethers.ZeroAddress;
+    try { venue = await vault.venue(); } catch { /* pre-venue vault */ }
 
     // Parse the summary tuple
     const [
@@ -75,6 +77,7 @@ export async function readVaultState(vaultAddress) {
       owner,
       executor,
       baseAsset,
+      venue,
       baseDecimals: Number(baseDecimals),
       nav: totalNav,
       navSource: navData?.source || 'base-asset-balance',

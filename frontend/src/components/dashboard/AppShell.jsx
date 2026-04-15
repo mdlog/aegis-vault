@@ -6,7 +6,14 @@ import StatusPill from '../ui/StatusPill';
 import WalletButton from '../ui/WalletButton';
 import { useVaultList } from '../../hooks/useVault';
 import { useAlerts, useOrchestratorStatus } from '../../hooks/useOrchestrator';
-import { getDefaultVaultAddress, getDeployments, getNetworkLabel, getSettingsRoute, getVaultRoute } from '../../lib/contracts';
+import {
+  ENABLE_DEMO_FALLBACKS,
+  getDefaultVaultAddress,
+  getDeployments,
+  getNetworkLabel,
+  getSettingsRoute,
+  getVaultRoute,
+} from '../../lib/contracts';
 import {
   LayoutDashboard, Shield, Activity, FileText, Settings, Cpu, Vote, Droplets,
   ChevronDown, Bell, Globe, Menu, X
@@ -36,7 +43,13 @@ export default function AppShell({ children }) {
   const routeVaultAddress = location.pathname.startsWith('/app/vault/') || location.pathname.startsWith('/app/settings/')
     ? location.pathname.split('/')[3]
     : null;
-  const activeVaultAddress = routeVaultAddress || displayVaults[0]?.address || getDefaultVaultAddress(chainId);
+  // Persist selected vault across nav so AI Actions / Faucet etc. don't reset to vault[0]
+  const storedVault = typeof window !== 'undefined' ? window.localStorage.getItem('aegis-active-vault') : null;
+  const activeVaultAddress = routeVaultAddress || storedVault || displayVaults[0]?.address || getDefaultVaultAddress(chainId);
+  // Sync route-selected vault back to storage
+  if (typeof window !== 'undefined' && routeVaultAddress && routeVaultAddress !== storedVault) {
+    window.localStorage.setItem('aegis-active-vault', routeVaultAddress);
+  }
 
   // Current vault name (derive from address)
   const currentVaultLabel = activeVaultAddress
@@ -52,6 +65,7 @@ export default function AppShell({ children }) {
     { label: 'Faucet', path: '/faucet', icon: Droplets, active: location.pathname === '/faucet' },
   ];
   const alertCount = Math.max(alerts?.length || 0, orchStatus?.pendingApprovalCount || 0);
+  const showDemoPill = ENABLE_DEMO_FALLBACKS && (!isConnected || displayVaults.length === 0);
 
   return (
     <div className="min-h-screen bg-obsidian flex flex-col">
@@ -192,6 +206,12 @@ export default function AppShell({ children }) {
               <Globe className="w-3 h-3" />
               <span>{getNetworkLabel(chainId)}</span>
             </div>
+            {showDemoPill && (
+              <div className="hidden sm:flex items-center gap-1.5 rounded-full border border-gold/20 bg-gold/5 px-2.5 py-1 text-[9px] font-mono uppercase tracking-[0.12em] text-gold/80">
+                <span className="h-1.5 w-1.5 rounded-full bg-gold" />
+                Demo Ready
+              </div>
+            )}
 
             {/* Notifications */}
             <div className="relative hidden sm:block">

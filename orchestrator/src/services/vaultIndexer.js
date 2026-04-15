@@ -20,70 +20,90 @@
  * without touching consumers.
  */
 
-import Database from 'better-sqlite3';
 import { ethers } from 'ethers';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { mkdirSync, existsSync } from 'fs';
+import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs';
 import { ABIs, getProvider, getFactoryContract } from '../config/contracts.js';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-let db = null;
+// In-memory store (Map for O(1) lookups by address) + JSON file backup
+// Avoids native bindings (better-sqlite3) so the orchestrator runs on any Node
+// version without rebuild. Scales to ~10k vaults comfortably; for >10k swap to
+// SQLite or Postgres.
+let initialized = false;
+let vaults = new Map();              // address.toLowerCase() => record
+let executorIndex = new Map();        // executor.toLowerCase() => Set<address>
 let lastIndexedBlock = 0;
+let dbPath = null;
 let pollTimer = null;
 
 const POLL_INTERVAL_MS = 15_000;        // poll for new VaultDeployed every 15s
 const BLOCK_LOOKBACK = 50;              // re-scan last 50 blocks each poll for safety
 
 function ensureDb() {
-  if (db) return db;
+  if (initialized) return;
 
   const dataDir = resolve(__dirname, '../../', config.dataDir || 'data');
   if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
-  const dbPath = resolve(dataDir, 'vault-index.db');
+  dbPath = resolve(dataDir, 'vault-index.json');
 
-  db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS vaults (
-      address       TEXT PRIMARY KEY,
-      owner         TEXT NOT NULL,
-      executor      TEXT NOT NULL,
-      base_asset    TEXT,
-      created_block INTEGER NOT NULL,
-      created_at    INTEGER NOT NULL,
-      tx_hash       TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_executor ON vaults(executor);
-    CREATE INDEX IF NOT EXISTS idx_owner ON vaults(owner);
-    CREATE TABLE IF NOT EXISTS indexer_state (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
+  // Restore from disk if available
+  if (existsSync(dbPath)) {
+    try {
+      const raw = JSON.parse(readFileSync(dbPath, 'utf8'));
+      lastIndexedBlock = raw.lastIndexedBlock || 0;
+      for (const v of raw.vaults || []) {
+        const key = v.address.toLowerCase();
+        vaults.set(key, v);
+        const exKey = (v.executor || '').toLowerCase();
+        if (!executorIndex.has(exKey)) executorIndex.set(exKey, new Set());
+        executorIndex.get(exKey).add(key);
+      }
+    } catch (err) {
+      logger.warn(`Vault indexer: failed to restore from disk (${err.message}). Starting fresh.`);
+    }
+  }
 
-  // Restore last indexed block
-  const row = db.prepare('SELECT value FROM indexer_state WHERE key = ?').get('last_block');
-  lastIndexedBlock = row ? parseInt(row.value, 10) : 0;
-  logger.info(`Vault indexer DB ready — last indexed block: ${lastIndexedBlock}`);
+  initialized = true;
+  logger.info(`Vault indexer ready — ${vaults.size} cached vault(s), last block: ${lastIndexedBlock}`);
+}
 
-  return db;
+function persist() {
+  if (!dbPath) return;
+  try {
+    writeFileSync(dbPath, JSON.stringify({
+      lastIndexedBlock,
+      vaults: Array.from(vaults.values()),
+    }, null, 2));
+  } catch (err) {
+    logger.debug(`Vault indexer: persist failed (${err.message})`);
+  }
 }
 
 function upsertVault(record) {
-  ensureDb().prepare(`
-    INSERT OR REPLACE INTO vaults (address, owner, executor, base_asset, created_block, created_at, tx_hash)
-    VALUES (@address, @owner, @executor, @base_asset, @created_block, @created_at, @tx_hash)
-  `).run(record);
+  ensureDb();
+  const key = record.address.toLowerCase();
+  const exKey = (record.executor || '').toLowerCase();
+
+  // Update executor index (remove from old, add to new)
+  const old = vaults.get(key);
+  if (old) {
+    const oldExKey = (old.executor || '').toLowerCase();
+    if (oldExKey !== exKey && executorIndex.has(oldExKey)) {
+      executorIndex.get(oldExKey).delete(key);
+    }
+  }
+  if (!executorIndex.has(exKey)) executorIndex.set(exKey, new Set());
+  executorIndex.get(exKey).add(key);
+
+  vaults.set(key, record);
 }
 
 function setLastBlock(blockNumber) {
-  ensureDb().prepare(`
-    INSERT OR REPLACE INTO indexer_state (key, value) VALUES (?, ?)
-  `).run('last_block', String(blockNumber));
   lastIndexedBlock = blockNumber;
 }
 
@@ -92,6 +112,7 @@ function setLastBlock(blockNumber) {
  * Idempotent — INSERT OR REPLACE means safe to re-run.
  */
 async function backfill() {
+  ensureDb();
   const factory = getFactoryContract();
   const total = Number(await factory.totalVaults());
   if (total === 0) {
@@ -102,8 +123,7 @@ async function backfill() {
   let added = 0;
   for (let i = 0; i < total; i++) {
     const address = await factory.getVaultAt(i);
-    const exists = ensureDb().prepare('SELECT 1 FROM vaults WHERE address = ?').get(address);
-    if (exists) continue;
+    if (vaults.has(address.toLowerCase())) continue;
 
     // Read on-chain metadata
     const vault = new ethers.Contract(address, ABIs.AegisVault, getProvider());
@@ -118,13 +138,14 @@ async function backfill() {
       owner,
       executor,
       base_asset: baseAsset,
-      created_block: 0, // unknown for backfilled entries — set on event listener
+      created_block: 0,
       created_at: Math.floor(Date.now() / 1000),
       tx_hash: null,
     });
     added++;
   }
 
+  if (added > 0) persist();
   logger.info(`Indexer backfill: ${added}/${total} vaults added`);
   return added;
 }
@@ -160,6 +181,7 @@ async function pollForNewVaults() {
 
     if (events.length > 0) {
       logger.info(`Indexer: ingested ${events.length} VaultDeployed events (blocks ${fromBlock}-${currentBlock})`);
+      persist();
     }
 
     setLastBlock(currentBlock);
@@ -192,24 +214,23 @@ export function stopIndexer() {
     clearInterval(pollTimer);
     pollTimer = null;
   }
-  if (db) {
-    db.close();
-    db = null;
-  }
+  persist();
 }
 
 /**
  * Query: vaults assigned to a specific executor wallet.
- * O(log N) thanks to idx_executor index.
+ * O(1) lookup via executor index.
  */
 export function getVaultsByExecutor(executorAddress) {
   ensureDb();
-  return db.prepare(`
-    SELECT address, owner, executor, base_asset, created_block, created_at
-    FROM vaults
-    WHERE LOWER(executor) = LOWER(?)
-    ORDER BY created_block ASC
-  `).all(executorAddress);
+  const exKey = (executorAddress || '').toLowerCase();
+  const addrSet = executorIndex.get(exKey);
+  if (!addrSet || addrSet.size === 0) return [];
+
+  return Array.from(addrSet)
+    .map((a) => vaults.get(a))
+    .filter(Boolean)
+    .sort((a, b) => (a.created_block || 0) - (b.created_block || 0));
 }
 
 /**
@@ -217,7 +238,7 @@ export function getVaultsByExecutor(executorAddress) {
  */
 export function getAllVaults() {
   ensureDb();
-  return db.prepare(`SELECT * FROM vaults ORDER BY created_block ASC`).all();
+  return Array.from(vaults.values()).sort((a, b) => (a.created_block || 0) - (b.created_block || 0));
 }
 
 /**
@@ -225,10 +246,7 @@ export function getAllVaults() {
  */
 export function getExecutorVaultCounts() {
   ensureDb();
-  return db.prepare(`
-    SELECT executor, COUNT(*) as count
-    FROM vaults
-    GROUP BY executor
-    ORDER BY count DESC
-  `).all();
+  return Array.from(executorIndex.entries())
+    .map(([executor, addrs]) => ({ executor, count: addrs.size }))
+    .sort((a, b) => b.count - a.count);
 }

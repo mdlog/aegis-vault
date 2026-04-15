@@ -12,8 +12,30 @@ function loadABI(name) {
   return JSON.parse(readFileSync(path, 'utf8'));
 }
 
+// VaultEvents is an external library — its events are emitted with the vault's
+// address but are NOT in the compiled AegisVault ABI. Merge them manually so
+// ethers.Interface can parse `IntentExecuted`, `IntentSubmitted`, etc. Without
+// this, parseLog() returns undefined and the executor falls back to success=true
+// even when the on-chain event reports success=false.
+function mergeVaultAbi() {
+  const vaultAbi = loadABI('AegisVault');
+  const eventsAbi = loadABI('VaultEvents');
+  const existing = new Set(
+    vaultAbi
+      .filter((f) => f.type === 'event')
+      .map((f) => `${f.name}(${(f.inputs || []).map((i) => i.type).join(',')})`)
+  );
+  const merged = [...vaultAbi];
+  for (const frag of eventsAbi) {
+    if (frag.type !== 'event') continue;
+    const sig = `${frag.name}(${(frag.inputs || []).map((i) => i.type).join(',')})`;
+    if (!existing.has(sig)) merged.push(frag);
+  }
+  return merged;
+}
+
 const ABIs = {
-  AegisVault: loadABI('AegisVault'),
+  AegisVault: mergeVaultAbi(),
   AegisVaultFactory: loadABI('AegisVaultFactory'),
   ExecutionRegistry: loadABI('ExecutionRegistry'),
   MockERC20: loadABI('MockERC20'),

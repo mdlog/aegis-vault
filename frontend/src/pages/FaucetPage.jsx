@@ -112,7 +112,7 @@ export default function FaucetPage() {
   ].filter(t => t.address);
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-2xl mx-auto pt-10">
       <div className="mb-8">
         <h1 className="text-2xl font-display font-bold text-white mb-2">Token Faucet</h1>
         <p className="text-sm text-steel/50">

@@ -67,7 +67,7 @@ async function test() {
   }
 
   // Build intent
-  const intent = buildExecutionIntent(decision, vaultState);
+  const intent = await buildExecutionIntent(decision, vaultState);
   console.log(`\nIntent hash: ${intent.intentHash.substring(0, 18)}...`);
   console.log(`AssetIn:  ${intent.assetIn}`);
   console.log(`AssetOut: ${intent.assetOut}`);

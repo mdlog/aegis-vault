@@ -82,12 +82,12 @@ const STATIC_DEPLOYMENTS = {
     oUSDT: '0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189',
     W0G:   '0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c',
     // mockUSDC alias points to oUSDT so existing hooks read the right token
-    mockUSDC: '0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189',
+    mockUSDC: '0x6f66f804ECf406587343aF976c6f38c3395d6cDa',
     mockWBTC: '0x5959097B719cBACD35D11f8d959c145EBbb88f33',
     mockWETH: '0x4f69AC64BBB4D73a098c398af498024A3715ff57',
     mockDEX: '0xE21dbC01424533ABc96237BfAeaE5d625d58e359',
-    demoVault: '',
-    orchestratorWallet: '',
+    demoVault: '0xAa3E0d5B9D86B947fA43b6Bb63A0f4aD6E8f91C1',
+    orchestratorWallet: '0xD11A7E3eF93B1eC7fC0A5b8d2A6fD3e9C41B27A1',
   },
   // Arbitrum One — EXECUTION layer (vault custody + Uniswap V3 swaps).
   // Real DeFi liquidity. Fill after running deploy-arbitrum-execution.js.
@@ -156,7 +156,43 @@ const DEPLOYMENTS = {
   ...generatedMap,
 };
 
-export const ENABLE_DEMO_FALLBACKS = import.meta.env.VITE_ENABLE_DEMO_FALLBACKS === '1';
+const DEMO_MODE_QUERY_KEY = 'demo';
+const DEMO_MODE_STORAGE_KEY = 'aegis-demo-fallbacks';
+const rawDemoMode = import.meta.env.VITE_ENABLE_DEMO_FALLBACKS;
+
+function isTruthyFlag(value) {
+  return value === '1' || value === 'true' || value === 'yes';
+}
+
+function isFalsyFlag(value) {
+  return value === '0' || value === 'false' || value === 'no';
+}
+
+function readBrowserDemoOverride() {
+  if (typeof window === 'undefined') return false;
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const queryValue = params.get(DEMO_MODE_QUERY_KEY);
+
+    if (isTruthyFlag(queryValue)) {
+      window.localStorage.setItem(DEMO_MODE_STORAGE_KEY, '1');
+      return true;
+    }
+
+    if (isFalsyFlag(queryValue)) {
+      window.localStorage.removeItem(DEMO_MODE_STORAGE_KEY);
+      return false;
+    }
+
+    return window.localStorage.getItem(DEMO_MODE_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export const ENABLE_DEMO_FALLBACKS =
+  isTruthyFlag(rawDemoMode) || readBrowserDemoOverride();
 export const ORCHESTRATOR_URL =
   import.meta.env.VITE_ORCHESTRATOR_URL ||
   (import.meta.env.DEV ? 'http://localhost:4002' : '');
@@ -188,6 +224,28 @@ export function getExplorerBaseUrl(chainId) {
 
 export function isConfiguredAddress(address) {
   return typeof address === 'string' && /^0x[a-fA-F0-9]{40}$/.test(address);
+}
+
+export function isTransactionHash(hash) {
+  return typeof hash === 'string' && /^0x[a-fA-F0-9]{64}$/.test(hash);
+}
+
+export function getExplorerAddressHref(chainId, address) {
+  const explorerBaseUrl = getExplorerBaseUrl(chainId);
+  if (!explorerBaseUrl || !isConfiguredAddress(address)) return null;
+  return `${explorerBaseUrl}/address/${address}`;
+}
+
+export function getExplorerTxHref(chainId, hash) {
+  const explorerBaseUrl = getExplorerBaseUrl(chainId);
+  if (!explorerBaseUrl || !isTransactionHash(hash)) return null;
+  return `${explorerBaseUrl}/tx/${hash}`;
+}
+
+export function shortHexLabel(value, leading = 8, trailing = 6) {
+  if (!value) return '';
+  if (value.length <= leading + trailing + 3) return value;
+  return `${value.slice(0, leading)}...${value.slice(-trailing)}`;
 }
 
 export function getVaultRoute(vaultAddress) {

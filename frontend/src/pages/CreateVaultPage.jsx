@@ -9,12 +9,13 @@ import WalletButton from '../components/ui/WalletButton';
 import Logo from '../components/ui/Logo';
 import { useCreateVault } from '../hooks/useVault';
 import { useOrchestratorStatus } from '../hooks/useOrchestrator';
-import { useOperatorList, MandateLabel } from '../hooks/useOperatorRegistry';
+import { useOperatorList } from '../hooks/useOperatorRegistry';
 import { formatBps, estimateAnnualFees } from '../hooks/useVaultFees';
 import {
   useOperatorTiers, TIER_LABELS, TIER_COLORS, formatVaultCap,
 } from '../hooks/useOperatorStaking';
-import { getDeployments } from '../lib/contracts';
+import { demoOperatorTiers, demoOperators } from '../data/demoContent';
+import { ENABLE_DEMO_FALLBACKS, getDeployments } from '../lib/contracts';
 import TokenIcon from '../components/ui/TokenIcon';
 import {
   ArrowLeft, ArrowRight, Check, Shield, Lock, Zap, Cpu,
@@ -59,6 +60,12 @@ const availableAssets = [
   { symbol: '0G', name: '0G Token', color: '#4cc9f0' },
 ];
 
+const riskScoreByProfile = {
+  defensive: 3,
+  balanced: 5,
+  tactical: 8,
+};
+
 export default function CreateVaultPage() {
   const navigate = useNavigate();
   const { isConnected } = useAccount();
@@ -81,23 +88,28 @@ export default function CreateVaultPage() {
     sealedMode: false,
     autoExecution: true,
   });
-  const [executorMode, setExecutorMode] = useState('');
+  const [executorMode, setExecutorMode] = useState(ENABLE_DEMO_FALLBACKS ? 'marketplace' : '');
   const [customExecutor, setCustomExecutor] = useState('');
-  const [selectedMarketplaceOperator, setSelectedMarketplaceOperator] = useState('');
+  const [selectedMarketplaceOperator, setSelectedMarketplaceOperator] = useState(
+    ENABLE_DEMO_FALLBACKS ? demoOperators[0]?.wallet || '' : ''
+  );
 
   const { operators: marketplaceOperators } = useOperatorList(deployments.operatorRegistry);
-  const activeMarketplaceOperators = marketplaceOperators.filter((op) => op.loaded && op.active);
+  const liveMarketplaceOperators = marketplaceOperators.filter((op) => op.loaded && op.active);
+  const useDemoMarketplace = ENABLE_DEMO_FALLBACKS && liveMarketplaceOperators.length === 0;
+  const activeMarketplaceOperators = useDemoMarketplace ? demoOperators : liveMarketplaceOperators;
 
   // Phase 2: tier data for all marketplace operators
   const allOperatorAddrs = activeMarketplaceOperators.map((op) => op.wallet);
-  const { tiersByAddress } = useOperatorTiers(deployments.operatorStaking, allOperatorAddrs);
+  const { tiersByAddress: liveTiersByAddress } = useOperatorTiers(deployments.operatorStaking, allOperatorAddrs);
+  const tiersByAddress = useDemoMarketplace ? demoOperatorTiers : liveTiersByAddress;
 
   const currentStep = steps[step];
   const selectedProfile = riskProfiles.find((p) => p.id === config.riskProfile);
   const detectedExecutor = orchStatus?.executorAddress || '';
   const canUseDetectedExecutor = Boolean(detectedExecutor);
   const activeExecutorMode =
-    executorMode || (canUseDetectedExecutor ? 'orchestrator' : customExecutor ? 'custom' : 'custom');
+    executorMode || (canUseDetectedExecutor ? 'orchestrator' : useDemoMarketplace ? 'marketplace' : customExecutor ? 'custom' : 'custom');
 
   // Selected operator full metadata (for fee preview + recommended policy preset)
   const selectedOperatorData =
@@ -119,12 +131,27 @@ export default function CreateVaultPage() {
   else resolvedExecutor = customExecutor.trim();
 
   const executorReady = Boolean(resolvedExecutor) && isAddress(resolvedExecutor);
-  const _btnDisabled = createPending || !executorReady;
-  const _showsDeploy = step >= steps.length - 1;
-  console.log('[CV]', { step, stepsLen: steps.length, _showsDeploy, isConnected, executorReady, _btnDisabled, resolvedExecutor, customExecutor, activeExecutorMode });
   const shortExecutor = executorReady
     ? `${resolvedExecutor.slice(0, 8)}...${resolvedExecutor.slice(-6)}`
     : 'Not configured';
+  const operatorCountLabel = useDemoMarketplace ? 'demo operators preloaded' : 'registered operators available';
+  const annualFeeEstimate = selectedOperatorData
+    ? estimateAnnualFees(
+        config.depositAmount,
+        selectedOperatorData.performanceFeeBps,
+        selectedOperatorData.managementFeeBps,
+        10
+      )
+    : null;
+  const entryCost = selectedOperatorData
+    ? (config.depositAmount * (selectedOperatorData.entryFeeBps || 0)) / 10000
+    : 0;
+  const previewChecklist = [
+    { label: 'Capital committed', value: `$${config.depositAmount.toLocaleString()}`, ready: config.depositAmount > 0 },
+    { label: 'Policy selected', value: `${selectedProfile.label} mandate`, ready: Boolean(selectedProfile) },
+    { label: 'Execution path', value: config.sealedMode ? 'TEE-sealed + commit reveal' : 'Open strategy mode', ready: true },
+    { label: 'Executor assigned', value: selectedOperatorData?.name || shortExecutor, ready: executorReady },
+  ];
 
   const updateConfig = (key, value) => setConfig((prev) => ({ ...prev, [key]: value }));
 
@@ -179,7 +206,7 @@ export default function CreateVaultPage() {
     <div className="min-h-screen bg-obsidian flex flex-col">
       {/* Top bar */}
       <header className="sticky top-0 z-50 bg-obsidian/95 backdrop-blur-xl border-b border-white/[0.04]">
-        <div className="max-w-3xl mx-auto px-4 lg:px-6 h-14 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 lg:px-6 h-14 flex items-center justify-between">
           <Link to="/app" className="flex items-center gap-2 text-steel/60 hover:text-white transition-colors text-xs">
             <ArrowLeft className="w-4 h-4" />
             Back to Dashboard
@@ -192,7 +219,36 @@ export default function CreateVaultPage() {
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-4 lg:px-6 py-8 lg:py-12 flex-1">
+      <div className="max-w-6xl mx-auto px-4 lg:px-6 py-8 lg:py-12 flex-1">
+        <GlassPanel gold className="p-5 mb-8">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-gold/75 mb-1">
+                Judge Demo Path
+              </div>
+              <h1 className="text-xl lg:text-2xl font-display font-semibold text-white tracking-tight mb-2">
+                Launch a policy-constrained AI vault in under a minute
+              </h1>
+              <p className="text-sm text-steel/55 max-w-2xl">
+                This wizard is preloaded for demo day: realistic deposit sizing, marketplace operators,
+                sealed-mode guardrails, and an execution summary that stays readable while you present.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 lg:min-w-[320px]">
+              <div className="rounded-xl border border-gold/15 bg-gold/[0.04] px-4 py-3">
+                <div className="text-[9px] font-mono uppercase tracking-[0.14em] text-steel/40 mb-1">Operator Roster</div>
+                <div className="text-lg font-display font-semibold text-gold">{activeMarketplaceOperators.length}</div>
+                <div className="text-[10px] text-steel/45">{operatorCountLabel}</div>
+              </div>
+              <div className="rounded-xl border border-cyan/15 bg-cyan/[0.04] px-4 py-3">
+                <div className="text-[9px] font-mono uppercase tracking-[0.14em] text-steel/40 mb-1">Default Story</div>
+                <div className="text-lg font-display font-semibold text-cyan">{selectedProfile.label}</div>
+                <div className="text-[10px] text-steel/45">{config.sealedMode ? 'sealed mode active' : 'balanced launch preset'}</div>
+              </div>
+            </div>
+          </div>
+        </GlassPanel>
+
         {/* Step indicator */}
         <div className="flex items-center justify-center gap-1 mb-10">
           {steps.map((s, i) => (
@@ -221,8 +277,9 @@ export default function CreateVaultPage() {
           ))}
         </div>
 
-        {/* Step content */}
-        <div className="min-h-[400px]">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+          {/* Step content */}
+          <div className="min-h-[400px]">
           {/* Step 1: Deposit */}
           {currentStep.key === 'deposit' && (
             <div className="text-center">
@@ -835,6 +892,118 @@ export default function CreateVaultPage() {
           )}
         </div>
 
+          <aside className="space-y-4 lg:sticky lg:top-24">
+            <GlassPanel className="p-4">
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-cyan/70 mb-1">Live Preview</div>
+                  <h3 className="text-lg font-display font-semibold text-white">Vault launch snapshot</h3>
+                </div>
+                <StatusPill
+                  label={executorReady ? 'Demo ready' : 'Needs executor'}
+                  variant={executorReady ? 'active' : 'warning'}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+                  <div className="text-[9px] font-mono uppercase tracking-[0.12em] text-steel/40 mb-1">Deposit</div>
+                  <div className="text-lg font-display font-semibold text-white">${(config.depositAmount / 1000).toFixed(0)}k</div>
+                  <div className="text-[10px] text-steel/45">USDC seed capital</div>
+                </div>
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+                  <div className="text-[9px] font-mono uppercase tracking-[0.12em] text-steel/40 mb-1">Risk Dial</div>
+                  <div className="text-lg font-display font-semibold text-gold">{riskScoreByProfile[config.riskProfile]}/10</div>
+                  <div className="text-[10px] text-steel/45">{selectedProfile.label} mandate</div>
+                </div>
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+                  <div className="text-[9px] font-mono uppercase tracking-[0.12em] text-steel/40 mb-1">Assets</div>
+                  <div className="text-lg font-display font-semibold text-cyan">{config.allowedAssets.length}</div>
+                  <div className="text-[10px] text-steel/45">{config.allowedAssets.join(', ')}</div>
+                </div>
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+                  <div className="text-[9px] font-mono uppercase tracking-[0.12em] text-steel/40 mb-1">Mode</div>
+                  <div className="text-lg font-display font-semibold text-white">{config.sealedMode ? 'Sealed' : 'Open'}</div>
+                  <div className="text-[10px] text-steel/45">{config.autoExecution ? 'autonomous' : 'manual approval'}</div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5 space-y-2.5">
+                {previewChecklist.map((item) => (
+                  <div key={item.label} className="flex items-start gap-2">
+                    <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center border ${
+                      item.ready ? 'border-emerald-soft/30 bg-emerald-soft/10 text-emerald-soft' : 'border-gold/20 bg-gold/10 text-gold'
+                    }`}>
+                      {item.ready ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-medium text-white">{item.label}</div>
+                      <div className="text-[10px] text-steel/45">{item.value}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </GlassPanel>
+
+            <GlassPanel gold className="p-4">
+              <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-gold/75 mb-2">Judge Narrative</div>
+              <div className="space-y-3 text-[11px] text-steel/55">
+                <div className="rounded-lg border border-gold/15 bg-gold/[0.04] px-3 py-2.5">
+                  1. Show the deposit, risk mandate, and allowed assets so the policy boundary is obvious before any AI decision is made.
+                </div>
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+                  2. Choose a marketplace operator and point out that fees, caps, and trust assumptions are visible before deployment.
+                </div>
+                <div className="rounded-lg border border-cyan/15 bg-cyan/[0.04] px-3 py-2.5">
+                  3. Enable sealed mode to connect the story to governance, audit trail, and the live action feed after launch.
+                </div>
+              </div>
+            </GlassPanel>
+
+            {selectedOperatorData && (
+              <GlassPanel className="p-4">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-steel/40 mb-1">Operator Fit</div>
+                    <h3 className="text-sm font-display font-semibold text-white">{selectedOperatorData.name}</h3>
+                  </div>
+                  <StatusPill label={useDemoMarketplace ? 'Demo roster' : 'Live registry'} variant={useDemoMarketplace ? 'gold' : 'active'} />
+                </div>
+                <p className="text-[11px] text-steel/50 leading-relaxed mb-3">
+                  {selectedOperatorData.description}
+                </p>
+                <div className="grid grid-cols-2 gap-3 text-[10px] font-mono">
+                  <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+                    <div className="text-steel/40 uppercase mb-1">Fees</div>
+                    <div className="text-gold">Perf {formatBps(selectedOperatorData.performanceFeeBps)}</div>
+                    <div className="text-cyan">Mgmt {formatBps(selectedOperatorData.managementFeeBps)}</div>
+                  </div>
+                  <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+                    <div className="text-steel/40 uppercase mb-1">Tier Cap</div>
+                    <div className="text-white/80">
+                      {formatVaultCap(selectedOperatorTier?.maxVaultSize || 0, selectedOperatorTier?.isUnlimited)}
+                    </div>
+                    <div className={selectedOperatorTier?.frozen ? 'text-red-warn/70' : 'text-emerald-soft/70'}>
+                      {selectedOperatorTier?.frozen ? 'frozen' : 'eligible'}
+                    </div>
+                  </div>
+                </div>
+                {annualFeeEstimate && (
+                  <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+                    <div className="text-[10px] font-mono uppercase tracking-[0.12em] text-steel/40 mb-1">Demo Year-One Fee View</div>
+                    <div className="text-sm font-display font-semibold text-white">
+                      ${(entryCost + annualFeeEstimate.totalEstimated).toFixed(0)}
+                    </div>
+                    <div className="text-[10px] text-steel/45">
+                      On a ${config.depositAmount.toLocaleString()} vault with 10% expected return
+                    </div>
+                  </div>
+                )}
+              </GlassPanel>
+            )}
+          </aside>
+        </div>
+
         {/* Navigation buttons */}
         <div className="flex items-center justify-between mt-10 pt-6 border-t border-white/[0.04]">
           <div>
@@ -909,7 +1078,7 @@ export default function CreateVaultPage() {
 
       {/* Footer */}
       <footer className="border-t border-white/[0.04] py-6 mt-12">
-        <div className="max-w-3xl mx-auto px-4 lg:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="max-w-6xl mx-auto px-4 lg:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Logo size={18} />
             <span className="text-[10px] font-mono tracking-[0.12em] uppercase text-steel/40">Aegis Vault</span>

@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "hardhat test"
+    "test": "hardhat test test/AegisVault.test.js",
+    "test:slim": "hardhat test test/AegisVault.test.js",
+    "test:legacy": "hardhat test",
+    "test:all": "hardhat test"
   },
   "keywords": [],
   "author": "",

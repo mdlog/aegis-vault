@@ -29,7 +29,7 @@ import { normalizeTradeSymbol } from './assets.js';
  */
 export async function requestInference(marketSummary, vaultState) {
   // ── Step 1: Build price history for indicators ──
-  const contextAsset = selectContextAsset(vaultState);
+  const contextAsset = selectContextAsset(vaultState, marketSummary);
   const contextMarket = getAssetMarketView(marketSummary, contextAsset);
 
   // Use price history if available, otherwise build minimal array from current data
@@ -58,7 +58,7 @@ export async function requestInference(marketSummary, vaultState) {
       const result = await chatCompletion([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
-      ], { temperature: 0.3, max_tokens: 1024 });
+      ], { temperature: 0.3, max_tokens: 4096 });
 
       if (result?.content) {
         logger.debug(`  AI raw response (${result.content.length} chars): ${result.content.substring(0, 200)}`);
@@ -219,12 +219,23 @@ function localAssessment(marketSummary, vaultState, indicators, regime) {
   };
 }
 
-function selectContextAsset(vaultState) {
-  return normalizeTradeSymbol(
-    vaultState.current_position_asset ||
-    vaultState.primaryPositionAsset ||
-    'BTC'
-  );
+function selectContextAsset(vaultState, marketSummary) {
+  // 1. If vault holds an asset, analyze that (avoid context-switching while in position)
+  const positionAsset = vaultState.current_position_asset || vaultState.primaryPositionAsset;
+  if (positionAsset) return normalizeTradeSymbol(positionAsset);
+
+  // 2. Otherwise pick asset with largest absolute 24h move (highest opportunity)
+  if (marketSummary?.prices) {
+    const candidates = ['BTC', 'ETH'].filter(s => marketSummary.prices[s]);
+    if (candidates.length > 0) {
+      const sorted = candidates.sort((a, b) =>
+        Math.abs(marketSummary.prices[b].change24h || 0) - Math.abs(marketSummary.prices[a].change24h || 0)
+      );
+      return normalizeTradeSymbol(sorted[0]);
+    }
+  }
+
+  return 'BTC';
 }
 
 function selectDecisionAsset(vaultState, aiView, fallbackAsset = 'BTC') {

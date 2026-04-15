@@ -77,14 +77,15 @@ export default function Navbar() {
               {link.label}
             </a>
           ))}
-          <a
-            href="#cta"
+          <Link
+            to="/app"
+            onClick={() => setMobileOpen(false)}
             className="block text-center px-5 py-2.5 text-sm tracking-[0.1em] uppercase font-medium
               bg-gold/10 text-gold border border-gold/20 rounded
               hover:bg-gold/20 transition-all duration-300"
           >
             Launch App
-          </a>
+          </Link>
         </div>
       )}
     </nav>

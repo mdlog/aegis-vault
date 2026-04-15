@@ -1,8 +1,12 @@
+import { Link } from 'react-router-dom';
+import { useChainId } from 'wagmi';
 import { useJournal } from '../../hooks/useOrchestrator';
+import { getExplorerTxHref, ORCHESTRATOR_URL, shortHexLabel } from '../../lib/contracts';
 import StatusPill from '../ui/StatusPill';
 import GlassPanel from '../ui/GlassPanel';
 import SectionLabel from '../ui/SectionLabel';
-import { Activity, ArrowUpRight, ArrowDownRight, Pause, ShieldOff, FileText } from 'lucide-react';
+import ExplorerAnchor from '../ui/ExplorerAnchor';
+import { Activity, ArrowUpRight, ArrowDownRight, Pause, ShieldOff, FileText, Cpu, Plus } from 'lucide-react';
 
 const typeIcons = {
   buy: <ArrowUpRight className="w-3.5 h-3.5 text-emerald-soft" />,
@@ -71,12 +75,15 @@ function getIcon(entry) {
   return typeIcons[entry.type] || typeIcons.hold;
 }
 
-export default function ActionFeed({ limit = 20 }) {
+export default function ActionFeed({ limit = 20, fallbackEntries = [] }) {
+  const chainId = useChainId();
   const { data: entries, loading } = useJournal(limit);
+  const usingFallback = (!entries || entries.length === 0) && fallbackEntries.length > 0;
+  const actions = entries && entries.length > 0
+    ? entries.slice(0, limit)
+    : fallbackEntries.slice(0, limit);
 
-  const actions = entries && entries.length > 0 ? entries.slice(0, limit) : [];
-
-  if (loading) {
+  if (loading && !usingFallback) {
     return (
       <div>
         <SectionLabel color="text-cyan/60">AI Intelligence Feed</SectionLabel>
@@ -92,11 +99,37 @@ export default function ActionFeed({ limit = 20 }) {
     return (
       <div>
         <SectionLabel color="text-cyan/60">AI Intelligence Feed</SectionLabel>
-        <GlassPanel className="p-8 text-center">
-          <FileText className="w-8 h-8 text-steel/20 mx-auto mb-3" />
-          <p className="text-sm text-steel/40">No AI actions yet.</p>
-          <p className="text-xs text-steel/30 mt-1">Run an AI cycle or start the orchestrator to generate actions.</p>
-          <p className="text-[10px] text-steel/25 mt-2 font-mono">cd orchestrator && npm start</p>
+        <GlassPanel className="p-8">
+          <div className="flex items-center gap-2 mb-2">
+            <FileText className="w-5 h-5 text-steel/25" />
+            <span className="text-sm font-display font-semibold text-white">No live AI actions recorded yet</span>
+          </div>
+          <p className="text-[11px] text-steel/50 leading-relaxed mb-4">
+            This feed stays empty until the orchestrator runs at least one cycle against a vault whose executor matches
+            the active backend wallet. No synthetic entries are being injected here.
+          </p>
+          <div className="grid sm:grid-cols-3 gap-2 text-[10px] font-mono text-steel/40 mb-4">
+            <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-3 py-2">1. Create or open a vault</div>
+            <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-3 py-2">2. Set the executor wallet</div>
+            <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-3 py-2">3. Run the first AI cycle</div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link to="/create">
+              <GlassPanel className="px-3 py-2 flex items-center gap-2 text-[11px] text-gold/70 hover:border-gold/20" hover>
+                <Plus className="w-3 h-3" />
+                Create Vault
+              </GlassPanel>
+            </Link>
+            <Link to="/marketplace">
+              <GlassPanel className="px-3 py-2 flex items-center gap-2 text-[11px] text-cyan/60 hover:border-cyan/20" hover>
+                <Cpu className="w-3 h-3" />
+                Review Operators
+              </GlassPanel>
+            </Link>
+          </div>
+          <div className="mt-4 text-[10px] font-mono text-steel/35">
+            Orchestrator endpoint: {ORCHESTRATOR_URL || 'not configured'}
+          </div>
         </GlassPanel>
       </div>
     );
@@ -110,6 +143,7 @@ export default function ActionFeed({ limit = 20 }) {
           const outcome = getOutcome(entry);
           const label = getActionLabel(entry);
           const icon = getIcon(entry);
+          const txHref = getExplorerTxHref(chainId, entry.txHash);
 
           return (
             <GlassPanel key={entry.id || i} className="p-4 group hover:border-white/[0.08]" hover>
@@ -130,7 +164,13 @@ export default function ActionFeed({ limit = 20 }) {
                         variant={entry.approval_tier === 'auto_execute' ? 'active' : 'warning'}
                       />
                     )}
-                    <span className="text-[8px] font-mono text-cyan/40 px-1 py-0.5 rounded bg-cyan/5 border border-cyan/10">LIVE</span>
+                    <span className={`text-[8px] font-mono px-1 py-0.5 rounded border ${
+                      usingFallback
+                        ? 'text-gold/70 bg-gold/5 border-gold/10'
+                        : 'text-cyan/40 bg-cyan/5 border-cyan/10'
+                    }`}>
+                      {usingFallback ? 'DEMO' : 'LIVE'}
+                    </span>
                   </div>
 
                   {/* v1: Regime + Scores bar */}
@@ -207,9 +247,17 @@ export default function ActionFeed({ limit = 20 }) {
                       </span>
                     )}
                     {entry.txHash && (
-                      <span className="text-[10px] font-mono text-cyan/40 group-hover:text-cyan/60 transition-colors">
-                        {entry.txHash}
-                      </span>
+                      txHref ? (
+                        <ExplorerAnchor
+                          href={txHref}
+                          label={shortHexLabel(entry.txHash, 10, 6)}
+                          className="text-[10px] font-mono text-cyan/40 group-hover:text-cyan/60 transition-colors"
+                        />
+                      ) : (
+                        <span className="text-[10px] font-mono text-cyan/40 group-hover:text-cyan/60 transition-colors">
+                          {shortHexLabel(entry.txHash, 10, 6)}
+                        </span>
+                      )
                     )}
                     {entry.duration_ms && (
                       <span className="text-[10px] font-mono text-steel/30">

@@ -380,7 +380,7 @@ async function runVaultCycle(vaultAddress, marketSummary) {
     const oraclePrices = marketSummary.prices;
     // Track 2: pass the raw 0G Compute response so the executor can derive the
     // TEE attestation report hash and bind it into the intent.
-    const intent = buildExecutionIntent(decision, vaultState, oraclePrices, decision._computeResponse);
+    const intent = await buildExecutionIntent(decision, vaultState, oraclePrices, decision._computeResponse);
 
     if (!intent) {
       vaultResult.status = 'error_intent';

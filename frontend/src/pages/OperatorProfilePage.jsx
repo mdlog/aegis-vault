@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { isAddress } from 'viem';
-import { getDeployments } from '../lib/contracts';
+import {
+  getDeployments,
+  getExplorerAddressHref,
+  getExplorerTxHref,
+  shortHexLabel,
+} from '../lib/contracts';
 import { useOperator, MandateLabel, useDeactivateOperator, useActivateOperator } from '../hooks/useOperatorRegistry';
 import { useOrchestratorStatus } from '../hooks/useOrchestrator';
 import { useVaultList, useSetExecutor, useTokenBalance } from '../hooks/useVault';
@@ -20,8 +25,9 @@ import GlassPanel from '../components/ui/GlassPanel';
 import StatusPill from '../components/ui/StatusPill';
 import SectionLabel from '../components/ui/SectionLabel';
 import ControlButton from '../components/ui/ControlButton';
+import ExplorerAnchor from '../components/ui/ExplorerAnchor';
 import {
-  ArrowLeft, Cpu, Globe, Tag, ShieldCheck, Activity, Settings, Power, Edit3, ExternalLink,
+  ArrowLeft, Cpu, Globe, Tag, ShieldCheck, Activity, Settings, Power, Edit3,
   TrendingUp, Percent, DollarSign, Sliders, Info,
   Lock, Unlock, AlertTriangle, Award, Hourglass, Star, BarChart3, BadgeCheck, MessageSquare,
 } from 'lucide-react';
@@ -45,9 +51,9 @@ export default function OperatorProfilePage() {
   const { data: orchStatus } = useOrchestratorStatus();
   const { vaults: myVaults } = useVaultList(deployments.aegisVaultFactory, walletAddress);
 
-  const { setExecutor, isPending: setExecPending, isSuccess: setExecSuccess } = useSetExecutor();
-  const { deactivate, isPending: deactivating } = useDeactivateOperator();
-  const { activate, isPending: activating } = useActivateOperator();
+  const { setExecutor, hash: setExecHash, isPending: setExecPending, isSuccess: setExecSuccess } = useSetExecutor();
+  const { deactivate, hash: deactivateHash, isPending: deactivating } = useDeactivateOperator();
+  const { activate, hash: activateHash, isPending: activating } = useActivateOperator();
 
   // Phase 2: Stake state + writes
   const stakingAddress = deployments.operatorStaking;
@@ -62,10 +68,10 @@ export default function OperatorProfilePage() {
     stakingAddress
   );
   const { balance: walletUsdcBalance } = useTokenBalance(usdcAddress, walletAddress, 6);
-  const { approve: approveUsdc, isPending: approvingStake } = useApproveStake();
-  const { stake, isPending: staking, isSuccess: stakeSuccess } = useStake();
-  const { requestUnstake, isPending: requesting, isSuccess: requestSuccess } = useRequestUnstake();
-  const { claimUnstake, isPending: claiming, isSuccess: claimSuccess } = useClaimUnstake();
+  const { approve: approveUsdc, hash: approveStakeHash, isPending: approvingStake } = useApproveStake();
+  const { stake, hash: stakeHash, isPending: staking, isSuccess: stakeSuccess } = useStake();
+  const { requestUnstake, hash: requestUnstakeHash, isPending: requesting, isSuccess: requestSuccess } = useRequestUnstake();
+  const { claimUnstake, hash: claimUnstakeHash, isPending: claiming, isSuccess: claimSuccess } = useClaimUnstake();
 
   // Phase 3: Reputation
   const reputationAddress = deployments.operatorReputation;
@@ -78,9 +84,9 @@ export default function OperatorProfilePage() {
     validAddress ? operatorAddress : undefined,
     walletAddress
   );
-  const { submitRating, isPending: ratingPending, isSuccess: ratingSuccess } = useSubmitRating();
+  const { submitRating, hash: submitRatingHash, isPending: ratingPending, isSuccess: ratingSuccess } = useSubmitRating();
   const { data: repAdmin } = useReputationAdmin(reputationAddress);
-  const { setVerified, isPending: verifyPending, isSuccess: verifySuccess } = useSetVerified();
+  const { setVerified, hash: verifyHash, isPending: verifyPending, isSuccess: verifySuccess } = useSetVerified();
   const isReputationAdmin = walletAddress && repAdmin &&
     walletAddress.toLowerCase() === repAdmin.toLowerCase();
 
@@ -121,10 +127,24 @@ export default function OperatorProfilePage() {
   const isLive =
     orchStatus?.executorAddress &&
     orchStatus.executorAddress.toLowerCase() === operatorAddress.toLowerCase();
-  const explorer = chainId === 16602 ? 'https://chainscan-galileo.0g.ai' : null;
+  const operatorExplorerHref = getExplorerAddressHref(chainId, operatorAddress);
   const unstakeClaimable =
     (stakeState?.pendingUnstake || 0) > 0 &&
     (stakeState?.unstakeAvailableAt || 0) <= nowSeconds;
+  const recentOperatorTxs = [
+    { label: 'Approve stake', hash: approveStakeHash },
+    { label: 'Stake capital', hash: stakeHash },
+    { label: 'Request unstake', hash: requestUnstakeHash },
+    { label: 'Claim unstake', hash: claimUnstakeHash },
+    { label: 'Submit rating', hash: submitRatingHash },
+    { label: 'Set verified badge', hash: verifyHash },
+    { label: 'Assign executor', hash: setExecHash },
+    { label: 'Deactivate operator', hash: deactivateHash },
+    { label: 'Reactivate operator', hash: activateHash },
+  ].map((item) => ({
+    ...item,
+    href: getExplorerTxHref(chainId, item.hash),
+  })).filter((item) => item.href);
 
   const handleAssign = () => {
     if (!selectedVault) return;
@@ -175,15 +195,13 @@ export default function OperatorProfilePage() {
             </div>
             <div className="flex items-center gap-3 text-[11px] font-mono text-steel/45 mb-3">
               <span>{operatorAddress}</span>
-              {explorer && (
-                <a
-                  href={`${explorer}/address/${operatorAddress}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-cyan/40 hover:text-cyan inline-flex items-center gap-1"
-                >
-                  Explorer <ExternalLink className="w-2.5 h-2.5" />
-                </a>
+              {operatorExplorerHref && (
+                <ExplorerAnchor
+                  href={operatorExplorerHref}
+                  label="Explorer"
+                  className="text-cyan/40 hover:text-cyan"
+                  iconClassName="w-2.5 h-2.5"
+                />
               )}
             </div>
             <p className="text-sm text-steel/65 leading-relaxed mb-4">
@@ -236,6 +254,24 @@ export default function OperatorProfilePage() {
           </div>
         </div>
       </GlassPanel>
+
+      {recentOperatorTxs.length > 0 && (
+        <GlassPanel className="p-4 mb-6">
+          <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-cyan/75 mb-2">
+            Latest Operator Transactions
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {recentOperatorTxs.map((tx) => (
+              <ExplorerAnchor
+                key={tx.href}
+                href={tx.href}
+                label={`${tx.label} · ${shortHexLabel(tx.hash, 10, 6)}`}
+                className="rounded-md border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-[10px] font-mono text-cyan/60 hover:text-cyan hover:border-cyan/20 transition-colors"
+              />
+            ))}
+          </div>
+        </GlassPanel>
+      )}
 
       {/* Fee Structure + Recommended Policy */}
       <div className="grid lg:grid-cols-2 gap-6 mb-6">

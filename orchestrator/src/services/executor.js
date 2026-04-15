@@ -5,6 +5,25 @@ import { withRetry } from '../utils/retry.js';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
+// Minimal venue interface — supports MockDEX.getAmountOut and any adapter
+// exposing the same 3-arg quote signature. Called statically so a missing pair
+// just falls back to oracle-derived minAmountOut.
+const VENUE_QUOTE_ABI = [
+  'function getAmountOut(address,address,uint256) view returns (uint256)',
+];
+
+async function quoteVenueAmountOut(venue, tokenIn, tokenOut, amountIn) {
+  if (!venue || venue === ethers.ZeroAddress) return null;
+  try {
+    const c = new ethers.Contract(venue, VENUE_QUOTE_ABI, getProvider());
+    const out = await c.getAmountOut(tokenIn, tokenOut, amountIn);
+    return BigInt(out);
+  } catch (err) {
+    logger.warn(`  Venue quote failed (${venue}): ${err.shortMessage || err.message}`);
+    return null;
+  }
+}
+
 /**
  * ExecutorService
  * Builds execution intents from AI decisions and submits them to the vault contract.
@@ -61,7 +80,7 @@ export function computeAttestationReportHash(computeResponse) {
   );
 }
 
-export function buildExecutionIntent(decision, vaultState, oraclePrices = null, computeResponse = null) {
+export async function buildExecutionIntent(decision, vaultState, oraclePrices = null, computeResponse = null) {
   const now = Math.floor(Date.now() / 1000);
   const ttl = 300; // 5 minute TTL
 
@@ -102,36 +121,61 @@ export function buildExecutionIntent(decision, vaultState, oraclePrices = null, 
   }
 
   // ── Calculate minAmountOut with slippage protection ──
-  let minAmountOut = 0n;
+  //
+  // The venue's actual quote (e.g. MockDEX `getAmountOut` / adapter equivalent)
+  // is the ground truth for what the swap will return at execution time. Oracle
+  // price is kept as a sanity floor — if the venue quote is wildly below oracle
+  // expectation, we still refuse to trade. Previously we derived minAmountOut
+  // solely from oracle price, which caused every swap to revert silently when
+  // the venue rate drifted outside the slippage buffer (observed on 0G mainnet
+  // MockDEX where rates can diverge ~5% from oracle).
+  const slippageBps = Number.isFinite(config.swapSlippageBps) && config.swapSlippageBps >= 0
+    ? config.swapSlippageBps
+    : DEFAULT_SLIPPAGE_BPS;
+  const outAssetSymbol = decision.action === 'buy' ? decision.asset : 'USDC';
+  const outAssetMeta = getTrackedAsset(outAssetSymbol);
+  const outDecimals = decision.action === 'buy'
+    ? (outAssetMeta?.decimals || 18)
+    : 6;
 
+  let oracleMinOut = 0n;
   if (oraclePrices && expectedOutputUsd > 0) {
-    // Use Pyth oracle price to calculate expected output
-    const outAssetSymbol = decision.action === 'buy' ? decision.asset : 'USDC';
-    const outAssetMeta = getTrackedAsset(outAssetSymbol);
-    const outDecimals = decision.action === 'buy'
-      ? (outAssetMeta?.decimals || 18)
-      : 6;
-
     if (outAssetSymbol === 'USDC') {
-      // Selling to USDC: expected output ≈ expectedOutputUsd
-      const minUsd = expectedOutputUsd * (1 - DEFAULT_SLIPPAGE_BPS / 10000);
-      minAmountOut = ethers.parseUnits(minUsd.toFixed(outDecimals > 6 ? 6 : outDecimals), outDecimals);
+      const minUsd = expectedOutputUsd * (1 - slippageBps / 10000);
+      oracleMinOut = ethers.parseUnits(minUsd.toFixed(outDecimals > 6 ? 6 : outDecimals), outDecimals);
     } else {
-      // Buying asset: calculate expected token amount from oracle price
       const priceKey = outAssetSymbol === 'BTC' || outAssetSymbol === 'WBTC' ? 'BTC' : 'ETH';
       const assetPrice = oraclePrices[priceKey]?.price || oraclePrices[priceKey] || 0;
       if (assetPrice > 0) {
         const expectedTokens = expectedOutputUsd / assetPrice;
-        const minTokens = expectedTokens * (1 - DEFAULT_SLIPPAGE_BPS / 10000);
-        minAmountOut = ethers.parseUnits(
+        const minTokens = expectedTokens * (1 - slippageBps / 10000);
+        oracleMinOut = ethers.parseUnits(
           minTokens.toFixed(outDecimals > 8 ? 8 : outDecimals),
           outDecimals
         );
       }
     }
-
-    logger.info(`  Slippage protection: minAmountOut = ${minAmountOut.toString()} (${DEFAULT_SLIPPAGE_BPS / 100}% tolerance)`);
   }
+
+  const venueQuote = await quoteVenueAmountOut(vaultState.venue, assetIn, assetOut, amountIn);
+  let venueMinOut = 0n;
+  if (venueQuote && venueQuote > 0n) {
+    // Apply slippage to the venue quote — this is what the swap will accept.
+    venueMinOut = (venueQuote * BigInt(10000 - slippageBps)) / 10000n;
+  }
+
+  // Use the LOWER of (oracle floor, venue quote - slippage). Oracle catches
+  // a pool that's been drained below fair value; venue catches an oracle that
+  // over-estimates what the pool can actually deliver. Taking the min means
+  // both checks are enforced simultaneously.
+  let minAmountOut;
+  if (venueMinOut > 0n && oracleMinOut > 0n) {
+    minAmountOut = venueMinOut < oracleMinOut ? venueMinOut : oracleMinOut;
+  } else {
+    minAmountOut = venueMinOut > 0n ? venueMinOut : oracleMinOut;
+  }
+
+  logger.info(`  Slippage ${slippageBps / 100}% | venue quote: ${venueQuote?.toString() ?? 'n/a'} | oracle floor: ${oracleMinOut.toString()} | minAmountOut: ${minAmountOut.toString()}`);
 
   // Track 2: bind the TEE attestation report hash into the intent
   const attestationReportHash = computeAttestationReportHash(computeResponse);

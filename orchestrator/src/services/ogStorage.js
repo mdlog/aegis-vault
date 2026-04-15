@@ -44,6 +44,11 @@ let _initialized = false;
  */
 export async function initOGStorage() {
   try {
+    // Skip entirely if OG_INDEXER_RPC is explicitly empty in .env
+    if (process.env.OG_INDEXER_RPC === '') {
+      logger.info('0G Storage disabled (OG_INDEXER_RPC empty in .env)');
+      return false;
+    }
     logger.info('Initializing 0G Storage...');
 
     _indexer = new Indexer(OG_INDEXER_RPC);

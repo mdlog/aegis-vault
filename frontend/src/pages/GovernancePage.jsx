@@ -1,12 +1,21 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { isAddress } from 'viem';
-import { getDeployments } from '../lib/contracts';
+import {
+  ENABLE_DEMO_FALLBACKS,
+  getDeployments,
+  getExplorerAddressHref,
+  getExplorerTxHref,
+  isConfiguredAddress,
+  shortHexLabel,
+} from '../lib/contracts';
+import { demoGovernance } from '../data/demoContent';
 import {
   useGovernorConfig, useProposals, useSubmitProposal,
   useConfirmProposal, useExecuteProposal, useRevokeConfirmation,
   useCancelProposal, useHasConfirmed,
-  ProposalBuilders, decodeProposalAction, shortHex,
+  ProposalBuilders, decodeProposalAction,
 } from '../hooks/useGovernor';
 import { useTokenBalance } from '../hooks/useVault';
 import { useStakingStats, useInsurancePoolStats } from '../hooks/useOperatorStaking';
@@ -14,6 +23,7 @@ import GlassPanel from '../components/ui/GlassPanel';
 import StatusPill from '../components/ui/StatusPill';
 import SectionLabel from '../components/ui/SectionLabel';
 import ControlButton from '../components/ui/ControlButton';
+import ExplorerAnchor from '../components/ui/ExplorerAnchor';
 import {
   Vote, Users, Shield, AlertTriangle, CheckCircle, XCircle, Clock,
   DollarSign, ShieldCheck, Lock, BadgeCheck, Plus, FileText, ExternalLink,
@@ -36,11 +46,17 @@ export default function GovernancePage() {
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
   const governorAddress = deployments.aegisGovernor;
+  const governorExplorerHref = getExplorerAddressHref(chainId, governorAddress);
 
   const { owners, threshold, totalProposals } = useGovernorConfig(governorAddress);
   const { proposals, refetch: refetchProposals } = useProposals(governorAddress, totalProposals);
-
-  const isGovernorOwner = walletAddress && owners.some(
+  const hasLiveGovernanceActivity = owners.length > 0 && (Number(totalProposals || 0) > 0 || proposals.length > 0);
+  const useDemoGovernance = ENABLE_DEMO_FALLBACKS && (!governorAddress || !hasLiveGovernanceActivity);
+  const displayOwners = useDemoGovernance ? demoGovernance.owners : owners;
+  const displayThreshold = useDemoGovernance ? demoGovernance.threshold : threshold;
+  const displayTotalProposals = useDemoGovernance ? demoGovernance.totalProposals : totalProposals;
+  const displayProposals = useDemoGovernance ? demoGovernance.proposals : proposals;
+  const isGovernorOwner = !useDemoGovernance && walletAddress && owners.some(
     (o) => o.toLowerCase() === walletAddress.toLowerCase()
   );
 
@@ -49,11 +65,11 @@ export default function GovernancePage() {
   const { totalStakers, totalStakedUsd } = useStakingStats(deployments.operatorStaking);
   const { balance: insuranceBalance, claimCount } = useInsurancePoolStats(deployments.insurancePool, deployments.mockUSDC);
 
-  const { submit, isPending: submitting, isSuccess: submitSuccess } = useSubmitProposal();
-  const { confirm, isPending: confirming } = useConfirmProposal();
-  const { execute, isPending: executing } = useExecuteProposal();
-  const { revoke } = useRevokeConfirmation();
-  const { cancel } = useCancelProposal();
+  const { submit, hash: submitHash, isPending: submitting, isSuccess: submitSuccess } = useSubmitProposal();
+  const { confirm, hash: confirmHash, isPending: confirming } = useConfirmProposal();
+  const { execute, hash: executeHash, isPending: executing } = useExecuteProposal();
+  const { revoke, hash: revokeHash } = useRevokeConfirmation();
+  const { cancel, hash: cancelHash } = useCancelProposal();
 
   // Compose form state
   const [actionType, setActionType] = useState('slash');
@@ -113,7 +129,7 @@ export default function GovernancePage() {
     setTimeout(() => { refetchProposals(); setShowCompose(false); }, 4000);
   };
 
-  if (!governorAddress) {
+  if (!governorAddress && !useDemoGovernance) {
     return (
       <div className="max-w-3xl mx-auto px-4 lg:px-6 py-12 text-center">
         <Vote className="w-10 h-10 text-steel/20 mx-auto mb-3" />
@@ -122,6 +138,22 @@ export default function GovernancePage() {
       </div>
     );
   }
+
+  const displayTreasuryUsdc = useDemoGovernance ? demoGovernance.treasuryUsdc : parseFloat(treasuryUsdc || '0');
+  const displayTotalStakers = useDemoGovernance ? demoGovernance.totalStakers : totalStakers;
+  const displayTotalStakedUsd = useDemoGovernance ? demoGovernance.totalStakedUsd : totalStakedUsd;
+  const displayInsuranceBalance = useDemoGovernance ? demoGovernance.insuranceBalance : insuranceBalance;
+  const displayClaimCount = useDemoGovernance ? demoGovernance.claimCount : claimCount;
+  const recentGovernanceTxs = [
+    { label: 'Submitted proposal', hash: submitHash },
+    { label: 'Confirmed proposal', hash: confirmHash },
+    { label: 'Executed proposal', hash: executeHash },
+    { label: 'Revoked confirmation', hash: revokeHash },
+    { label: 'Canceled proposal', hash: cancelHash },
+  ].map((item) => ({
+    ...item,
+    href: getExplorerTxHref(chainId, item.hash),
+  })).filter((item) => item.href);
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
@@ -132,7 +164,7 @@ export default function GovernancePage() {
             Governance
           </h1>
           <p className="text-xs text-steel/50 max-w-2xl">
-            {threshold}-of-{owners.length} multi-sig controlling slashing, treasury, verified badges,
+            {displayThreshold}-of-{displayOwners.length} multi-sig controlling slashing, treasury, verified badges,
             and owner rotation. All sensitive actions flow through here.
           </p>
         </div>
@@ -143,6 +175,69 @@ export default function GovernancePage() {
         )}
       </div>
 
+      {useDemoGovernance && (
+        <GlassPanel gold className="p-4 mb-6">
+          <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-gold/75 mb-1">
+            Demo Governance Board
+          </div>
+          <p className="text-sm text-steel/55">
+            This read-only board is preloaded with realistic proposals so judges can see treasury controls, operator
+            arbitration, and insurance payouts even before the full governance stack is populated on-chain.
+          </p>
+        </GlassPanel>
+      )}
+
+      {!useDemoGovernance && governorAddress && (
+        <GlassPanel className="p-4 mb-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-cyan/75 mb-1">
+                Live Governor
+              </div>
+              <p className="text-sm text-steel/55 max-w-3xl">
+                This board reflects the real multi-sig state on-chain. If there are no proposals yet, that is the
+                current governance posture, not a missing seed script.
+              </p>
+            </div>
+            {governorExplorerHref && (
+              <a
+                href={governorExplorerHref}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] font-mono text-cyan/60 hover:text-cyan transition-colors"
+              >
+                View governor on explorer <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
+        </GlassPanel>
+      )}
+
+      {!useDemoGovernance && recentGovernanceTxs.length > 0 && (
+        <GlassPanel className="p-4 mb-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-cyan/75 mb-1">
+                Latest Governance Transactions
+              </div>
+              <p className="text-sm text-steel/55 max-w-3xl">
+                Wallet actions from this session are linked below so judges can jump straight to the on-chain proof.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {recentGovernanceTxs.map((tx) => (
+                <ExplorerAnchor
+                  key={tx.href}
+                  href={tx.href}
+                  label={`${tx.label} · ${shortHexLabel(tx.hash, 10, 6)}`}
+                  className="rounded-md border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-[10px] font-mono text-cyan/60 hover:text-cyan hover:border-cyan/20 transition-colors"
+                />
+              ))}
+            </div>
+          </div>
+        </GlassPanel>
+      )}
+
       {/* Stats grid */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
         <GlassPanel className="p-4">
@@ -151,7 +246,7 @@ export default function GovernancePage() {
             <span className="text-[10px] font-mono uppercase tracking-wider text-steel/50">Owners</span>
           </div>
           <div className="text-2xl font-display font-semibold text-white tabular-nums">
-            {threshold}/{owners.length}
+            {displayThreshold}/{displayOwners.length}
           </div>
           <div className="text-[10px] text-steel/40 mt-0.5">multi-sig threshold</div>
         </GlassPanel>
@@ -162,7 +257,7 @@ export default function GovernancePage() {
             <span className="text-[10px] font-mono uppercase tracking-wider text-steel/50">Proposals</span>
           </div>
           <div className="text-2xl font-display font-semibold text-gold tabular-nums">
-            {totalProposals}
+            {displayTotalProposals}
           </div>
           <div className="text-[10px] text-steel/40 mt-0.5">total submitted</div>
         </GlassPanel>
@@ -173,7 +268,7 @@ export default function GovernancePage() {
             <span className="text-[10px] font-mono uppercase tracking-wider text-steel/50">Treasury</span>
           </div>
           <div className="text-2xl font-display font-semibold text-emerald-soft tabular-nums">
-            ${parseFloat(treasuryUsdc || '0').toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            ${displayTreasuryUsdc.toLocaleString(undefined, { maximumFractionDigits: 0 })}
           </div>
           <div className="text-[10px] text-steel/40 mt-0.5">USDC balance</div>
         </GlassPanel>
@@ -184,9 +279,9 @@ export default function GovernancePage() {
             <span className="text-[10px] font-mono uppercase tracking-wider text-steel/50">Total Staked</span>
           </div>
           <div className="text-2xl font-display font-semibold text-amber-warn tabular-nums">
-            ${(totalStakedUsd || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            ${displayTotalStakedUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
           </div>
-          <div className="text-[10px] text-steel/40 mt-0.5">{totalStakers} operator{totalStakers === 1 ? '' : 's'}</div>
+          <div className="text-[10px] text-steel/40 mt-0.5">{displayTotalStakers} operator{displayTotalStakers === 1 ? '' : 's'}</div>
         </GlassPanel>
 
         <GlassPanel className="p-4">
@@ -195,9 +290,9 @@ export default function GovernancePage() {
             <span className="text-[10px] font-mono uppercase tracking-wider text-steel/50">Insurance</span>
           </div>
           <div className="text-2xl font-display font-semibold text-cyan tabular-nums">
-            ${(insuranceBalance || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            ${displayInsuranceBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
           </div>
-          <div className="text-[10px] text-steel/40 mt-0.5">{claimCount} claim{claimCount === 1 ? '' : 's'}</div>
+          <div className="text-[10px] text-steel/40 mt-0.5">{displayClaimCount} claim{displayClaimCount === 1 ? '' : 's'}</div>
         </GlassPanel>
       </div>
 
@@ -206,7 +301,7 @@ export default function GovernancePage() {
         <SectionLabel color="text-cyan/60">Multi-sig Owners</SectionLabel>
         <GlassPanel className="p-4">
           <div className="grid gap-2">
-            {owners.map((owner, i) => {
+            {displayOwners.map((owner, i) => {
               const isMe = walletAddress && owner.toLowerCase() === walletAddress.toLowerCase();
               return (
                 <div key={owner} className="flex items-center justify-between px-3 py-2 rounded-md bg-white/[0.02] border border-white/[0.04]">
@@ -372,39 +467,73 @@ export default function GovernancePage() {
             {submitting ? 'Submitting...' : 'Submit Proposal'}
           </ControlButton>
           {submitSuccess && (
-            <p className="text-[11px] text-emerald-soft/70 mt-2">Proposal submitted on-chain</p>
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              <p className="text-[11px] text-emerald-soft/70">Proposal submitted on-chain</p>
+              {submitHash && (
+                <ExplorerAnchor
+                  href={getExplorerTxHref(chainId, submitHash)}
+                  label={`Tx ${shortHexLabel(submitHash, 10, 6)}`}
+                  className="text-[10px] font-mono text-cyan/60 hover:text-cyan transition-colors"
+                />
+              )}
+            </div>
           )}
         </GlassPanel>
       )}
 
       {/* Proposal list */}
-      <SectionLabel color="text-gold/60">Proposals ({proposals.length})</SectionLabel>
-      {proposals.length === 0 ? (
+      <SectionLabel color="text-gold/60">Proposals ({displayProposals.length})</SectionLabel>
+      {displayProposals.length === 0 ? (
         <GlassPanel className="p-12 text-center border-dashed">
           <Vote className="w-10 h-10 text-steel/20 mx-auto mb-3" />
-          <p className="text-sm text-steel/50">No proposals yet.</p>
+          <p className="text-sm text-steel/50">No live proposals yet.</p>
+          <p className="text-[11px] text-steel/35 mt-1 max-w-xl mx-auto leading-relaxed">
+            The governor is deployed and owner quorum is visible above. This simply means no treasury action, slashing
+            event, or owner rotation has been submitted yet on the active chain.
+          </p>
           {isGovernorOwner && (
             <p className="text-[11px] text-steel/30 mt-1">Owners can submit proposals via the button above.</p>
+          )}
+          {!isGovernorOwner && (
+            <div className="mt-4 flex items-center justify-center gap-2 flex-wrap">
+              <Link to="/marketplace">
+                <ControlButton variant="secondary" size="sm">
+                  <Shield className="w-3 h-3" /> Inspect Operators
+                </ControlButton>
+              </Link>
+              {governorExplorerHref && (
+                <a href={governorExplorerHref} target="_blank" rel="noreferrer">
+                  <ControlButton variant="gold" size="sm">
+                    <ExternalLink className="w-3 h-3" /> Explorer
+                  </ControlButton>
+                </a>
+              )}
+            </div>
           )}
         </GlassPanel>
       ) : (
         <div className="space-y-3">
-          {[...proposals].reverse().map((p) => (
-            <ProposalCard
-              key={p.id}
-              proposal={p}
-              threshold={threshold}
-              governorAddress={governorAddress}
-              walletAddress={walletAddress}
-              isOwner={isGovernorOwner}
-              deployments={deployments}
-              onConfirm={() => { confirm(governorAddress, p.id); setTimeout(refetchProposals, 4000); }}
-              onExecute={() => { execute(governorAddress, p.id); setTimeout(refetchProposals, 4000); }}
-              onRevoke={() => { revoke(governorAddress, p.id); setTimeout(refetchProposals, 4000); }}
-              onCancel={() => { cancel(governorAddress, p.id); setTimeout(refetchProposals, 4000); }}
-              executing={executing}
-              confirming={confirming}
-            />
+          {[...displayProposals].reverse().map((proposal) => (
+            useDemoGovernance ? (
+              <DemoProposalCard key={proposal.id} proposal={proposal} threshold={displayThreshold} />
+            ) : (
+              <ProposalCard
+                key={proposal.id}
+                proposal={proposal}
+                threshold={displayThreshold}
+                governorAddress={governorAddress}
+                chainId={chainId}
+                walletAddress={walletAddress}
+                isOwner={isGovernorOwner}
+                deployments={deployments}
+                onConfirm={() => { confirm(governorAddress, proposal.id); setTimeout(refetchProposals, 4000); }}
+                onExecute={() => { execute(governorAddress, proposal.id); setTimeout(refetchProposals, 4000); }}
+                onRevoke={() => { revoke(governorAddress, proposal.id); setTimeout(refetchProposals, 4000); }}
+                onCancel={() => { cancel(governorAddress, proposal.id); setTimeout(refetchProposals, 4000); }}
+                executing={executing}
+                confirming={confirming}
+              />
+            )
           ))}
         </div>
       )}
@@ -444,7 +573,7 @@ function FormField({ label, value, onChange, placeholder, type = 'text', classNa
 }
 
 function ProposalCard({
-  proposal, threshold, governorAddress, walletAddress, isOwner, deployments,
+  proposal, threshold, governorAddress, chainId, walletAddress, isOwner, deployments,
   onConfirm, onExecute, onRevoke, onCancel, executing, confirming,
 }) {
   const { data: hasConfirmed, refetch: refetchConfirmed } = useHasConfirmed(governorAddress, proposal.id, walletAddress);
@@ -465,6 +594,8 @@ function ProposalCard({
   }[status];
 
   const actionTarget = decodeProposalAction(proposal, deployments);
+  const targetHref = getExplorerAddressHref(chainId, proposal.target);
+  const proposerHref = getExplorerAddressHref(chainId, proposal.proposer);
 
   return (
     <GlassPanel className="p-4">
@@ -476,9 +607,31 @@ function ProposalCard({
             <StatusPill label={statusLabel} variant={statusVariant} pulse={status === 'ready'} />
           </div>
           <div className="flex items-center gap-3 text-[10px] font-mono text-steel/40 flex-wrap">
-            <span>Target: {actionTarget}</span>
+            <span className="flex items-center gap-1">
+              <span>Target:</span>
+              {targetHref ? (
+                <ExplorerAnchor
+                  href={targetHref}
+                  label={`${actionTarget} · ${shortHexLabel(proposal.target)}`}
+                  className="text-cyan/60 hover:text-cyan transition-colors"
+                />
+              ) : (
+                <span className="text-white/55">{actionTarget}</span>
+              )}
+            </span>
             <span>•</span>
-            <span>Proposer: {shortHex(proposal.proposer)}</span>
+            <span className="flex items-center gap-1">
+              <span>Proposer:</span>
+              {proposerHref ? (
+                <ExplorerAnchor
+                  href={proposerHref}
+                  label={shortHexLabel(proposal.proposer)}
+                  className="text-cyan/60 hover:text-cyan transition-colors"
+                />
+              ) : (
+                <span>{shortHexLabel(proposal.proposer)}</span>
+              )}
+            </span>
             <span>•</span>
             <span>{new Date(proposal.createdAt * 1000).toLocaleString()}</span>
           </div>
@@ -550,6 +703,66 @@ function ProposalCard({
           Executed at {new Date(proposal.executedAt * 1000).toLocaleString()}
         </div>
       )}
+    </GlassPanel>
+  );
+}
+
+function DemoProposalCard({ proposal, threshold }) {
+  const variantMap = {
+    executed: 'active',
+    pending: 'warning',
+    ready: 'gold',
+  };
+
+  const labelMap = {
+    executed: 'Executed',
+    pending: 'Awaiting confirmations',
+    ready: 'Ready to execute',
+  };
+
+  return (
+    <GlassPanel className="p-4">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+            <span className="text-[10px] font-mono text-steel/40">#{proposal.id}</span>
+            <h4 className="text-sm font-display font-medium text-white truncate">{proposal.title}</h4>
+            <StatusPill label={labelMap[proposal.status]} variant={variantMap[proposal.status]} pulse={proposal.status === 'ready'} />
+            <span className="text-[8px] font-mono text-gold/70 px-1 py-0.5 rounded bg-gold/5 border border-gold/10">DEMO</span>
+          </div>
+          <div className="flex items-center gap-3 text-[10px] font-mono text-steel/40 flex-wrap">
+            <span>Target: {proposal.targetLabel}</span>
+            <span>•</span>
+            <span>Proposer: {shortHexLabel(proposal.proposer)}</span>
+            <span>•</span>
+            <span>{new Date(proposal.createdAt).toLocaleString()}</span>
+          </div>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <div className="text-xs font-mono text-white/65 tabular-nums">
+            {proposal.confirmations}/{threshold}
+          </div>
+          <div className="w-20 h-1 bg-white/[0.04] rounded-full mt-1 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${proposal.status === 'ready' ? 'bg-gold' : 'bg-cyan/60'}`}
+              style={{ width: `${Math.min(100, (proposal.confirmations / threshold) * 100)}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-3 py-2 text-[11px] text-steel/55 leading-relaxed">
+        {proposal.description}
+      </div>
+
+      <div className="pt-2 mt-3 border-t border-white/[0.04] flex items-center justify-between text-[10px] font-mono">
+        <span className="text-steel/40">{proposal.category}</span>
+        {proposal.executedAt ? (
+          <span className="text-emerald-soft/70">Executed {new Date(proposal.executedAt).toLocaleString()}</span>
+        ) : (
+          <span className="text-gold/70">Read-only showcase proposal</span>
+        )}
+      </div>
     </GlassPanel>
   );
 }

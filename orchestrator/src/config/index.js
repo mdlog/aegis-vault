@@ -95,6 +95,12 @@ const config = {
   // Market data
   coingeckoUrl: process.env.COINGECKO_API_URL || 'https://api.coingecko.com/api/v3',
 
+  // Swap execution — minAmountOut is built from the on-chain venue quote
+  // (`getAmountOut`) multiplied by (1 - slippage). Oracle price is used only as a
+  // sanity floor. On mainnet set this tight (50 bps = 0.5%); on testnet with a
+  // MockDEX whose rates drift from oracle, 300–500 bps is usually needed.
+  swapSlippageBps: parseInt(process.env.SWAP_SLIPPAGE_BPS || '300'),
+
   // Orchestrator
   cycleIntervalMinutes: parseInt(process.env.CYCLE_INTERVAL_MINUTES || '5'),
   port: parseInt(process.env.PORT || '4002'),

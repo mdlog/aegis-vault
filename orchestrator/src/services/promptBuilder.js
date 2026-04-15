@@ -52,6 +52,16 @@ CONSTRAINTS:
 /**
  * Build the user prompt with current market data, indicators, regime, and vault state
  */
+// Safe number formatter — handles undefined/null/NaN
+const fmtNum = (v, defaultVal = 0) => {
+  const n = typeof v === 'number' && isFinite(v) ? v : defaultVal;
+  return n.toLocaleString();
+};
+const fmtFixed = (v, digits = 2, defaultVal = 0) => {
+  const n = typeof v === 'number' && isFinite(v) ? v : defaultVal;
+  return n.toFixed(digits);
+};
+
 export function buildUserPrompt(marketSummary, vaultState, indicators = null, regime = null) {
   const lines = [
     '=== CURRENT MARKET DATA ===',
@@ -60,11 +70,12 @@ export function buildUserPrompt(marketSummary, vaultState, indicators = null, re
   ];
 
   // Price data
-  for (const [symbol, data] of Object.entries(marketSummary.prices)) {
+  for (const [symbol, data] of Object.entries(marketSummary.prices || {})) {
+    if (!data) continue;
     lines.push(`${symbol}:`);
-    lines.push(`  Price: $${data.price.toLocaleString()}`);
-    lines.push(`  24h Change: ${data.change24h >= 0 ? '+' : ''}${data.change24h.toFixed(2)}%`);
-    lines.push(`  24h Volume: $${(data.volume24h / 1e9).toFixed(2)}B`);
+    lines.push(`  Price: $${fmtNum(data.price)}`);
+    lines.push(`  24h Change: ${(data.change24h || 0) >= 0 ? '+' : ''}${fmtFixed(data.change24h)}%`);
+    lines.push(`  24h Volume: $${fmtFixed((data.volume24h || 0) / 1e9)}B`);
   }
 
   // Volatility
@@ -78,16 +89,16 @@ export function buildUserPrompt(marketSummary, vaultState, indicators = null, re
   if (indicators) {
     lines.push('');
     lines.push('=== TECHNICAL INDICATORS ===');
-    lines.push(`EMA 20: $${indicators.ema_20?.toFixed(2)}`);
-    lines.push(`EMA 50: $${indicators.ema_50?.toFixed(2)}`);
-    lines.push(`EMA 200: $${indicators.ema_200?.toFixed(2)}`);
-    lines.push(`RSI-14: ${indicators.rsi_14?.toFixed(1)}`);
-    lines.push(`MACD Histogram: ${indicators.macd_histogram?.toFixed(2)}`);
-    lines.push(`ATR-14 (%): ${indicators.atr_14_pct?.toFixed(2)}%`);
-    lines.push(`Realized Vol 1h: ${indicators.realized_vol_1h_pct?.toFixed(2)}%`);
-    lines.push(`Volume Z-Score: ${indicators.volume_zscore?.toFixed(2)}`);
-    lines.push(`Price vs VWAP: ${indicators.price_vs_vwap_pct?.toFixed(2)}%`);
-    lines.push(`MTF Alignment: ${indicators.mtf_alignment}`);
+    lines.push(`EMA 20: $${fmtFixed(indicators.ema_20)}`);
+    lines.push(`EMA 50: $${fmtFixed(indicators.ema_50)}`);
+    lines.push(`EMA 200: $${fmtFixed(indicators.ema_200)}`);
+    lines.push(`RSI-14: ${fmtFixed(indicators.rsi_14, 1)}`);
+    lines.push(`MACD Histogram: ${fmtFixed(indicators.macd_histogram)}`);
+    lines.push(`ATR-14 (%): ${fmtFixed(indicators.atr_14_pct)}%`);
+    lines.push(`Realized Vol 1h: ${fmtFixed(indicators.realized_vol_1h_pct)}%`);
+    lines.push(`Volume Z-Score: ${fmtFixed(indicators.volume_zscore)}`);
+    lines.push(`Price vs VWAP: ${fmtFixed(indicators.price_vs_vwap_pct)}%`);
+    lines.push(`MTF Alignment: ${indicators.mtf_alignment || 'unknown'}`);
   }
 
   // Regime classification (v1)
@@ -100,30 +111,30 @@ export function buildUserPrompt(marketSummary, vaultState, indicators = null, re
   // Vault state
   lines.push('');
   lines.push('=== VAULT STATE ===');
-  lines.push(`NAV: $${vaultState.nav.toLocaleString()}`);
-  lines.push(`Base Asset: ${vaultState.baseAsset}`);
-  lines.push(`Mandate: ${vaultState.mandate}`);
-  lines.push(`Max Position: ${vaultState.maxPositionPct}%`);
-  lines.push(`Max Drawdown: ${vaultState.maxDrawdownPct}%`);
-  lines.push(`Confidence Threshold: ${vaultState.confidenceThreshold}%`);
-  lines.push(`Daily Actions Used: ${vaultState.dailyActionsUsed}/${vaultState.maxActionsPerDay}`);
+  lines.push(`NAV: $${fmtNum(vaultState.nav)}`);
+  lines.push(`Base Asset: ${vaultState.baseAsset || 'unknown'}`);
+  lines.push(`Mandate: ${vaultState.mandate || 'Balanced'}`);
+  lines.push(`Max Position: ${fmtFixed(vaultState.maxPositionPct, 0)}%`);
+  lines.push(`Max Drawdown: ${fmtFixed(vaultState.maxDrawdownPct, 0)}%`);
+  lines.push(`Confidence Threshold: ${fmtFixed(vaultState.confidenceThreshold, 0)}%`);
+  lines.push(`Daily Actions Used: ${vaultState.dailyActionsUsed || 0}/${vaultState.maxActionsPerDay || 0}`);
   lines.push(`Last Execution: ${vaultState.lastExecution || 'Never'}`);
   lines.push(`Position: ${vaultState.current_position_side || 'flat'}`);
-  if (vaultState.current_position_pnl_pct) {
-    lines.push(`Position PnL: ${vaultState.current_position_pnl_pct.toFixed(2)}%`);
+  if (typeof vaultState.current_position_pnl_pct === 'number') {
+    lines.push(`Position PnL: ${fmtFixed(vaultState.current_position_pnl_pct)}%`);
   }
   if (vaultState.consecutive_losses) {
     lines.push(`Consecutive Losses: ${vaultState.consecutive_losses}`);
   }
-  if (vaultState.rolling_drawdown_pct) {
-    lines.push(`Rolling Drawdown: ${vaultState.rolling_drawdown_pct.toFixed(2)}%`);
+  if (typeof vaultState.rolling_drawdown_pct === 'number') {
+    lines.push(`Rolling Drawdown: ${fmtFixed(vaultState.rolling_drawdown_pct)}%`);
   }
 
   if (vaultState.allocation && vaultState.allocation.length > 0) {
     lines.push('');
     lines.push('Current Allocation:');
     for (const pos of vaultState.allocation) {
-      lines.push(`  ${pos.symbol}: ${pos.pct}% ($${pos.value.toLocaleString()})`);
+      lines.push(`  ${pos.symbol || '?'}: ${fmtFixed(pos.pct, 1)}% ($${fmtNum(pos.value)})`);
     }
   }
 
