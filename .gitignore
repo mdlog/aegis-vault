@@ -9,6 +9,10 @@ dist/
 .codex
 demo.js
 
+# Hackathon submission docs (kept local only)
+HACKATHON_SUBMISSION.md
+HACKATHON_DESCRIPTION.txt
+
 # Hardhat build artifacts only — DO NOT ignore the entire contracts/ folder
 contracts/cache/
 contracts/artifacts/
