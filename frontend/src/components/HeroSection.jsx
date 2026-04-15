@@ -29,29 +29,34 @@ export default function HeroSection() {
           {/* Left: Copy */}
           <div className="text-left space-y-8 reveal-stagger">
             {/* Tag */}
-            <div className="animate-fade-in-up">
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-gold/20 bg-gold/5">
+            <div className="animate-fade-in-up flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-emerald-soft/30 bg-emerald-dim/30">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-soft animate-pulse" />
+                <span className="text-[11px] font-mono tracking-[0.15em] uppercase text-emerald-soft/90">
+                  Live · 0G Aristotle Mainnet · Chain 16661
+                </span>
+              </span>
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-gold/20 bg-gold/5">
                 <span className="text-[11px] font-mono tracking-[0.15em] uppercase text-gold/80">
-                  Built on 0G — Live on Testnet
+                  Track 2 · Agentic Trading Arena
                 </span>
               </span>
             </div>
 
             {/* Headline */}
             <h1 className="animate-fade-in-up text-4xl sm:text-5xl lg:text-6xl xl:text-[4.2rem] font-display font-semibold leading-[1.08] tracking-[-0.03em]">
-              <span className="text-white">Autonomous capital</span>
+              <span className="text-white">AI proposes.</span>
               <br />
-              <span className="text-white">protection for the</span>
+              <span className="text-white">Smart contract</span>
               <br />
-              <span className="text-gradient-gold">AI-native era.</span>
+              <span className="text-gradient-gold">enforces every trade.</span>
             </h1>
 
             {/* Subhead */}
-            <p className="animate-fade-in-up text-base lg:text-lg text-steel leading-relaxed max-w-lg">
-              Aegis Vault is an AI-managed, policy-constrained trading vault.
-              Deposit assets. Define risk mandates. Let disciplined intelligence
-              execute within verifiable limits.
+            <p className="animate-fade-in-up text-base lg:text-lg text-steel leading-relaxed max-w-xl">
+              Verifiable AI-managed trading vault on 0G. Real GLM-5-FP8 inference via 0G Compute,
+              EIP-712 typed intents, TEE attestation, and commit-reveal anti-MEV.
+              Strategies stay sealed. Operators stake reputation. Every action is auditable on-chain.
             </p>
 
             {/* CTAs */}
@@ -64,16 +69,16 @@ export default function HeroSection() {
                   shadow-[0_0_30px_rgba(201,168,76,0.15)]
                   hover:shadow-[0_0_40px_rgba(201,168,76,0.25)]"
               >
-                Launch App
+                Open Live Demo
                 <span className="ml-2 inline-block transition-transform duration-300 group-hover:translate-x-1">→</span>
               </a>
               <a
-                href="#architecture"
+                href="/app/actions"
                 className="px-7 py-3.5 text-sm font-medium tracking-[0.08em] uppercase
                   text-white/70 border border-white/10 rounded
                   hover:border-white/20 hover:text-white transition-all duration-300"
               >
-                Explore Architecture
+                See AI Audit Trail
               </a>
             </div>
 
@@ -110,14 +115,14 @@ export default function HeroSection() {
           </div>
         </div>
 
-        {/* Bottom metrics bar */}
+        {/* Bottom metrics bar — live mainnet stats */}
         <div className="mt-20 pt-8 border-t border-white/[0.04]">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
             {[
-              { value: '$2.4M', label: 'Total Value Locked', accent: 'text-white' },
-              { value: '99.7%', label: 'Policy Compliance', accent: 'text-emerald-soft' },
-              { value: '142', label: 'Autonomous Executions', accent: 'text-cyan' },
-              { value: '0', label: 'Policy Violations', accent: 'text-gold' },
+              { value: '18', label: 'Contracts on 0G Mainnet', accent: 'text-white' },
+              { value: '6', label: '0G Compute AI Models', accent: 'text-emerald-soft' },
+              { value: 'EIP-712', label: 'Typed Intent Hashing', accent: 'text-cyan' },
+              { value: 'TEE', label: 'Sealed Mode Attestation', accent: 'text-gold' },
             ].map((metric) => (
               <div key={metric.label} className="text-center md:text-left">
                 <div className={`text-2xl lg:text-3xl font-display font-semibold tracking-tight ${metric.accent}`}>
@@ -128,6 +133,20 @@ export default function HeroSection() {
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* Verified execution proof link */}
+          <div className="mt-6 flex flex-wrap items-center justify-center md:justify-start gap-2 text-[11px] font-mono text-steel/50">
+            <span className="text-emerald-soft/80">✓ Verified execution:</span>
+            <a
+              href="https://chainscan.0g.ai/mainnet/blockchain/txns/0x96b3e45435156849ee38c8a94c72ab3582a1abba1fa7cbf5d06374777e102a26/overview"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-cyan/70 hover:text-cyan transition-colors"
+            >
+              0x96b3e454...e102a26 ↗
+            </a>
+            <span className="text-steel/40">— organic AI-driven SELL on mainnet vault</span>
           </div>
         </div>
       </div>

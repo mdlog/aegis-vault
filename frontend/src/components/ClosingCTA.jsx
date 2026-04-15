@@ -23,64 +23,97 @@ export default function ClosingCTA() {
                 </div>
 
                 <h2 className="text-3xl lg:text-4xl xl:text-5xl font-display font-semibold leading-[1.12] tracking-[-0.03em] text-white mb-5">
-                  Your capital deserves
+                  Three roles.
                   <br />
-                  <span className="text-gradient-gold">disciplined intelligence.</span>
+                  <span className="text-gradient-gold">One verifiable protocol.</span>
                 </h2>
 
                 <p className="text-base text-steel leading-relaxed max-w-lg mx-auto lg:mx-0 mb-8">
-                  Deploy an AI-managed vault with verifiable risk constraints.
-                  Define your mandate. Let Aegis Vault execute with precision,
-                  accountability, and full transparency.
+                  Whether you want a vault, want to operate one, or want to test the system —
+                  start here. All flows are live on 0G Aristotle Mainnet.
                 </p>
 
-                {/* CTAs */}
-                <div className="flex flex-wrap justify-center lg:justify-start gap-4">
+                {/* CTAs — three personas */}
+                <div className="grid sm:grid-cols-3 gap-3 mb-6">
                   <a
-                    href="/app"
-                    className="group relative px-8 py-4 text-sm font-medium tracking-[0.08em] uppercase
-                      bg-gold text-obsidian rounded
+                    href="/create"
+                    className="group relative px-5 py-4 text-xs font-medium tracking-[0.08em] uppercase
+                      bg-gold text-obsidian rounded text-center
                       hover:bg-gold-light transition-all duration-300
-                      shadow-[0_0_40px_rgba(201,168,76,0.2)]
-                      hover:shadow-[0_0_50px_rgba(201,168,76,0.3)]"
+                      shadow-[0_0_30px_rgba(201,168,76,0.18)]"
                   >
-                    Launch App
-                    <span className="ml-2 inline-block transition-transform duration-300 group-hover:translate-x-1">→</span>
+                    Create a Vault
+                    <span className="block mt-1 text-[9px] text-obsidian/70 normal-case tracking-normal">For users</span>
                   </a>
                   <a
-                    href="#"
-                    className="px-8 py-4 text-sm font-medium tracking-[0.08em] uppercase
-                      text-white/70 border border-white/10 rounded
-                      hover:border-gold/30 hover:text-gold transition-all duration-300"
+                    href="/operator/register"
+                    className="group relative px-5 py-4 text-xs font-medium tracking-[0.08em] uppercase
+                      text-cyan border border-cyan/30 rounded text-center
+                      hover:bg-cyan/5 hover:border-cyan/50 transition-all duration-300"
                   >
-                    View Demo
+                    Become an Operator
+                    <span className="block mt-1 text-[9px] text-steel/50 normal-case tracking-normal">For AI agents</span>
                   </a>
                   <a
-                    href="#"
-                    className="px-8 py-4 text-sm font-medium tracking-[0.08em] uppercase
-                      text-white/50 rounded
-                      hover:text-white/70 transition-all duration-300"
+                    href="/faucet"
+                    className="group relative px-5 py-4 text-xs font-medium tracking-[0.08em] uppercase
+                      text-white/70 border border-white/10 rounded text-center
+                      hover:border-white/20 hover:text-white transition-all duration-300"
                   >
-                    Read Docs
+                    Mint Mock Tokens
+                    <span className="block mt-1 text-[9px] text-steel/50 normal-case tracking-normal">For testing</span>
                   </a>
                 </div>
 
-                {/* Trust line */}
-                <div className="mt-8 flex items-center justify-center lg:justify-start gap-4">
-                  <span className="text-[10px] font-mono tracking-[0.1em] uppercase text-steel/40">
-                    Powered by
-                  </span>
-                  <span className="text-[11px] font-mono tracking-[0.1em] uppercase text-cyan/50">
-                    0G Chain
-                  </span>
-                  <span className="text-steel/20">·</span>
-                  <span className="text-[11px] font-mono tracking-[0.1em] uppercase text-cyan/50">
-                    0G Compute
-                  </span>
-                  <span className="text-steel/20">·</span>
-                  <span className="text-[11px] font-mono tracking-[0.1em] uppercase text-cyan/50">
-                    0G Storage
-                  </span>
+                {/* Secondary CTAs */}
+                <div className="flex flex-wrap justify-center lg:justify-start gap-4 text-[11px] font-mono">
+                  <a
+                    href="/marketplace"
+                    className="text-white/60 hover:text-cyan transition-colors uppercase tracking-[0.08em]"
+                  >
+                    Browse Marketplace →
+                  </a>
+                  <a
+                    href="/app/actions"
+                    className="text-white/60 hover:text-cyan transition-colors uppercase tracking-[0.08em]"
+                  >
+                    See AI Audit Trail →
+                  </a>
+                  <a
+                    href="https://github.com/mdlog/aegis-vault"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-white/60 hover:text-cyan transition-colors uppercase tracking-[0.08em]"
+                  >
+                    GitHub →
+                  </a>
+                </div>
+
+                {/* Trust line + verified TX proof */}
+                <div className="mt-8 flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3">
+                    <span className="text-[10px] font-mono tracking-[0.1em] uppercase text-steel/40">
+                      Powered by
+                    </span>
+                    <span className="text-[11px] font-mono tracking-[0.1em] uppercase text-cyan/50">0G Chain</span>
+                    <span className="text-steel/20">·</span>
+                    <span className="text-[11px] font-mono tracking-[0.1em] uppercase text-cyan/50">0G Compute</span>
+                    <span className="text-steel/20">·</span>
+                    <span className="text-[11px] font-mono tracking-[0.1em] uppercase text-cyan/50">0G Storage</span>
+                    <span className="text-steel/20">·</span>
+                    <span className="text-[11px] font-mono tracking-[0.1em] uppercase text-cyan/50">Pyth</span>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center lg:justify-start gap-2 text-[10px] font-mono">
+                    <span className="text-emerald-soft/70">✓ Live mainnet execution:</span>
+                    <a
+                      href="https://chainscan.0g.ai/mainnet/blockchain/txns/0x96b3e45435156849ee38c8a94c72ab3582a1abba1fa7cbf5d06374777e102a26/overview"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-cyan/60 hover:text-cyan transition-colors"
+                    >
+                      0x96b3e454...e102a26 ↗
+                    </a>
+                  </div>
                 </div>
               </div>
 

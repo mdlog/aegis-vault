@@ -3,52 +3,52 @@ import SectionWrapper from './SectionWrapper';
 const capabilities = [
   {
     tag: 'INTELLIGENCE',
-    title: 'AI Risk Engine',
-    description: 'Structured inference powered by 0G Compute. Market interpretation, decision generation, and confidence scoring — all producing verifiable JSON outputs.',
-    metrics: ['Confidence: 0.82', 'Risk Score: 0.28', 'TTL: 180s'],
+    title: 'AI Risk Engine on 0G Compute',
+    description: 'Real GLM-5-FP8 inference verified via processResponse(). Decision Engine v1: 8 market regimes, 15 veto rules, edge & quality scoring. Operators choose from 6 active 0G Compute models — committed on-chain at register time.',
+    metrics: ['Models: 6 active', 'Engine: v1', 'Verified: VALID'],
     accentColor: 'cyan',
   },
   {
     tag: 'POLICY',
     title: 'Vault Policy Guardrails',
-    description: 'On-chain policy enforcement at the contract level. Max position sizes, daily loss limits, cooldowns, asset whitelists, and global stop-loss — all immutable and user-defined.',
-    metrics: ['Max Position: 20%', 'Daily Loss Cap: 5%', 'Cooldown: 15min'],
+    description: 'On-chain policy enforcement inline in ExecLib. Max position, daily loss cap, cooldown, confidence threshold, asset whitelist — every check runs in Solidity before any swap executes.',
+    metrics: ['Caps: Hardcoded', 'Replay: EIP-712 protected', 'Cooldown: per-vault'],
     accentColor: 'gold',
   },
   {
-    tag: 'PRIVACY',
-    title: 'Sealed Strategy Mode',
-    description: 'Optional privacy-preserving execution. Strategy parameters and inference inputs remain confidential, with only signed metadata visible to the network.',
-    metrics: ['Inputs: Encrypted', 'Outputs: Signed', 'Mode: TEE-Ready'],
+    tag: 'INDEXER',
+    title: 'O(1) Vault Discovery',
+    description: 'Production-grade event-driven indexer. VaultDeployed events ingested every 15s into a local store. Cycle queries vaults by executor in microseconds — scales from 2 to 100k+ vaults without RPC overhead.',
+    metrics: ['Lookup: O(1)', 'Polling: 15s', 'Persistence: JSON+memory'],
     accentColor: 'cyan',
   },
   {
-    tag: 'AUDIT',
-    title: 'Execution Journal',
-    description: 'Every decision, every trade, every AI reasoning summary is recorded to 0G Storage. Complete, immutable, and queryable audit trail.',
-    metrics: ['Entries: 1,247', 'Storage: 0G', 'Retention: Permanent'],
+    tag: 'WALLET POOL',
+    title: 'Multi-Executor Sharding',
+    description: 'EXECUTOR_PRIVATE_KEYS pool with NonceManager per wallet. Deterministic sharding hash(vault) % poolSize means no nonce collisions, parallel tx submission, and horizontal scale without coordination.',
+    metrics: ['Pool: configurable', 'Concurrency: parallel', 'Nonce: per-wallet'],
     accentColor: 'gold',
   },
   {
-    tag: 'HEALTH',
-    title: 'Portfolio Health Monitoring',
-    description: 'Real-time vault health dashboard. NAV tracking, drawdown monitoring, risk meter, position overview, and execution status — all in one view.',
-    metrics: ['NAV: $2.41M', 'Drawdown: 1.2%', 'Health: 98%'],
-    accentColor: 'emerald-soft',
+    tag: 'STORAGE',
+    title: 'Strategy Manifest on 0G Storage',
+    description: 'Operators publish strategy JSON to IPFS / 0G Storage. keccak256(content) committed on-chain via OperatorRegistry.publishManifest(uri, hash, bonded). Frontend verifies hash before display. Bonded manifests slashable on deviation.',
+    metrics: ['Hosting: IPFS+0G+HTTPS', 'Verify: keccak256', 'Slash: Bonded'],
+    accentColor: 'cyan',
+  },
+  {
+    tag: 'GOVERNANCE',
+    title: 'M-of-N AegisGovernor',
+    description: 'On-chain multi-sig governance for slashing arbitration, treasury spending, verified-badge grants, and operator deactivation. Every protocol-level action requires explicit owner approval — no admin keys.',
+    metrics: ['Threshold: M-of-N', 'Treasury: 20% protocol cut', 'Slashing: governed'],
+    accentColor: 'gold',
   },
   {
     tag: 'CONTROL',
-    title: 'Emergency Pause Controls',
-    description: 'Instant vault pause with a single transaction. All pending intents are rejected, execution halts, and withdraw becomes available. User retains full authority.',
-    metrics: ['Latency: 1 block', 'Override: Owner', 'Recovery: Manual'],
-    accentColor: 'gold',
-  },
-  {
-    tag: 'TRANSPARENCY',
-    title: 'On-chain Transparency',
-    description: 'Every execution emits on-chain events. Intent hashes, trade results, policy violations, and state changes are all publicly verifiable.',
-    metrics: ['Events: On-chain', 'Intents: Hashed', 'Replay: Protected'],
-    accentColor: 'cyan',
+    title: 'User Custody, Emergency Pause',
+    description: 'Vault holds funds — operator can never withdraw or pause. Owner alone has pause + withdraw rights. Single-tx emergency pause halts all execution; deposits and withdraws stay open under owner control.',
+    metrics: ['Custody: Vault contract', 'Pause: Owner-only', 'Withdraw: Owner-only'],
+    accentColor: 'emerald-soft',
   },
 ];
 
@@ -91,8 +91,8 @@ export default function Capabilities() {
             <span className="text-gradient-gold">capital management.</span>
           </h2>
           <p className="text-base text-steel leading-relaxed">
-            Every capability exists to solve a specific operational challenge
-            in autonomous on-chain execution.
+            Production-grade primitives across smart contracts, orchestrator, and storage.
+            Every capability solves a specific operational challenge in autonomous on-chain execution at scale.
           </p>
         </div>
 

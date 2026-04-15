@@ -4,12 +4,12 @@ const pillars = [
   {
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
       </svg>
     ),
-    label: 'AI-Managed',
-    title: 'Intelligent Execution',
-    description: 'An AI inference engine evaluates market conditions, generates structured decisions with confidence scores, and proposes actions — never acting without validation.',
+    label: 'Sealed Strategy Mode',
+    title: 'TEE attestation + commit-reveal',
+    description: 'Strategy parameters never touch the chain. 0G Compute inference output is hashed (provider+chatId+content) and bound into an EIP-712 typed intent. Anti-MEV commit-reveal: commitIntent at block N, reveal ≥ N+1 — front-runners cannot see swap params before execution.',
   },
   {
     icon: (
@@ -17,9 +17,19 @@ const pillars = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
       </svg>
     ),
-    label: 'Policy-Constrained',
-    title: 'On-chain Guardrails',
-    description: 'Every trade must pass through an immutable policy engine. Position limits, loss thresholds, cooldowns, and asset whitelists are enforced at the contract level.',
+    label: 'EIP-712 Verified',
+    title: 'Typed intent hashes, ECDSA enforced',
+    description: 'Every intent uses EIP-712 typed structured data with a domain separator binding chain ID + vault address — full cross-chain replay protection. Vault recovers ECDSA signer on-chain and rejects anything not signed by policy.attestedSigner. Audit-clean, hardware-wallet compatible.',
+  },
+  {
+    icon: (
+      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+      </svg>
+    ),
+    label: 'Operator Marketplace',
+    title: 'Strategy manifest committed on-chain',
+    description: 'Operators publish their AI model + strategy rules to IPFS / 0G Storage and commit the keccak256 hash on-chain. Bonded manifests are slashable: governance can prove deviation from published rules and seize up to 50% of operator stake. Real reputation, real consequences.',
   },
   {
     icon: (
@@ -28,19 +38,9 @@ const pillars = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
     ),
-    label: 'Verifiable',
-    title: 'Full Transparency',
-    description: 'Every execution, every decision, every reasoning summary is recorded. On-chain events and storage-backed journals create a complete, auditable trail.',
-  },
-  {
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-      </svg>
-    ),
-    label: 'Privacy-Preserving',
-    title: 'Sealed Strategy Mode',
-    description: 'Optional privacy-preserving execution ensures proprietary strategies stay sealed. Parameters and inference inputs remain confidential — even from the network.',
+    label: 'Decentralized Execution',
+    title: 'Operators self-host, users keep custody',
+    description: 'No central orchestrator. Each operator runs their own production-grade orchestrator with vault indexer (O(1) lookups), multi-wallet executor pool (deterministic sharding), and parallel cycles. Vaults hold funds — operators only submit intents that pass on-chain policy checks. They can never withdraw, never pause.',
   },
 ];
 
@@ -58,13 +58,14 @@ export default function SolutionSection() {
             <div className="w-8 h-px bg-gold/40" />
           </div>
           <h2 className="text-3xl lg:text-4xl xl:text-[2.75rem] font-display font-semibold leading-[1.15] tracking-[-0.02em] text-white mb-5">
-            Intelligence with discipline.
+            Sealed inference.
             <br />
-            <span className="text-gradient-gold">Autonomy under control.</span>
+            <span className="text-gradient-gold">Verifiable execution.</span>
           </h2>
           <p className="text-base text-steel leading-relaxed max-w-2xl mx-auto">
-            Aegis Vault transforms autonomous trading into a verifiable, policy-governed system.
-            The AI proposes. The contract enforces. Every action is accountable.
+            Track 2 — Agentic Trading Arena. Built natively on the 0G stack with sealed strategy mode,
+            EIP-712 typed intents, on-chain manifest commitments, and a decentralized operator marketplace.
+            The AI proposes. The contract enforces. Every action is auditable on 0G mainnet.
           </p>
         </div>
 
@@ -105,12 +106,12 @@ export default function SolutionSection() {
           ))}
         </div>
 
-        {/* Center statement */}
+        {/* Center statement — live mainnet badge */}
         <div className="mt-16 text-center">
           <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-full border border-emerald-soft/20 bg-emerald-dim/30">
             <span className="w-2 h-2 rounded-full bg-emerald-soft animate-pulse" />
             <span className="text-xs font-mono tracking-[0.1em] uppercase text-emerald-soft/90">
-              Vault Status: All Systems Operational
+              Live · 18 contracts on 0G Aristotle Mainnet · Verified executions
             </span>
           </div>
         </div>
