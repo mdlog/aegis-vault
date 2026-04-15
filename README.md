@@ -274,7 +274,13 @@ Steps 1-4 same, steps 6-7 skipped, `executeIntent()` skips attestation branch.
 | MockUSDC | `0x6f66f804ECf406587343aF976c6f38c3395d6cDa` |
 | Pyth oracle | `0x2880ab155794e7179c9ee2e38200202908c17b43` |
 
-First verified execution TX: [`0x035e043d...`](https://chainscan.0g.ai/tx/0x035e043d9bef4a98854cea09b54dcb3b262af88b0f358ef61eea8afc7634be03)
+**Verified on-chain executions:**
+
+| Flow | Transaction | Description |
+|---|---|---|
+| Sealed commit | [`0x081c8053...`](https://chainscan.0g.ai/tx/0x081c80537a10fce866a57e3e6ff74fc9c63127bf31de25d6011cacc80d5c5442) | `commitIntent(commitHash)` — sealed mode step 1 |
+| Sealed reveal | [`0x039242e7...`](https://chainscan.0g.ai/tx/0x039242e7a5595fb8b715946804e8ca6a53eeb29731a7661e6437a94b34e44365) | `executeIntent(intent, sig)` — commit-reveal + ECDSA verify |
+| Organic AI SELL | [`0x96b3e454...`](https://chainscan.0g.ai/tx/0x96b3e45435156849ee38c8a94c72ab3582a1abba1fa7cbf5d06374777e102a26) | Orchestrator cycle #848 — GLM-5-FP8 inference, confidence 62%, regime RANGE_NOISY |
 
 **Security invariants:**
 - AI has **zero authority** — can only propose intents; vault enforces every rule
@@ -433,7 +439,8 @@ Frontend build                                      clean Vite build
 E2E sealed flow    deposit → commitIntent → wait 1 block → executeIntent
 E2E standard flow  deposit → executeIntent (non-sealed)
 E2E invariants     fee caps, replay protection, attestation mismatch revert
-Mainnet execution   ✓ TX 0x035e04... — 500 mUSDC → mWBTC via MockDEX on chain 16661
+Mainnet execution   ✓ Sealed mode full flow verified (commit 0x081c80... → reveal 0x039242e7...)
+                    ✓ Organic AI execution cycle #848 (0x96b3e454...) — GLM-5-FP8, chain 16661
 
 Note: Legacy 135-test suite (Phase 1-5 full stack) targets the pre-slim API
 and requires migration to slim build interface. Core functionality covered
