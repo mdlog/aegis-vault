@@ -13,8 +13,8 @@ import {
   shortHexLabel,
 } from '../lib/contracts';
 import { Link } from 'react-router-dom';
-import { useVaultSummary, useVaultPolicy, usePause, useUnpause, useWithdraw, useApprove, useDeposit, useUpdatePolicy, useTokenBalance, useVaultList, useTransferToken, useSetExecutor } from '../hooks/useVault';
-import { useOperatorList } from '../hooks/useOperatorRegistry';
+import { useVaultSummary, useVaultPolicy, usePause, useUnpause, useWithdraw, useApprove, useDeposit, useUpdatePolicy, useTokenBalance, useVaultList, useTransferToken, useSetExecutor, useTokenDecimals } from '../hooks/useVault';
+import { useOperatorList, useOperator, useIsRegistered } from '../hooks/useOperatorRegistry';
 import { useMultiAssetNAV, useOrchestratorStatus, useDecisions, useJournal, useExecutions } from '../hooks/useOrchestrator';
 import { drawdownHistory as demoDrawdownHistory, navHistory as demoNavHistory } from '../data/mockData';
 import {
@@ -38,6 +38,8 @@ import ControlButton from '../components/ui/ControlButton';
 import ExplorerAnchor from '../components/ui/ExplorerAnchor';
 import NavChart from '../components/charts/NavChart';
 import DrawdownChart from '../components/charts/DrawdownChart';
+import PnLChart from '../components/charts/PnLChart';
+import TEEAttestationPanel from '../components/vault/TEEAttestationPanel';
 import DashboardShield from '../components/dashboard/DashboardShield';
 import TokenIcon from '../components/ui/TokenIcon';
 import {
@@ -80,8 +82,26 @@ export default function VaultDetailPage() {
   const activeMarketplaceOps = marketplaceOps.filter((op) => op.loaded && op.active);
 
   // ── Live data ──
-  const { data: liveVault, refetch } = useVaultSummary(vaultAddr);
+  // Two-step read: first get the vault's baseAsset, then resolve its decimals,
+  // then re-read summary with the right decimals so balance/totalDeposited
+  // are formatted correctly for non-USDC assets (WETH 18, WBTC 8).
+  const { data: vaultProbe } = useVaultSummary(vaultAddr, 6);
+  const { decimals: baseDecimals } = useTokenDecimals(vaultProbe?.baseAsset);
+  const resolvedDecimals = baseDecimals ?? 6;
+  const { data: liveVault, refetch } = useVaultSummary(vaultAddr, resolvedDecimals);
   const { data: livePolicy } = useVaultPolicy(vaultAddr);
+
+  // Defense-in-depth: contracts don't currently re-check operator status at
+  // executeIntent time, so surface a clear warning if the vault's executor has
+  // since deactivated or unregistered. Owner can rotate via setExecutor below.
+  const executorAddr = liveVault?.executor;
+  const { data: executorRegistered } = useIsRegistered(deployments.operatorRegistry, executorAddr);
+  const { data: executorOpData } = useOperator(deployments.operatorRegistry, executorRegistered ? executorAddr : undefined);
+  const executorIsInactive = executorAddr && executorRegistered === false
+    ? { reason: 'unregistered', label: 'Vault executor is not (or no longer) registered as an operator.' }
+    : executorAddr && executorOpData && executorOpData.active === false
+      ? { reason: 'inactive', label: `Operator "${executorOpData.name}" is currently INACTIVE — trades will not execute until reactivated.` }
+      : null;
   const { data: navData } = useMultiAssetNAV(vaultAddr);
   const { data: orchStatus } = useOrchestratorStatus();
   const { data: liveDecisions } = useDecisions(10, { vaultAddress: vaultAddr });
@@ -203,14 +223,50 @@ export default function VaultDetailPage() {
     .flatMap(e => {
       const r = e.vaultResults.find(v => v.vault?.toLowerCase() === vaultAddr?.toLowerCase());
       if (!r || !r.vaultState?.nav) return [];
+      const t = new Date(e.timestamp);
+      const date = Number.isNaN(t.getTime())
+        ? String(e.timestamp)
+        : t.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       return [{
+        date,
         timestamp: e.timestamp,
         nav: parseFloat(r.vaultState.nav) || 0,
       }];
     })
     .reverse(); // journal is newest-first; chart wants oldest-first
   const navHistoryData = showDemoVault ? demoNavHistory : derivedNavHistory;
-  const drawdownHistoryData = showDemoVault ? demoDrawdownHistory : [];
+
+  // Derive drawdown from NAV history: dd% = (peak - current) / peak * 100, capped at 0
+  const derivedDrawdownHistory = (() => {
+    if (!derivedNavHistory.length) return [];
+    let peak = derivedNavHistory[0].nav;
+    return derivedNavHistory.map((p) => {
+      if (p.nav > peak) peak = p.nav;
+      const dd = peak > 0 ? ((p.nav - peak) / peak) * 100 : 0;
+      return { date: p.date, dd: Math.min(0, dd) };
+    });
+  })();
+  const drawdownHistoryData = showDemoVault ? demoDrawdownHistory : derivedDrawdownHistory;
+
+  // Derive PnL time-series: nav - totalDeposited at each snapshot.
+  // totalDeposited is only available currently, so we approximate: assume constant deposit baseline
+  // (acceptable because on-chain totalDeposited changes only on deposits/withdrawals, not trades).
+  const derivedPnLHistory = derivedNavHistory.map((p) => {
+    const pnl = p.nav - totalDeposited;
+    return {
+      date: p.date,
+      pnl,
+      pnlPos: pnl >= 0 ? pnl : 0,
+      pnlNeg: pnl < 0 ? pnl : 0,
+    };
+  });
+  const demoPnLHistory = showDemoVault
+    ? demoNavHistory.map((p) => {
+        const pnl = p.nav - demoVault.deposited;
+        return { date: p.date, pnl, pnlPos: pnl >= 0 ? pnl : 0, pnlNeg: pnl < 0 ? pnl : 0 };
+      })
+    : [];
+  const pnlHistoryData = showDemoVault ? demoPnLHistory : derivedPnLHistory;
 
   // Allocation — empty array when no NAV data
   const allocationData = navSnapshot?.breakdown
@@ -431,6 +487,23 @@ export default function VaultDetailPage() {
         </div>
       </div>
 
+      {executorIsInactive && (
+        <GlassPanel className="p-4 mb-6 border-amber-warn/30 bg-amber-warn/[0.04]">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-warn flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <div className="text-sm font-display font-semibold text-white mb-1">
+                Operator status changed
+              </div>
+              <p className="text-[12px] text-steel/65 leading-relaxed">
+                {executorIsInactive.label} As vault owner you can rotate to a different
+                executor below (Settings → Set Executor) without moving funds.
+              </p>
+            </div>
+          </div>
+        </GlassPanel>
+      )}
+
       {showLiveTelemetryGuide && (
         <GlassPanel className="p-4 mb-6">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -531,11 +604,25 @@ export default function VaultDetailPage() {
               </div>
               <NavChart height={220} data={navHistoryData} emptyLabel="NAV history will appear after journal snapshots accumulate." />
               <div className="mt-4 pt-3 border-t border-white/[0.04]">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[9px] font-mono tracking-[0.12em] uppercase text-steel/40">Cumulative PnL</span>
+                  <span className="text-[9px] font-mono text-steel/35">vs ${totalDeposited.toLocaleString(undefined, { maximumFractionDigits: 0 })} cost basis</span>
+                </div>
+                <PnLChart height={140} data={pnlHistoryData} emptyLabel="PnL history will appear after journal snapshots accumulate." />
+              </div>
+              <div className="mt-4 pt-3 border-t border-white/[0.04]">
                 <span className="text-[9px] font-mono tracking-[0.12em] uppercase text-steel/40 block mb-2">Drawdown</span>
                 <DrawdownChart height={100} data={drawdownHistoryData} emptyLabel="Drawdown history requires stored NAV snapshots." />
               </div>
             </GlassPanel>
           </div>
+
+          {/* TEE Attestation viewer (sealed mode context) */}
+          <TEEAttestationPanel
+            vaultAddress={vaultAddr}
+            policy={effectivePolicy}
+            explorerHref={getExplorerAddressHref(chainId, vaultAddr)}
+          />
 
           {/* Allocation detail (REAL from Pyth or mock) */}
           <div>

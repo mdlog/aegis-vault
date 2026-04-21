@@ -1,10 +1,14 @@
 import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
-import { parseUnits, formatUnits } from 'viem';
+import { parseUnits, formatUnits, decodeEventLog } from 'viem';
 import { AegisVaultABI, AegisVaultFactoryABI, MockERC20ABI, getDeployments } from '../lib/contracts.js';
 
 // ── Read Vault Summary ──
-
-export function useVaultSummary(vaultAddress) {
+//
+// Caller can pass `decimals` (defaults to 6 for legacy USDC vaults). For vaults
+// with non-USDC base assets (WETH=18, WBTC=8) the wrong decimals would silently
+// return values off by 10^N — pass the right one resolved from the vault's
+// baseAsset address via `useTokenDecimals` / asset metadata.
+export function useVaultSummary(vaultAddress, decimals = 6) {
   const { data, isLoading, error, refetch } = useReadContract({
     address: vaultAddress,
     abi: AegisVaultABI,
@@ -21,18 +25,32 @@ export function useVaultSummary(vaultAddress) {
       owner,
       executor,
       baseAsset,
-      balance: formatUnits(balance, 6),
+      balance: formatUnits(balance, decimals),
       balanceRaw: balance,
-      totalDeposited: formatUnits(totalDeposited, 6),
+      totalDeposited: formatUnits(totalDeposited, decimals),
       lastExecution: Number(lastExecution),
       dailyActions: Number(dailyActions),
       paused,
       autoExecution,
+      decimals,
     },
     isLoading,
     error,
     refetch,
   };
+}
+
+// ── Read Token Decimals ──
+// Resolves the decimals of an arbitrary ERC20 (used to pick the right scale
+// for a vault's base asset before formatting balances).
+export function useTokenDecimals(tokenAddress) {
+  const { data, isLoading } = useReadContract({
+    address: tokenAddress,
+    abi: MockERC20ABI,
+    functionName: 'decimals',
+    query: { enabled: !!tokenAddress },
+  });
+  return { decimals: data !== undefined ? Number(data) : null, isLoading };
 }
 
 // ── Read Vault Policy ──
@@ -175,8 +193,12 @@ export function useVaultList(factoryAddress, ownerAddress) {
       owner,
       executor,
       baseAsset,
+      // NOTE: hardcoded 6 — caller should resolve actual decimals if base
+      // asset isn't USDC. Use balanceRaw + useTokenDecimals to format correctly.
       balance: formatUnits(balance, 6),
+      balanceRaw: balance,
       totalDeposited: formatUnits(totalDeposited, 6),
+      totalDepositedRaw: totalDeposited,
       lastExecution: Number(lastExecution),
       dailyActions: Number(dailyActions),
       paused,
@@ -243,8 +265,12 @@ export function useAllPlatformVaults(factoryAddress) {
       owner,
       executor,
       baseAsset,
+      // NOTE: hardcoded 6 — caller should resolve actual decimals if base
+      // asset isn't USDC. Use balanceRaw + useTokenDecimals to format correctly.
       balance: formatUnits(balance, 6),
+      balanceRaw: balance,
       totalDeposited: formatUnits(totalDeposited, 6),
+      totalDepositedRaw: totalDeposited,
       lastExecution: Number(lastExecution),
       dailyActions: Number(dailyActions),
       paused,
@@ -341,7 +367,7 @@ export function useUnpause() {
 
 export function useCreateVault() {
   const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const { isLoading: isConfirming, isSuccess, data: receipt } = useWaitForTransactionReceipt({ hash });
 
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
@@ -355,7 +381,36 @@ export function useCreateVault() {
     });
   };
 
-  return { createVault, hash, isPending, isConfirming, isSuccess, error };
+  // Decode deployed vault address(es) from VaultDeployed events in receipt logs.
+  // We only consider logs emitted by our known factory address — defense against
+  // a malicious contract injecting a same-named event into the same tx.
+  // For batched deploys we keep all addresses but expose the LAST one as the
+  // primary `deployedVaultAddress` (most recent = the one the user just made).
+  const factoryAddr = deployments.aegisVaultFactory?.toLowerCase();
+  const deployedVaultAddresses = [];
+  if (receipt?.logs) {
+    for (const log of receipt.logs) {
+      if (factoryAddr && log.address?.toLowerCase() !== factoryAddr) continue;
+      try {
+        const decoded = decodeEventLog({ abi: AegisVaultFactoryABI, data: log.data, topics: log.topics });
+        if (decoded.eventName === 'VaultDeployed' && decoded.args?.vault) {
+          deployedVaultAddresses.push(decoded.args.vault);
+        }
+      } catch { /* not a factory event */ }
+    }
+  }
+  const deployedVaultAddress = deployedVaultAddresses[deployedVaultAddresses.length - 1] || null;
+
+  return {
+    createVault,
+    hash,
+    isPending,
+    isConfirming,
+    isSuccess,
+    error,
+    deployedVaultAddress,
+    deployedVaultAddresses,
+  };
 }
 
 // ── Write: Update Policy ──

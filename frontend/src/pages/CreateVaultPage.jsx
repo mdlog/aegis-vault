@@ -1,26 +1,31 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { isAddress } from 'viem';
+import { toast } from 'sonner';
 import GlassPanel from '../components/ui/GlassPanel';
 import ControlButton from '../components/ui/ControlButton';
 import StatusPill from '../components/ui/StatusPill';
 import WalletButton from '../components/ui/WalletButton';
-import Logo from '../components/ui/Logo';
-import { useCreateVault } from '../hooks/useVault';
+import NetworkWarning from '../components/ui/NetworkWarning';
+import ConfirmModal from '../components/ui/ConfirmModal';
+import { useCreateVault, useApprove, useDeposit, useTokenBalance } from '../hooks/useVault';
 import { useOrchestratorStatus } from '../hooks/useOrchestrator';
-import { useOperatorList } from '../hooks/useOperatorRegistry';
+import { useOperatorList, useIsRegistered, useOperator } from '../hooks/useOperatorRegistry';
 import { formatBps, estimateAnnualFees } from '../hooks/useVaultFees';
 import {
   useOperatorTiers, TIER_LABELS, TIER_COLORS, formatVaultCap,
 } from '../hooks/useOperatorStaking';
 import { demoOperatorTiers, demoOperators } from '../data/demoContent';
 import { ENABLE_DEMO_FALLBACKS, getDeployments } from '../lib/contracts';
+import { parseTxError } from '../lib/txErrors';
+import { useDraftState } from '../lib/useDraftState';
 import TokenIcon from '../components/ui/TokenIcon';
 import {
   ArrowLeft, ArrowRight, Check, Shield, Lock, Zap, Cpu,
   TrendingDown, Target, Clock, AlertTriangle, Layers, Wallet,
-  TrendingUp, Percent, DollarSign, Info, Award
+  TrendingUp, Percent, DollarSign, Info, Award, ChevronDown,
+  RotateCcw, HelpCircle
 } from 'lucide-react';
 
 const steps = [
@@ -60,6 +65,12 @@ const availableAssets = [
   { symbol: '0G', name: '0G Token', color: '#4cc9f0' },
 ];
 
+const baseAssetOptions = [
+  { symbol: 'USDC', name: 'USD Coin', depKey: 'mockUSDC', decimals: 6, color: 'text-cyan', border: 'border-cyan/30' },
+  { symbol: 'WBTC', name: 'Wrapped BTC', depKey: 'mockWBTC', decimals: 8, color: 'text-gold', border: 'border-gold/30' },
+  { symbol: 'WETH', name: 'Wrapped ETH', depKey: 'mockWETH', decimals: 18, color: 'text-emerald-soft', border: 'border-emerald-soft/30' },
+];
+
 const riskScoreByProfile = {
   defensive: 3,
   balanced: 5,
@@ -68,14 +79,38 @@ const riskScoreByProfile = {
 
 export default function CreateVaultPage() {
   const navigate = useNavigate();
-  const { isConnected } = useAccount();
+  const { isConnected, address: walletAddress } = useAccount();
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
-  const { createVault, isPending: createPending } = useCreateVault();
+  const {
+    createVault,
+    isSuccess: createSuccess,
+    deployedVaultAddress,
+    error: createError,
+  } = useCreateVault();
+  const {
+    approve,
+    isSuccess: approveSuccess,
+    error: approveError,
+  } = useApprove();
+  const {
+    deposit,
+    isSuccess: depositSuccess,
+    error: depositError,
+  } = useDeposit();
   const { data: orchStatus } = useOrchestratorStatus();
   const [step, setStep] = useState(0);
-  const [config, setConfig] = useState({
+  const [deployPhase, setDeployPhase] = useState('idle'); // idle | creating | approving | depositing | done | error
+  const [deployStartedAt, setDeployStartedAt] = useState(null);
+  const [deployError, setDeployError] = useState(null); // { phase, message, isUserReject }
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  // Snapshot taken at executeDeploy() so subsequent phases (approve, deposit)
+  // are immune to user edits during the multi-tx flow.
+  const deploySnapshotRef = useRef(null);
+  const draftKey = `draft:create-vault:v1:${walletAddress || 'anon'}`;
+  const [config, setConfig, { clearDraft, hasDraft }] = useDraftState(draftKey, {
     depositAmount: 50000,
+    baseAsset: 'USDC',
     riskProfile: 'balanced',
     maxDrawdown: 10,
     maxPosition: 50,
@@ -88,13 +123,27 @@ export default function CreateVaultPage() {
     sealedMode: false,
     autoExecution: true,
   });
+  const selectedBaseAsset = baseAssetOptions.find((a) => a.symbol === config.baseAsset) || baseAssetOptions[0];
+  const { balance: walletBalance, isLoading: balanceLoading } = useTokenBalance(
+    deployments[selectedBaseAsset.depKey],
+    walletAddress,
+    selectedBaseAsset.decimals,
+  );
+  const walletBalanceNum = parseFloat(walletBalance || '0');
+  const exceedsBalance = isConnected && config.depositAmount > walletBalanceNum;
+  const insufficientBalance = isConnected && walletBalanceNum <= 0;
   const [executorMode, setExecutorMode] = useState(ENABLE_DEMO_FALLBACKS ? 'marketplace' : '');
   const [customExecutor, setCustomExecutor] = useState('');
+  // Optional manual attestation-signer override for sealed mode.
+  // Operators who run their orchestrator with TEE_SIGNER_PRIVATE_KEY set to a
+  // separate key can paste the corresponding address here; otherwise we default
+  // to the operator's wallet (works when TEE signer == operator key).
+  const [customAttestedSigner, setCustomAttestedSigner] = useState('');
   const [selectedMarketplaceOperator, setSelectedMarketplaceOperator] = useState(
     ENABLE_DEMO_FALLBACKS ? demoOperators[0]?.wallet || '' : ''
   );
 
-  const { operators: marketplaceOperators } = useOperatorList(deployments.operatorRegistry);
+  const { operators: marketplaceOperators, isLoading: operatorsLoading } = useOperatorList(deployments.operatorRegistry);
   const liveMarketplaceOperators = marketplaceOperators.filter((op) => op.loaded && op.active);
   const useDemoMarketplace = ENABLE_DEMO_FALLBACKS && liveMarketplaceOperators.length === 0;
   const activeMarketplaceOperators = useDemoMarketplace ? demoOperators : liveMarketplaceOperators;
@@ -108,8 +157,9 @@ export default function CreateVaultPage() {
   const selectedProfile = riskProfiles.find((p) => p.id === config.riskProfile);
   const detectedExecutor = orchStatus?.executorAddress || '';
   const canUseDetectedExecutor = Boolean(detectedExecutor);
+  const isExecutorAutoResolved = !executorMode;
   const activeExecutorMode =
-    executorMode || (canUseDetectedExecutor ? 'orchestrator' : useDemoMarketplace ? 'marketplace' : customExecutor ? 'custom' : 'custom');
+    executorMode || (canUseDetectedExecutor ? 'orchestrator' : useDemoMarketplace ? 'marketplace' : customExecutor ? 'custom' : 'marketplace');
 
   // Selected operator full metadata (for fee preview + recommended policy preset)
   const selectedOperatorData =
@@ -125,6 +175,9 @@ export default function CreateVaultPage() {
   const exceedsTierCap = selectedOperatorTier && !selectedOperatorTier.isUnlimited
     && config.depositAmount > selectedOperatorTier.maxVaultSize;
 
+  // Min one allowed asset; user can't deploy with empty list
+  const noAssetsSelected = config.allowedAssets.length === 0;
+
   let resolvedExecutor = '';
   if (activeExecutorMode === 'orchestrator') resolvedExecutor = detectedExecutor.trim();
   else if (activeExecutorMode === 'marketplace') resolvedExecutor = selectedMarketplaceOperator.trim();
@@ -134,7 +187,27 @@ export default function CreateVaultPage() {
   const shortExecutor = executorReady
     ? `${resolvedExecutor.slice(0, 8)}...${resolvedExecutor.slice(-6)}`
     : 'Not configured';
-  const operatorCountLabel = useDemoMarketplace ? 'demo operators preloaded' : 'registered operators available';
+
+  // Defense-in-depth: when the user pastes a custom executor address, verify
+  // it's actually registered (and active) in OperatorRegistry. If it isn't,
+  // the orchestrator network won't pick up the vault and funds get stranded.
+  const customExecutorIsAddr = customExecutor.length === 0 || isAddress(customExecutor);
+  const { data: customExecRegistered } = useIsRegistered(
+    deployments.operatorRegistry,
+    activeExecutorMode === 'custom' && customExecutor && isAddress(customExecutor) ? customExecutor : undefined,
+  );
+  const { data: customExecData } = useOperator(
+    deployments.operatorRegistry,
+    activeExecutorMode === 'custom' && customExecRegistered ? customExecutor : undefined,
+  );
+  const customExecutorWarning =
+    activeExecutorMode === 'custom' && customExecutor && isAddress(customExecutor)
+      ? customExecRegistered === false
+        ? { level: 'warn', message: 'This address is not a registered operator. The vault will deploy, but no orchestrator in the public network will trade for it.' }
+        : customExecData && customExecData.active === false
+          ? { level: 'warn', message: 'This operator is registered but currently INACTIVE. Trades will not execute until the operator reactivates.' }
+          : null
+      : null;
   const annualFeeEstimate = selectedOperatorData
     ? estimateAnnualFees(
         config.depositAmount,
@@ -181,158 +254,567 @@ export default function CreateVaultPage() {
     }));
   };
 
-  // Pick a marketplace operator and apply their recommended policy as a starting point
+  // Pick a marketplace operator and apply their recommended policy as a
+  // starting point. Registry stores percentages as bps (5000 = 50%) and time
+  // as seconds; the form holds them as percent and minutes.
   const pickMarketplaceOperator = (op) => {
     setSelectedMarketplaceOperator(op.wallet);
-    if (
+    const hasRecommendation =
       op.recommendedMaxPositionBps ||
       op.recommendedConfidenceMinBps ||
       op.recommendedStopLossBps ||
       op.recommendedCooldownSeconds ||
-      op.recommendedMaxActionsPerDay
-    ) {
-      setConfig((prev) => ({
-        ...prev,
-        maxPosition: Math.round((op.recommendedMaxPositionBps || prev.maxPosition * 100) / 100),
-        confidenceThreshold: Math.round((op.recommendedConfidenceMinBps || prev.confidenceThreshold * 100) / 100),
-        stopLoss: Math.round((op.recommendedStopLossBps || prev.stopLoss * 100) / 100),
-        cooldown: Math.round((op.recommendedCooldownSeconds || prev.cooldown * 60) / 60),
-        maxActionsPerDay: op.recommendedMaxActionsPerDay || prev.maxActionsPerDay,
-      }));
+      op.recommendedMaxActionsPerDay;
+    if (!hasRecommendation) return;
+    setConfig((prev) => ({
+      ...prev,
+      maxPosition: op.recommendedMaxPositionBps
+        ? Math.round(op.recommendedMaxPositionBps / 100)
+        : prev.maxPosition,
+      confidenceThreshold: op.recommendedConfidenceMinBps
+        ? Math.round(op.recommendedConfidenceMinBps / 100)
+        : prev.confidenceThreshold,
+      stopLoss: op.recommendedStopLossBps
+        ? Math.round(op.recommendedStopLossBps / 100)
+        : prev.stopLoss,
+      cooldown: op.recommendedCooldownSeconds
+        ? Math.round(op.recommendedCooldownSeconds / 60)
+        : prev.cooldown,
+      maxActionsPerDay: op.recommendedMaxActionsPerDay || prev.maxActionsPerDay,
+    }));
+  };
+
+  // Auto-deposit flow: createVault → approve → deposit → navigate
+  // Each phase reads from deploySnapshotRef (frozen at executeDeploy) so user
+  // edits to deposit amount or base asset mid-flow can't desync approve/deposit.
+  useEffect(() => {
+    if (deployPhase === 'creating' && createSuccess && deployedVaultAddress) {
+      const snap = deploySnapshotRef.current;
+      if (!snap) return;
+      setDeployPhase('approving');
+      approve(snap.tokenAddr, deployedVaultAddress, snap.depositAmount, snap.decimals);
+    }
+  }, [deployPhase, createSuccess, deployedVaultAddress, approve]);
+
+  // Trigger deposit once approve is confirmed
+  useEffect(() => {
+    if (deployPhase === 'approving' && approveSuccess && deployedVaultAddress) {
+      const snap = deploySnapshotRef.current;
+      if (!snap) return;
+      setDeployPhase('depositing');
+      deposit(deployedVaultAddress, snap.depositAmount, snap.decimals);
+    }
+  }, [deployPhase, approveSuccess, deployedVaultAddress, deposit]);
+
+  // Navigate once deposit is confirmed
+  useEffect(() => {
+    if (deployPhase === 'depositing' && depositSuccess) {
+      setDeployPhase('done');
+      setTimeout(() => navigate('/app'), 1500);
+    }
+  }, [deployPhase, depositSuccess, navigate]);
+
+  // Error capture: any failure in the 3-phase flow parks us in 'error' state with context
+  useEffect(() => {
+    const activeError =
+      (deployPhase === 'creating' && createError) ||
+      (deployPhase === 'approving' && approveError) ||
+      (deployPhase === 'depositing' && depositError);
+    if (activeError) {
+      const parsed = parseTxError(activeError) || { title: 'Transaction failed', message: 'Unknown error', isUserReject: false };
+      setDeployError({
+        phase: deployPhase,
+        title: parsed.title,
+        message: parsed.message,
+        isUserReject: parsed.isUserReject,
+      });
+      setDeployPhase('error');
+      if (parsed.isUserReject) {
+        toast.info(parsed.title, { description: parsed.message });
+      } else {
+        toast.error(parsed.title, { description: parsed.message, duration: 8000 });
+      }
+    }
+  }, [deployPhase, createError, approveError, depositError]);
+
+  // Success toast + draft cleanup when full flow completes.
+  useEffect(() => {
+    if (deployPhase === 'done') {
+      toast.success('Vault deployed and funded', {
+        description: 'Redirecting you to the dashboard…',
+      });
+      clearDraft();
+    }
+  }, [deployPhase, clearDraft]);
+
+  // Tick state so the elapsed counter on the deploy banner updates every second.
+  // We store the current ms (not a counter) so render code can read it without
+  // calling Date.now() inline, which react-hooks/purity flags as impure.
+  const [nowMs, setNowMs] = useState(null);
+  const _isDeployingForTick = deployPhase !== 'idle' && deployPhase !== 'done' && deployPhase !== 'error';
+  useEffect(() => {
+    if (!_isDeployingForTick) return undefined;
+    setNowMs(Date.now());
+    const interval = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [_isDeployingForTick]);
+
+  const isDeploying = deployPhase !== 'idle' && deployPhase !== 'done' && deployPhase !== 'error';
+  // Once a deploy is in flight, show the symbol that was actually committed to
+  // (from the snapshot), not the live form value the user might have changed.
+  const deploySymbol = deploySnapshotRef.current?.symbol || selectedBaseAsset.symbol;
+  const deployPhaseLabel = {
+    idle: 'Deploy Vault',
+    creating: 'Deploying Vault…',
+    approving: `Approving ${deploySymbol}…`,
+    depositing: `Depositing ${deploySymbol}…`,
+    done: 'Success — redirecting…',
+    error: 'Retry deployment',
+  }[deployPhase];
+
+  // Retry from the failed phase without restarting the whole flow.
+  // Always uses the original deploy snapshot so retry can't accidentally use
+  // values the user changed after the failure.
+  const retryDeployment = () => {
+    if (!deployError) return;
+    const failedPhase = deployError.phase;
+    const snap = deploySnapshotRef.current;
+    setDeployError(null);
+    if (failedPhase === 'approving' && deployedVaultAddress && snap) {
+      setDeployPhase('approving');
+      approve(snap.tokenAddr, deployedVaultAddress, snap.depositAmount, snap.decimals);
+    } else if (failedPhase === 'depositing' && deployedVaultAddress && snap) {
+      setDeployPhase('depositing');
+      deposit(deployedVaultAddress, snap.depositAmount, snap.decimals);
+    } else {
+      // creating failed — reset to idle so user re-clicks Deploy
+      deploySnapshotRef.current = null;
+      setDeployPhase('idle');
     }
   };
 
+  const dismissDeployError = () => {
+    setDeployError(null);
+    setDeployPhase('idle');
+  };
+
+  // Kick off the 3-phase deploy. Called from the confirmation modal so users
+  // always get a final review before any wallet popup. Captures a snapshot of
+  // every value the multi-phase flow needs so later edits to the form can't
+  // desync approve/deposit from the actual on-chain create.
+  const executeDeploy = () => {
+    setConfirmOpen(false);
+    const attestSignerOverride = customAttestedSigner.trim();
+    const teeAttestedSigner = config.sealedMode
+      ? (attestSignerOverride && isAddress(attestSignerOverride)
+          ? attestSignerOverride
+          : (selectedOperatorData?.wallet || resolvedExecutor))
+      : '0x0000000000000000000000000000000000000000';
+    const policyStruct = {
+      maxPositionBps: BigInt(config.maxPosition * 100),
+      maxDailyLossBps: BigInt(config.dailyLossLimit * 100),
+      stopLossBps: BigInt(config.stopLoss * 100),
+      cooldownSeconds: BigInt(config.cooldown * 60),
+      confidenceThresholdBps: BigInt(config.confidenceThreshold * 100),
+      maxActionsPerDay: BigInt(config.maxActionsPerDay),
+      autoExecution: config.autoExecution,
+      paused: false,
+      performanceFeeBps: BigInt(selectedOperatorData?.performanceFeeBps || 0),
+      managementFeeBps: BigInt(selectedOperatorData?.managementFeeBps || 0),
+      entryFeeBps: BigInt(selectedOperatorData?.entryFeeBps || 0),
+      exitFeeBps: BigInt(selectedOperatorData?.exitFeeBps || 0),
+      feeRecipient: selectedOperatorData?.wallet || resolvedExecutor,
+      sealedMode: !!config.sealedMode,
+      attestedSigner: teeAttestedSigner,
+    };
+    const assetAddrs = config.allowedAssets.map((s) => {
+      if (s === 'BTC') return deployments.mockWBTC;
+      if (s === 'ETH') return deployments.mockWETH;
+      if (s === 'USDC') return deployments.mockUSDC;
+      return deployments.mockUSDC;
+    }).filter(Boolean);
+    const baseAssetAddr = deployments[selectedBaseAsset.depKey];
+    // Freeze every value subsequent phases need.
+    deploySnapshotRef.current = {
+      tokenAddr: baseAssetAddr,
+      depositAmount: config.depositAmount,
+      decimals: selectedBaseAsset.decimals,
+      symbol: selectedBaseAsset.symbol,
+    };
+    // eslint-disable-next-line react-hooks/purity -- event handler, not render
+    const startedAt = Date.now();
+    setDeployStartedAt(startedAt);
+    setDeployPhase('creating');
+    createVault(
+      baseAssetAddr,
+      resolvedExecutor,
+      deployments.mockDEX,
+      policyStruct,
+      assetAddrs,
+    );
+  };
+
   return (
-    <div className="min-h-screen bg-obsidian flex flex-col">
-      {/* Top bar */}
-      <header className="sticky top-0 z-50 bg-obsidian/95 backdrop-blur-xl border-b border-white/[0.04]">
-        <div className="max-w-6xl mx-auto px-4 lg:px-6 h-14 flex items-center justify-between">
-          <Link to="/app" className="flex items-center gap-2 text-steel/60 hover:text-white transition-colors text-xs">
-            <ArrowLeft className="w-4 h-4" />
-            Back to Dashboard
-          </Link>
-          <div className="flex items-center gap-2">
-            <Logo size={20} />
-            <span className="text-xs font-medium tracking-[0.1em] uppercase text-white/60">Create Vault</span>
-          </div>
-          <div className="w-20" /> {/* Spacer */}
-        </div>
-      </header>
-
-      <div className="max-w-6xl mx-auto px-4 lg:px-6 py-8 lg:py-12 flex-1">
-        <GlassPanel gold className="p-5 mb-8">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <div>
-              <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-gold/75 mb-1">
-                Judge Demo Path
+    <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-8 lg:py-12">
+        {/* Mobile sticky progress bar — keeps step context visible while scrolling */}
+        <div className="sm:hidden sticky top-0 z-20 -mx-4 px-4 py-2 mb-4 bg-obsidian/85 backdrop-blur border-b border-white/[0.06]">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[9px] font-mono uppercase tracking-[0.14em] text-gold/70">
+                Step {step + 1} of {steps.length}
               </div>
-              <h1 className="text-xl lg:text-2xl font-display font-semibold text-white tracking-tight mb-2">
-                Launch a policy-constrained AI vault in under a minute
-              </h1>
-              <p className="text-sm text-steel/55 max-w-2xl">
-                This wizard is preloaded for demo day: realistic deposit sizing, marketplace operators,
-                sealed-mode guardrails, and an execution summary that stays readable while you present.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-3 lg:min-w-[320px]">
-              <div className="rounded-xl border border-gold/15 bg-gold/[0.04] px-4 py-3">
-                <div className="text-[9px] font-mono uppercase tracking-[0.14em] text-steel/40 mb-1">Operator Roster</div>
-                <div className="text-lg font-display font-semibold text-gold">{activeMarketplaceOperators.length}</div>
-                <div className="text-[10px] text-steel/45">{operatorCountLabel}</div>
-              </div>
-              <div className="rounded-xl border border-cyan/15 bg-cyan/[0.04] px-4 py-3">
-                <div className="text-[9px] font-mono uppercase tracking-[0.14em] text-steel/40 mb-1">Default Story</div>
-                <div className="text-lg font-display font-semibold text-cyan">{selectedProfile.label}</div>
-                <div className="text-[10px] text-steel/45">{config.sealedMode ? 'sealed mode active' : 'balanced launch preset'}</div>
+              <div className="text-sm font-display font-semibold text-white truncate">
+                {currentStep.label}
               </div>
             </div>
-          </div>
-        </GlassPanel>
-
-        {/* Step indicator */}
-        <div className="flex items-center justify-center gap-1 mb-10">
-          {steps.map((s, i) => (
-            <div key={s.key} className="flex items-center">
-              <button
-                onClick={() => i <= step && setStep(i)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-mono tracking-wider transition-all
-                  ${i === step
-                    ? 'bg-gold/10 text-gold border border-gold/20'
-                    : i < step
-                      ? 'text-emerald-soft/70 cursor-pointer hover:text-emerald-soft'
-                      : 'text-steel/30'
+            <div className="flex items-center gap-1">
+              {steps.map((_, i) => (
+                <span
+                  key={i}
+                  className={`h-1 rounded-full transition-all ${
+                    i === step ? 'w-5 bg-gold' : i < step ? 'w-2 bg-emerald-soft/60' : 'w-2 bg-white/10'
                   }`}
-              >
-                {i < step ? (
-                  <Check className="w-3 h-3" />
-                ) : (
-                  <span>{s.number}</span>
-                )}
-                <span className="hidden sm:inline">{s.label}</span>
-              </button>
-              {i < steps.length - 1 && (
-                <div className={`w-4 lg:w-8 h-px mx-1 ${i < step ? 'bg-emerald-soft/30' : 'bg-white/[0.06]'}`} />
-              )}
+                  aria-hidden="true"
+                />
+              ))}
             </div>
-          ))}
+          </div>
+        </div>
+
+        {isConnected && (
+          <NetworkWarning
+            requiredAddress={deployments.aegisVaultFactory}
+            expectedChainId={16602}
+            contractName="Aegis Vault Factory"
+          />
+        )}
+
+        {hasDraft && deployPhase === 'idle' && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-cyan/20 bg-cyan/[0.04] px-4 py-2.5">
+            <div className="flex items-center gap-2 text-[11px] text-cyan/80">
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Vault draft auto-saved. Pick up where you left off.</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Discard saved draft and reset the form?')) clearDraft();
+              }}
+              className="text-[10px] font-mono uppercase tracking-wide text-steel/55 hover:text-white transition-colors"
+            >
+              Reset draft
+            </button>
+          </div>
+        )}
+
+        {/* Step indicator — numbered progress (hidden on mobile, sticky bar replaces it) */}
+        <div className="mb-10 hidden sm:block">
+          <div className="flex items-start justify-between relative">
+            {/* Background track */}
+            <div className="absolute top-4 left-0 right-0 h-px bg-white/[0.06]" aria-hidden="true" />
+            {/* Progress fill */}
+            <div
+              className="absolute top-4 left-0 h-px bg-gradient-to-r from-emerald-soft/40 via-emerald-soft/40 to-gold/50 transition-all duration-500"
+              style={{ width: `${(step / (steps.length - 1)) * 100}%` }}
+              aria-hidden="true"
+            />
+            {steps.map((s, i) => {
+              const isDone = i < step;
+              const isCurrent = i === step;
+              const clickable = i <= step;
+              return (
+                <button
+                  key={s.key}
+                  type="button"
+                  onClick={() => clickable && setStep(i)}
+                  disabled={!clickable}
+                  aria-current={isCurrent ? 'step' : undefined}
+                  aria-label={`Step ${i + 1}: ${s.label}`}
+                  className={`relative z-10 flex flex-col items-center gap-2 group ${clickable ? 'cursor-pointer' : 'cursor-default'}`}
+                >
+                  <span
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-mono font-semibold border transition-all
+                      ${isCurrent
+                        ? 'bg-gold/15 border-gold/50 text-gold shadow-[0_0_0_4px_rgba(207,168,61,0.08)]'
+                        : isDone
+                          ? 'bg-emerald-soft/15 border-emerald-soft/40 text-emerald-soft group-hover:border-emerald-soft/70'
+                          : 'bg-obsidian border-white/[0.08] text-steel/40'
+                      }`}
+                  >
+                    {isDone ? <Check className="w-3.5 h-3.5" /> : s.number}
+                  </span>
+                  <span
+                    className={`hidden sm:block text-[10px] font-mono tracking-[0.12em] uppercase transition-colors
+                      ${isCurrent ? 'text-gold' : isDone ? 'text-emerald-soft/70' : 'text-steel/35'}`}
+                  >
+                    {s.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
           {/* Step content */}
           <div className="min-h-[400px]">
+          {/* Deploy progress tracker */}
+          {(isDeploying || deployPhase === 'done' || deployPhase === 'error') && (
+            <GlassPanel gold={deployPhase !== 'error'} className={`p-5 mb-6 ${deployPhase === 'error' ? 'border-red-warn/30 bg-red-warn/[0.04]' : ''}`}>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <div className={`text-[10px] font-mono uppercase tracking-[0.15em] mb-1 ${deployPhase === 'error' ? 'text-red-warn/80' : 'text-gold/70'}`}>
+                    {deployPhase === 'error' ? `Deployment halted at "${deployError?.phase}"` : 'Vault launch in progress'}
+                  </div>
+                  <div className="text-sm text-white font-display font-semibold">
+                    {deployPhase === 'error' ? (deployError?.isUserReject ? 'Transaction rejected' : (deployError?.title || 'Transaction failed')) : deployPhaseLabel}
+                  </div>
+                  {isDeploying && deployStartedAt && nowMs && (
+                    <div className="text-[10px] font-mono text-steel/45 mt-1">
+                      Elapsed {Math.max(0, Math.round((nowMs - deployStartedAt) / 1000))}s · Don't close this tab.
+                    </div>
+                  )}
+                </div>
+                {deployPhase === 'done' ? (
+                  <StatusPill label="Deployed" variant="active" />
+                ) : deployPhase === 'error' ? (
+                  <StatusPill label={deployError?.isUserReject ? 'Rejected' : 'Failed'} variant="critical" />
+                ) : (
+                  <StatusPill label="Working" variant="warning" pulse />
+                )}
+              </div>
+              <div className="space-y-2.5">
+                {[
+                  { key: 'creating', label: '1. Deploy vault contract' },
+                  { key: 'approving', label: `2. Approve ${selectedBaseAsset.symbol} spending` },
+                  { key: 'depositing', label: `3. Deposit ${selectedBaseAsset.symbol} into vault` },
+                ].map((phase) => {
+                  const errorHere = deployPhase === 'error' && deployError?.phase === phase.key;
+                  const orderMap = { creating: 0, approving: 1, depositing: 2 };
+                  const currentOrder = orderMap[deployPhase === 'error' ? deployError?.phase : deployPhase] ?? 3;
+                  const done = orderMap[phase.key] < currentOrder || deployPhase === 'done';
+                  const active = !errorHere && deployPhase === phase.key;
+                  return (
+                    <div key={phase.key} className="flex items-center gap-3">
+                      <span
+                        className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-mono border
+                          ${errorHere
+                            ? 'bg-red-warn/15 border-red-warn/50 text-red-warn'
+                            : done
+                              ? 'bg-emerald-soft/15 border-emerald-soft/40 text-emerald-soft'
+                              : active
+                                ? 'bg-gold/15 border-gold/50 text-gold animate-pulse'
+                                : 'bg-obsidian border-white/[0.08] text-steel/40'}`}
+                      >
+                        {errorHere ? <AlertTriangle className="w-3 h-3" /> : done ? <Check className="w-3.5 h-3.5" /> : active ? <Clock className="w-3 h-3" /> : ''}
+                      </span>
+                      <span className={`text-xs ${errorHere ? 'text-red-warn' : done ? 'text-emerald-soft/80' : active ? 'text-white' : 'text-steel/40'}`}>
+                        {phase.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              {deployPhase === 'error' && deployError && (
+                <div className="mt-4 pt-3 border-t border-red-warn/20">
+                  <p className="text-[11px] text-red-warn/90 leading-relaxed mb-3 break-words">
+                    {deployError.message}
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <ControlButton variant="primary" size="sm" onClick={retryDeployment}>
+                      <ArrowRight className="w-3.5 h-3.5" /> Retry {deployError.phase === 'creating' ? 'deployment' : deployError.phase === 'approving' ? 'approval' : 'deposit'}
+                    </ControlButton>
+                    <ControlButton variant="ghost" size="sm" onClick={dismissDeployError}>
+                      Cancel
+                    </ControlButton>
+                    {deployedVaultAddress && deployError.phase !== 'creating' && (
+                      <span className="text-[10px] font-mono text-steel/50">
+                        Vault already deployed: you can also finish deposit manually on the vault page.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+              {deployedVaultAddress && deployPhase !== 'error' && (
+                <div className="mt-4 pt-3 border-t border-white/[0.06] text-[10px] font-mono text-steel/50">
+                  Vault: <span className="text-gold/80">{deployedVaultAddress.slice(0, 10)}…{deployedVaultAddress.slice(-8)}</span>
+                </div>
+              )}
+            </GlassPanel>
+          )}
+
           {/* Step 1: Deposit */}
           {currentStep.key === 'deposit' && (
-            <div className="text-center">
-              <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white mb-3 tracking-tight">
-                Fund your vault
-              </h2>
-              <p className="text-sm text-steel/60 mb-8 max-w-md mx-auto">
-                Specify the initial deposit amount. Your capital remains under smart contract custody.
-              </p>
-              <GlassPanel gold className="p-8 max-w-sm mx-auto">
-                <label className="text-[10px] font-mono tracking-[0.15em] uppercase text-steel/40 block mb-3">
-                  Deposit Amount (USDC)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-2xl font-display text-steel/30">$</span>
-                  <input
-                    type="number"
-                    value={config.depositAmount}
-                    onChange={(e) => updateConfig('depositAmount', Number(e.target.value))}
-                    className="w-full bg-obsidian/60 border border-white/[0.08] rounded-lg px-4 pl-10 py-4
-                      text-2xl font-display font-semibold text-white text-center
-                      focus:outline-none focus:border-gold/30 transition-colors"
-                  />
+            <div>
+              <div className="mb-6 pb-5 border-b border-white/[0.04]">
+                <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-gold/70 mb-2">Step 01 · Deposit</div>
+                <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white tracking-tight mb-2">
+                  Fund your vault
+                </h2>
+                <p className="text-sm text-steel/60 max-w-xl">
+                  Specify the initial deposit amount. Your capital remains under smart contract custody.
+                </p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-[1fr_240px]">
+                <GlassPanel gold className="p-6">
+                  <label className="text-[10px] font-mono tracking-[0.15em] uppercase text-steel/40 block mb-3">
+                    Base Asset
+                  </label>
+                  <div className="grid grid-cols-3 gap-2 mb-5">
+                    {baseAssetOptions.map((asset) => {
+                      const selected = config.baseAsset === asset.symbol;
+                      return (
+                        <button
+                          key={asset.symbol}
+                          onClick={() => updateConfig('baseAsset', asset.symbol)}
+                          className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border transition-all
+                            ${selected
+                              ? `bg-white/[0.04] ${asset.border} shadow-[0_0_0_3px_rgba(255,255,255,0.03)]`
+                              : 'border-white/[0.06] hover:border-white/[0.12] bg-white/[0.01]'
+                            }`}
+                        >
+                          <TokenIcon symbol={asset.symbol} size={22} />
+                          <div className="text-left">
+                            <div className={`text-xs font-display font-semibold ${selected ? asset.color : 'text-white'}`}>{asset.symbol}</div>
+                            <div className="text-[9px] font-mono text-steel/40">{asset.decimals} dec</div>
+                          </div>
+                          {selected && <Check className="w-3.5 h-3.5 ml-auto text-gold" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-[10px] font-mono tracking-[0.15em] uppercase text-steel/40">
+                      Deposit Amount ({selectedBaseAsset.symbol})
+                    </label>
+                    <div className="text-[10px] font-mono text-steel/50">
+                      {!isConnected ? (
+                        <span className="text-steel/40">Connect wallet for balance</span>
+                      ) : balanceLoading ? (
+                        <span>Loading…</span>
+                      ) : (
+                        <span>
+                          Balance:{' '}
+                          <span className={`${exceedsBalance ? 'text-red-warn' : insufficientBalance ? 'text-amber-warn' : 'text-white/80'}`}>
+                            {walletBalanceNum.toLocaleString(undefined, { maximumFractionDigits: 6 })} {selectedBaseAsset.symbol}
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-mono text-steel/35">{selectedBaseAsset.symbol}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max={walletBalanceNum || undefined}
+                      value={config.depositAmount}
+                      onChange={(e) => updateConfig('depositAmount', Number(e.target.value))}
+                      className={`w-full bg-obsidian/60 border rounded-lg px-4 pl-16 pr-20 py-4
+                        text-2xl font-display font-semibold text-white
+                        focus:outline-none transition-colors
+                        ${exceedsBalance ? 'border-red-warn/40 focus:border-red-warn/60' : 'border-white/[0.08] focus:border-gold/30'}`}
+                    />
+                    {isConnected && walletBalanceNum > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => updateConfig('depositAmount', walletBalanceNum)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded bg-gold/10 hover:bg-gold/20 border border-gold/20 text-[10px] font-mono text-gold transition-colors"
+                      >
+                        MAX
+                      </button>
+                    )}
+                  </div>
+                  {exceedsBalance && (
+                    <div className="mt-2 flex items-center gap-1.5 text-[11px] text-red-warn">
+                      <AlertTriangle className="w-3 h-3" />
+                      Amount exceeds your wallet balance
+                    </div>
+                  )}
+                  {insufficientBalance && !exceedsBalance && (
+                    <div className="mt-2 flex items-center gap-1.5 text-[11px] text-amber-warn">
+                      <AlertTriangle className="w-3 h-3" />
+                      No {selectedBaseAsset.symbol} balance — mint some at <Link to="/faucet" className="underline hover:text-amber-warn/80">faucet</Link>
+                    </div>
+                  )}
+                  {exceedsTierCap && (
+                    <div className="mt-2 flex items-start gap-1.5 text-[11px] text-red-warn/85">
+                      <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                      <span>
+                        Exceeds {selectedOperatorData?.name}'s tier cap of{' '}
+                        {formatVaultCap(selectedOperatorTier?.maxVaultSize || 0, selectedOperatorTier?.isUnlimited)}.
+                        Reduce deposit or pick a higher-tier operator at Step 6.
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2 mt-4">
+                    {(config.baseAsset === 'USDC' ? [10000, 25000, 50000, 100000]
+                      : config.baseAsset === 'WBTC' ? [0.25, 0.5, 1, 2.5]
+                      : [1, 5, 10, 25]
+                    ).map((amt) => {
+                      const overBalance = isConnected && amt > walletBalanceNum;
+                      return (
+                        <button
+                          key={amt}
+                          disabled={overBalance}
+                          onClick={() => updateConfig('depositAmount', amt)}
+                          className={`px-3 py-1.5 rounded text-[10px] font-mono transition-all
+                            ${overBalance
+                              ? 'text-steel/25 border border-white/[0.04] cursor-not-allowed'
+                              : config.depositAmount === amt
+                                ? 'bg-gold/15 text-gold border border-gold/20'
+                                : 'text-steel/50 border border-white/[0.06] hover:border-white/[0.1]'
+                            }`}
+                        >
+                          {config.baseAsset === 'USDC' ? `$${(amt / 1000).toFixed(0)}k` : `${amt} ${config.baseAsset}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] text-steel/45 mt-4 leading-relaxed">
+                    On deploy, this amount will be approved and deposited into your new vault in a single guided flow.
+                  </p>
+                </GlassPanel>
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+                    <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.12em] text-steel/40 mb-1.5">
+                      <DollarSign className="w-3 h-3" /> Recommended
+                    </div>
+                    <div className="text-sm font-display font-semibold text-white">$25k – $100k</div>
+                    <div className="text-[10px] text-steel/45">Optimal for demo-day operators</div>
+                  </div>
+                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+                    <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.12em] text-steel/40 mb-1.5">
+                      <Shield className="w-3 h-3" /> Custody
+                    </div>
+                    <div className="text-sm font-display font-semibold text-white">Non-custodial</div>
+                    <div className="text-[10px] text-steel/45">Smart contract escrow only</div>
+                  </div>
+                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+                    <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.12em] text-steel/40 mb-1.5">
+                      <Info className="w-3 h-3" /> Asset
+                    </div>
+                    <div className={`text-sm font-display font-semibold ${selectedBaseAsset.color}`}>Mock {selectedBaseAsset.symbol}</div>
+                    <div className="text-[10px] text-steel/45">{selectedBaseAsset.decimals}-decimal testnet token</div>
+                  </div>
                 </div>
-                <div className="flex justify-center gap-2 mt-4">
-                  {[10000, 25000, 50000, 100000].map((amt) => (
-                    <button
-                      key={amt}
-                      onClick={() => updateConfig('depositAmount', amt)}
-                      className={`px-3 py-1 rounded text-[10px] font-mono transition-all
-                        ${config.depositAmount === amt
-                          ? 'bg-gold/15 text-gold border border-gold/20'
-                          : 'text-steel/50 border border-white/[0.06] hover:border-white/[0.1]'
-                        }`}
-                    >
-                      ${(amt / 1000).toFixed(0)}k
-                    </button>
-                  ))}
-                </div>
-              </GlassPanel>
+              </div>
             </div>
           )}
 
           {/* Step 2: Risk Profile */}
           {currentStep.key === 'risk' && (
-            <div className="text-center">
-              <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white mb-3 tracking-tight">
-                Choose your risk mandate
-              </h2>
-              <p className="text-sm text-steel/60 mb-8 max-w-md mx-auto">
-                This sets the baseline risk posture for your vault. You can fine-tune parameters in the next step.
-              </p>
-              <div className="grid sm:grid-cols-3 gap-4 max-w-2xl mx-auto">
+            <div>
+              <div className="mb-6 pb-5 border-b border-white/[0.04]">
+                <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-gold/70 mb-2">Step 02 · Risk Profile</div>
+                <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white tracking-tight mb-2">
+                  Choose your risk mandate
+                </h2>
+                <p className="text-sm text-steel/60 max-w-xl">
+                  This sets the baseline risk posture for your vault. You can fine-tune parameters in the next step.
+                </p>
+              </div>
+              <div className="grid sm:grid-cols-3 gap-4">
                 {riskProfiles.map((profile) => (
                   <button
                     key={profile.id}
@@ -363,15 +845,16 @@ export default function CreateVaultPage() {
           {/* Step 3: Policy Fine-tune */}
           {currentStep.key === 'policy' && (
             <div>
-              <div className="text-center mb-8">
-                <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white mb-3 tracking-tight">
+              <div className="mb-6 pb-5 border-b border-white/[0.04]">
+                <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-gold/70 mb-2">Step 03 · Policy</div>
+                <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white tracking-tight mb-2">
                   Fine-tune guardrails
                 </h2>
-                <p className="text-sm text-steel/60 max-w-md mx-auto">
+                <p className="text-sm text-steel/60 max-w-xl">
                   Adjust the on-chain policy parameters. These constraints are enforced at the contract level.
                 </p>
               </div>
-              <GlassPanel className="p-6 max-w-lg mx-auto">
+              <GlassPanel className="p-6">
                 <div className="space-y-5">
                   {[
                     { label: 'Max Drawdown', key: 'maxDrawdown', min: 1, max: 30, suffix: '%', icon: <TrendingDown className="w-3.5 h-3.5" />, desc: 'Maximum allowed daily loss' },
@@ -416,19 +899,25 @@ export default function CreateVaultPage() {
 
           {/* Step 4: Assets */}
           {currentStep.key === 'assets' && (
-            <div className="text-center">
-              <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white mb-3 tracking-tight">
-                Select allowed assets
-              </h2>
-              <p className="text-sm text-steel/60 mb-8 max-w-md mx-auto">
-                The AI can only trade assets you explicitly authorize. This is enforced on-chain.
-              </p>
-              <div className="grid sm:grid-cols-2 gap-3 max-w-lg mx-auto">
+            <div>
+              <div className="mb-6 pb-5 border-b border-white/[0.04]">
+                <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-gold/70 mb-2">Step 04 · Assets</div>
+                <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white tracking-tight mb-2">
+                  Select allowed assets
+                </h2>
+                <p className="text-sm text-steel/60 max-w-xl">
+                  The AI can only trade assets you explicitly authorize. This is enforced on-chain. At least one is required.
+                </p>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3" role="group" aria-label="Allowed trading assets">
                 {availableAssets.map((asset) => {
                   const selected = config.allowedAssets.includes(asset.symbol);
                   return (
                     <button
                       key={asset.symbol}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={selected}
                       onClick={() => toggleAsset(asset.symbol)}
                       className={`flex items-center gap-3 p-4 rounded-lg border transition-all duration-300 text-left
                         ${selected
@@ -452,20 +941,33 @@ export default function CreateVaultPage() {
                   );
                 })}
               </div>
+              {noAssetsSelected && (
+                <div className="mt-3 flex items-center gap-2 text-[11px] text-amber-warn">
+                  <AlertTriangle className="w-3 h-3" />
+                  Pick at least one asset before continuing.
+                </div>
+              )}
             </div>
           )}
 
           {/* Step 5: Sealed Mode */}
           {currentStep.key === 'sealed' && (
-            <div className="text-center">
-              <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white mb-3 tracking-tight">
-                Privacy & execution mode
-              </h2>
-              <p className="text-sm text-steel/60 mb-8 max-w-md mx-auto">
-                Choose whether to run in sealed strategy mode and enable autonomous execution.
-              </p>
-              <div className="space-y-4 max-w-md mx-auto">
+            <div>
+              <div className="mb-6 pb-5 border-b border-white/[0.04]">
+                <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-gold/70 mb-2">Step 05 · Privacy</div>
+                <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white tracking-tight mb-2">
+                  Privacy & execution mode
+                </h2>
+                <p className="text-sm text-steel/60 max-w-xl">
+                  Choose whether to run in sealed strategy mode and enable autonomous execution.
+                </p>
+              </div>
+              <div className="space-y-4">
                 <button
+                  type="button"
+                  role="switch"
+                  aria-checked={config.sealedMode}
+                  aria-label="Enable Sealed Strategy Mode"
                   onClick={() => updateConfig('sealedMode', !config.sealedMode)}
                   className={`w-full flex items-center gap-4 p-5 rounded-lg border text-left transition-all duration-300
                     ${config.sealedMode ? 'glass-panel-gold border-gold/30' : 'glass-panel hover:border-white/[0.1]'}`}
@@ -475,24 +977,84 @@ export default function CreateVaultPage() {
                   </div>
                   <div className="flex-1">
                     <span className="text-sm font-display font-medium text-white block mb-0.5">Sealed Strategy Mode</span>
-                    <span className="text-[11px] text-steel/50">TEE-attested 0G Compute inference + commit-reveal anti-MEV</span>
+                    <span className="text-[11px] text-steel/50">Hide trades from front-runners until they execute</span>
                   </div>
                   <StatusPill label={config.sealedMode ? 'Enabled' : 'Off'} variant={config.sealedMode ? 'sealed' : 'paused'} />
                 </button>
 
                 {config.sealedMode && (
-                  <div className="p-4 rounded-lg border border-gold/20 bg-gold/[0.04] text-left space-y-2">
-                    <p className="text-[11px] font-mono uppercase tracking-wider text-gold/80">Sealed mode trust model</p>
-                    <ul className="text-[11px] text-steel/60 space-y-1.5 list-disc list-inside">
-                      <li>Inference runs via 0G Compute provider — output is hashed into the on-chain intent</li>
-                      <li>Vault verifies an ECDSA signature from the attested signer before executing</li>
-                      <li>Commit-reveal: orchestrator pre-commits a hash 1+ block before reveal, hiding swap params from public mempool front-runners</li>
-                      <li>TEE-grade hardware confidentiality depends on the selected 0G Compute provider</li>
-                    </ul>
-                  </div>
+                  <>
+                    <details className="group rounded-lg border border-gold/20 bg-gold/[0.04]">
+                      <summary className="cursor-pointer list-none p-4 flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-mono uppercase tracking-wider text-gold/80 inline-flex items-center gap-2">
+                          <HelpCircle className="w-3 h-3" />
+                          How sealed mode protects you
+                        </span>
+                        <ChevronDown className="w-3.5 h-3.5 text-gold/60 transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="px-4 pb-4 text-[11px] text-steel/65 space-y-2 leading-relaxed">
+                        <p>
+                          <strong className="text-white/80">Trade decisions stay private</strong> — the AI's swap parameters are
+                          committed as a hash one block before they execute, so MEV bots can't front-run them.
+                        </p>
+                        <p>
+                          <strong className="text-white/80">Inference is verified</strong> — the vault checks a signature from
+                          an attested TEE signer before allowing any trade.
+                        </p>
+                        <p className="text-[10px] text-steel/45">
+                          Hardware confidentiality strength depends on the 0G Compute provider you (or your operator) selected.
+                        </p>
+                      </div>
+                    </details>
+
+                    {/* Attestation signer override — advanced. Most operators run their
+                        orchestrator with TEE_SIGNER_PRIVATE_KEY equal to their main
+                        wallet, in which case this can be left blank. Operators who
+                        use a separate TEE key MUST paste its address here, otherwise
+                        sealed-mode executions will fail with "InvalidAttestationSignature". */}
+                    <details className="group rounded-lg border border-white/[0.08] bg-white/[0.02]">
+                      <summary className="cursor-pointer list-none p-4 flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-mono uppercase tracking-wider text-steel/60 inline-flex items-center gap-2">
+                          <HelpCircle className="w-3 h-3" />
+                          Advanced: TEE attestation signer
+                        </span>
+                        <ChevronDown className="w-3.5 h-3.5 text-steel/45 transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="px-4 pb-4 space-y-3">
+                        <p className="text-[11px] text-steel/55 leading-relaxed">
+                          By default we use your selected operator's wallet as the attestation signer. If
+                          your operator runs the orchestrator with <code className="text-cyan/70 font-mono">TEE_SIGNER_PRIVATE_KEY</code> set
+                          to a different key, paste that key's <strong className="text-white/75">address</strong> below.
+                          Sealed-mode trades will revert if the signer here doesn't match the orchestrator's TEE key.
+                        </p>
+                        <input
+                          type="text"
+                          value={customAttestedSigner}
+                          onChange={(e) => setCustomAttestedSigner(e.target.value.trim())}
+                          placeholder={`Default: ${selectedOperatorData?.wallet?.slice(0, 10) || '0x...'}…`}
+                          spellCheck="false"
+                          className={`w-full bg-obsidian/60 border rounded-md px-3 py-2 text-xs font-mono text-white focus:outline-none transition-colors ${
+                            customAttestedSigner && !isAddress(customAttestedSigner)
+                              ? 'border-red-warn/40 focus:border-red-warn/60'
+                              : 'border-white/[0.08] focus:border-gold/30'
+                          }`}
+                        />
+                        {customAttestedSigner && !isAddress(customAttestedSigner) && (
+                          <p className="text-[11px] text-red-warn flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            Not a valid address — leave blank to use operator wallet.
+                          </p>
+                        )}
+                      </div>
+                    </details>
+                  </>
                 )}
 
                 <button
+                  type="button"
+                  role="switch"
+                  aria-checked={config.autoExecution}
+                  aria-label="Enable Auto-Execution"
                   onClick={() => updateConfig('autoExecution', !config.autoExecution)}
                   className={`w-full flex items-center gap-4 p-5 rounded-lg border text-left transition-all duration-300
                     ${config.autoExecution ? 'glass-panel-gold border-gold/30' : 'glass-panel hover:border-white/[0.1]'}`}
@@ -513,15 +1075,16 @@ export default function CreateVaultPage() {
           {/* Step 6: Review */}
           {currentStep.key === 'review' && (
             <div>
-              <div className="text-center mb-8">
-                <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white mb-3 tracking-tight">
+              <div className="mb-6 pb-5 border-b border-white/[0.04]">
+                <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-gold/70 mb-2">Step 06 · Review</div>
+                <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white tracking-tight mb-2">
                   Review vault configuration
                 </h2>
-                <p className="text-sm text-steel/60 max-w-md mx-auto">
+                <p className="text-sm text-steel/60 max-w-xl">
                   Confirm your vault parameters before deployment. All policies will be enforced on-chain.
                 </p>
               </div>
-              <GlassPanel gold className="p-6 max-w-lg mx-auto">
+              <GlassPanel gold className="p-6">
                 <div className="space-y-4">
                   <div className="flex justify-between py-2 border-b border-white/[0.04]">
                     <span className="text-xs text-steel/60">Deposit</span>
@@ -661,9 +1224,21 @@ export default function CreateVaultPage() {
 
                   <div className="pt-4 border-t border-white/[0.04] space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-steel/60">Executor</span>
+                      <span className="text-xs text-steel/60 inline-flex items-center gap-2">
+                        Executor
+                        {isExecutorAutoResolved && (
+                          <span className="text-[8px] font-mono text-cyan/70 bg-cyan/10 border border-cyan/20 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                            Auto-detected
+                          </span>
+                        )}
+                      </span>
                       <span className="text-sm font-mono text-white">{shortExecutor}</span>
                     </div>
+                    {isExecutorAutoResolved && (
+                      <p className="text-[10px] text-steel/45 -mt-2">
+                        We picked a default for you. Choose one explicitly below to confirm.
+                      </p>
+                    )}
 
                     <div className="grid gap-2">
                       {/* Marketplace option (recommended) */}
@@ -762,7 +1337,29 @@ export default function CreateVaultPage() {
                         <label className="text-[10px] font-mono tracking-[0.12em] uppercase text-steel/40 block mb-2">
                           Choose an Operator
                         </label>
-                        {activeMarketplaceOperators.length === 0 ? (
+                        {useDemoMarketplace && (
+                          <div className="mb-2 rounded-md bg-amber-warn/5 border border-amber-warn/25 px-3 py-2 flex items-start gap-2">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-warn/80 flex-shrink-0 mt-0.5" />
+                            <p className="text-[11px] text-amber-warn/85 leading-relaxed">
+                              <strong>Demo roster only.</strong> No live operators are registered on this network yet.
+                              Selecting one will deploy your vault, but no orchestrator is actually running this address —
+                              trades will not execute. Either{' '}
+                              <Link to="/operator/register" className="underline hover:text-amber-warn">register an operator</Link>{' '}
+                              or wait for live operators to appear.
+                            </p>
+                          </div>
+                        )}
+                        {operatorsLoading && activeMarketplaceOperators.length === 0 ? (
+                          <div className="space-y-1.5">
+                            {[0, 1, 2].map((i) => (
+                              <div key={i} className="px-3 py-2.5 rounded-md border border-white/[0.06] bg-white/[0.02] animate-pulse">
+                                <div className="h-3 w-32 bg-white/[0.06] rounded mb-2" />
+                                <div className="h-2 w-48 bg-white/[0.04] rounded mb-2" />
+                                <div className="h-2 w-64 bg-white/[0.03] rounded" />
+                              </div>
+                            ))}
+                          </div>
+                        ) : activeMarketplaceOperators.length === 0 ? (
                           <div className="px-3 py-4 rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] text-center">
                             <p className="text-[11px] text-steel/45 mb-2">No active operators registered yet.</p>
                             <Link to="/operator/register" className="text-[11px] text-gold/60 hover:text-gold inline-flex items-center gap-1">
@@ -812,13 +1409,13 @@ export default function CreateVaultPage() {
                                     <p className="text-[10px] text-steel/45 mt-1 line-clamp-2">{op.description}</p>
                                   )}
                                   {/* Fee preview row */}
-                                  <div className="flex items-center gap-3 mt-2 text-[9px] font-mono">
+                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[9px] font-mono">
                                     <span className="text-gold/70">Perf {formatBps(op.performanceFeeBps)}</span>
                                     <span className="text-cyan/70">Mgmt {formatBps(op.managementFeeBps)}</span>
                                     <span className="text-steel/45">Entry {formatBps(op.entryFeeBps)}</span>
                                     <span className="text-steel/45">Exit {formatBps(op.exitFeeBps)}</span>
                                     {tierData && (
-                                      <span className={opExceedsCap ? 'text-red-warn ml-auto' : 'text-emerald-soft/60 ml-auto'}>
+                                      <span className={opExceedsCap ? 'text-red-warn sm:ml-auto' : 'text-emerald-soft/60 sm:ml-auto'}>
                                         Cap {formatVaultCap(tierData.maxVaultSize, tierData.isUnlimited)}
                                       </span>
                                     )}
@@ -839,19 +1436,44 @@ export default function CreateVaultPage() {
 
                     {activeExecutorMode === 'custom' && (
                       <div>
-                        <label className="text-[10px] font-mono tracking-[0.12em] uppercase text-steel/40 block mb-2">
+                        <label htmlFor="custom-executor" className="text-[10px] font-mono tracking-[0.12em] uppercase text-steel/40 block mb-2">
                           Executor Address
                         </label>
                         <input
+                          id="custom-executor"
                           type="text"
                           value={customExecutor}
                           onChange={(e) => setCustomExecutor(e.target.value.trim())}
                           placeholder="0x..."
                           spellCheck="false"
-                          className="w-full bg-obsidian/60 border border-white/[0.08] rounded-lg px-3 py-2.5
+                          aria-invalid={!customExecutorIsAddr}
+                          className={`w-full bg-obsidian/60 border rounded-lg px-3 py-2.5
                             text-sm font-mono text-white
-                            focus:outline-none focus:border-gold/30 transition-colors"
+                            focus:outline-none transition-colors
+                            ${!customExecutorIsAddr
+                              ? 'border-red-warn/40 focus:border-red-warn/60'
+                              : 'border-white/[0.08] focus:border-gold/30'}`}
                         />
+                        {!customExecutorIsAddr && (
+                          <p className="mt-1.5 text-[11px] text-red-warn flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            Not a valid Ethereum address.
+                          </p>
+                        )}
+                        {customExecutorWarning && (
+                          <div className="mt-2 rounded-md bg-amber-warn/5 border border-amber-warn/25 px-3 py-2 flex items-start gap-2">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-warn/80 flex-shrink-0 mt-0.5" />
+                            <p className="text-[11px] text-amber-warn/85 leading-relaxed">
+                              {customExecutorWarning.message}
+                            </p>
+                          </div>
+                        )}
+                        {customExecRegistered && customExecData?.active && (
+                          <p className="mt-1.5 text-[11px] text-emerald-soft/80 flex items-center gap-1">
+                            <Check className="w-3 h-3" />
+                            Registered & active operator: {customExecData.name}
+                          </p>
+                        )}
                         <p className="mt-2 text-[11px] text-steel/45">
                           Owner keeps custody. The executor can only submit intents that still pass on-chain policy checks.
                         </p>
@@ -890,6 +1512,46 @@ export default function CreateVaultPage() {
               </GlassPanel>
             </div>
           )}
+
+          {/* Navigation buttons — integrated into step footer */}
+          <div className="flex items-center justify-between mt-8 pt-5 border-t border-white/[0.04]">
+            <div>
+              {step > 0 && (
+                <ControlButton variant="ghost" onClick={() => setStep(step - 1)}>
+                  <ArrowLeft className="w-4 h-4" /> Previous
+                </ControlButton>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="hidden sm:inline text-[10px] font-mono uppercase tracking-[0.14em] text-steel/40">
+                Step {step + 1} of {steps.length}
+              </span>
+              {step < steps.length - 1 ? (
+                <ControlButton
+                  variant="primary"
+                  disabled={
+                    (currentStep.key === 'deposit' && (exceedsBalance || !(config.depositAmount > 0))) ||
+                    (currentStep.key === 'assets' && noAssetsSelected)
+                  }
+                  onClick={() => setStep(step + 1)}
+                >
+                  Continue <ArrowRight className="w-4 h-4" />
+                </ControlButton>
+              ) : isConnected ? (
+                <ControlButton
+                  variant="primary"
+                  size="lg"
+                  disabled={isDeploying || !executorReady || !(config.depositAmount > 0) || exceedsBalance || noAssetsSelected || exceedsTierCap || selectedOperatorTier?.frozen || (activeExecutorMode === 'marketplace' && useDemoMarketplace)}
+                  title={!executorReady ? `executor="${resolvedExecutor}" mode=${activeExecutorMode} custom="${customExecutor}"` : ''}
+                  onClick={() => setConfirmOpen(true)}
+                >
+                  <Shield className="w-4 h-4" /> {deployPhaseLabel}
+                </ControlButton>
+              ) : (
+                <WalletButton />
+              )}
+            </div>
+          </div>
         </div>
 
           <aside className="space-y-4 lg:sticky lg:top-24">
@@ -945,20 +1607,28 @@ export default function CreateVaultPage() {
               </div>
             </GlassPanel>
 
-            <GlassPanel gold className="p-4">
-              <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-gold/75 mb-2">Judge Narrative</div>
-              <div className="space-y-3 text-[11px] text-steel/55">
-                <div className="rounded-lg border border-gold/15 bg-gold/[0.04] px-3 py-2.5">
-                  1. Show the deposit, risk mandate, and allowed assets so the policy boundary is obvious before any AI decision is made.
+            <details className="group">
+              <summary className="list-none cursor-pointer">
+                <GlassPanel gold className="p-3 flex items-center justify-between">
+                  <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-gold/75">Judge Narrative</span>
+                  <ChevronDown className="w-3.5 h-3.5 text-gold/60 transition-transform group-open:rotate-180" />
+                </GlassPanel>
+              </summary>
+              <div className="mt-2 space-y-2 text-[11px] text-steel/55">
+                <div className="flex gap-2 rounded-lg border border-gold/15 bg-gold/[0.04] px-3 py-2">
+                  <span className="text-gold/80 font-mono font-semibold">1.</span>
+                  <span>Show the deposit, risk mandate, and allowed assets so the policy boundary is obvious before any AI decision.</span>
                 </div>
-                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
-                  2. Choose a marketplace operator and point out that fees, caps, and trust assumptions are visible before deployment.
+                <div className="flex gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+                  <span className="text-steel/50 font-mono font-semibold">2.</span>
+                  <span>Choose a marketplace operator; fees, caps, and trust assumptions are visible before deployment.</span>
                 </div>
-                <div className="rounded-lg border border-cyan/15 bg-cyan/[0.04] px-3 py-2.5">
-                  3. Enable sealed mode to connect the story to governance, audit trail, and the live action feed after launch.
+                <div className="flex gap-2 rounded-lg border border-cyan/15 bg-cyan/[0.04] px-3 py-2">
+                  <span className="text-cyan/80 font-mono font-semibold">3.</span>
+                  <span>Enable sealed mode to connect governance, audit trail, and the live action feed post-launch.</span>
                 </div>
               </div>
-            </GlassPanel>
+            </details>
 
             {selectedOperatorData && (
               <GlassPanel className="p-4">
@@ -1004,93 +1674,51 @@ export default function CreateVaultPage() {
           </aside>
         </div>
 
-        {/* Navigation buttons */}
-        <div className="flex items-center justify-between mt-10 pt-6 border-t border-white/[0.04]">
-          <div>
-            {step > 0 && (
-              <ControlButton variant="ghost" onClick={() => setStep(step - 1)}>
-                <ArrowLeft className="w-4 h-4" /> Previous
-              </ControlButton>
-            )}
+        <ConfirmModal
+          open={confirmOpen}
+          onClose={() => setConfirmOpen(false)}
+          onConfirm={executeDeploy}
+          title="Deploy this vault?"
+          description="Your wallet will prompt for three signatures: deploy, approve, and deposit. Don't close the tab."
+          confirmLabel="Sign & deploy"
+          confirmDisabled={!executorReady || noAssetsSelected || exceedsTierCap || selectedOperatorTier?.frozen || exceedsBalance || (activeExecutorMode === 'marketplace' && useDemoMarketplace)}
+          size="lg"
+        >
+          <div className="grid sm:grid-cols-2 gap-3 text-[12px]">
+            <SummaryRow label="Deposit" value={`$${config.depositAmount.toLocaleString()} ${selectedBaseAsset.symbol}`} />
+            <SummaryRow label="Risk profile" value={selectedProfile.label} valueClass={selectedProfile.color} />
+            <SummaryRow label="Allowed assets" value={config.allowedAssets.join(', ') || '—'} />
+            <SummaryRow label="Sealed mode" value={config.sealedMode ? 'Enabled' : 'Disabled'} />
+            <SummaryRow label="Auto-execution" value={config.autoExecution ? 'Active' : 'Off'} />
+            <SummaryRow
+              label="Operator"
+              value={selectedOperatorData?.name || shortExecutor}
+              valueClass="text-white/85"
+            />
           </div>
-          <div>
-            {step < steps.length - 1 ? (
-              <ControlButton variant="primary" onClick={() => setStep(step + 1)}>
-                Continue <ArrowRight className="w-4 h-4" />
-              </ControlButton>
-            ) : isConnected ? (
-              <ControlButton
-                variant="primary"
-                size="lg"
-                disabled={createPending || !executorReady}
-                title={!executorReady ? `executor="${resolvedExecutor}" mode=${activeExecutorMode} custom="${customExecutor}"` : ''}
-                onClick={() => {
-                  // Track 2: when sealed mode is enabled, the on-chain attested signer
-                  // defaults to the operator/executor address. Off-chain, the orchestrator
-                  // must run with TEE_SIGNER_PRIVATE_KEY whose address matches this.
-                  const teeAttestedSigner = config.sealedMode
-                    ? (selectedOperatorData?.wallet || resolvedExecutor)
-                    : '0x0000000000000000000000000000000000000000';
-                  const policyStruct = {
-                    maxPositionBps: BigInt(config.maxPosition * 100),
-                    maxDailyLossBps: BigInt(config.dailyLossLimit * 100),
-                    stopLossBps: BigInt(config.stopLoss * 100),
-                    cooldownSeconds: BigInt(config.cooldown * 60),
-                    confidenceThresholdBps: BigInt(config.confidenceThreshold * 100),
-                    maxActionsPerDay: BigInt(config.maxActionsPerDay),
-                    autoExecution: config.autoExecution,
-                    paused: false,
-                    // Phase 1: Fees — pulled from selected operator (or zero if custom executor)
-                    performanceFeeBps: BigInt(selectedOperatorData?.performanceFeeBps || 0),
-                    managementFeeBps: BigInt(selectedOperatorData?.managementFeeBps || 0),
-                    entryFeeBps: BigInt(selectedOperatorData?.entryFeeBps || 0),
-                    exitFeeBps: BigInt(selectedOperatorData?.exitFeeBps || 0),
-                    // Operator wallet receives the 80% share; treasury gets 20% on claim
-                    feeRecipient: selectedOperatorData?.wallet || resolvedExecutor,
-                    // ── Track 2: Sealed Strategy Mode (TEE attestation + commit-reveal) ──
-                    sealedMode: !!config.sealedMode,
-                    attestedSigner: teeAttestedSigner,
-                  };
-                  const assetAddrs = config.allowedAssets.map(s => {
-                    if (s === 'BTC') return deployments.mockWBTC;
-                    if (s === 'ETH') return deployments.mockWETH;
-                    if (s === 'USDC') return deployments.mockUSDC;
-                    return deployments.mockUSDC;
-                  }).filter(Boolean);
-                  createVault(
-                    deployments.mockUSDC,
-                    resolvedExecutor,
-                    deployments.mockDEX,
-                    policyStruct,
-                    assetAddrs
-                  );
-                  setTimeout(() => navigate('/app'), 4000);
-                }}
-              >
-                <Shield className="w-4 h-4" /> {createPending ? 'Deploying...' : 'Deploy Vault'}
-              </ControlButton>
-            ) : (
-              <WalletButton />
-            )}
-          </div>
-        </div>
+          {selectedOperatorData && (
+            <div className="mt-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-[11px] text-steel/60">
+              Year-one fee estimate (10% return assumption):{' '}
+              <span className="text-white/85 font-mono">
+                ${(entryCost + (annualFeeEstimate?.totalEstimated || 0)).toFixed(0)}
+              </span>
+            </div>
+          )}
+          {(exceedsTierCap || selectedOperatorTier?.frozen || noAssetsSelected) && (
+            <div className="mt-3 rounded-md bg-red-warn/5 border border-red-warn/20 px-3 py-2 text-[11px] text-red-warn/85">
+              Resolve the highlighted issues before continuing.
+            </div>
+          )}
+        </ConfirmModal>
       </div>
+  );
+}
 
-      {/* Footer */}
-      <footer className="border-t border-white/[0.04] py-6 mt-12">
-        <div className="max-w-6xl mx-auto px-4 lg:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Logo size={18} />
-            <span className="text-[10px] font-mono tracking-[0.12em] uppercase text-steel/40">Aegis Vault</span>
-          </div>
-          <div className="flex items-center gap-5">
-            {['Documentation', 'GitHub', 'Architecture', 'Contact'].map((link) => (
-              <a key={link} href="#" className="text-[10px] tracking-[0.08em] uppercase text-steel/30 hover:text-steel/60 transition-colors duration-300">{link}</a>
-            ))}
-          </div>
-          <div className="text-[10px] font-mono tracking-wider text-steel/20">Built on 0G · 2025</div>
-        </div>
-      </footer>
+function SummaryRow({ label, value, valueClass = 'text-white/85' }) {
+  return (
+    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+      <div className="text-[9px] font-mono uppercase tracking-[0.12em] text-steel/40 mb-1">{label}</div>
+      <div className={`text-[12px] font-mono ${valueClass}`}>{value}</div>
     </div>
   );
 }
