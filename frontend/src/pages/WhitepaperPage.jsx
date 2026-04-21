@@ -42,7 +42,7 @@ export default function WhitepaperPage() {
     <div className="min-h-screen bg-obsidian text-steel-50">
       {/* Top bar — minimal, non-app shell so it feels like a document, not a dashboard */}
       <header className="sticky top-0 z-40 bg-obsidian/95 backdrop-blur-xl border-b border-white/[0.04]">
-        <div className="max-w-[960px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+        <div className="max-w-[820px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
           <Link to="/" className="flex items-center gap-2.5 group">
             <Logo size={22} />
             <span className="text-xs font-medium tracking-[0.12em] uppercase text-white/70 group-hover:text-white transition-colors hidden sm:inline">
@@ -69,21 +69,20 @@ export default function WhitepaperPage() {
         </div>
       </header>
 
-      <main className="max-w-[760px] mx-auto px-4 sm:px-6 py-10 sm:py-16">
-        {/* Document header */}
-        <div className="mb-10 pb-8 border-b border-white/[0.06]">
-          <div className="flex items-center gap-2 mb-4">
-            <FileText className="w-4 h-4 text-gold/70" />
+      <main className="max-w-[820px] mx-auto px-4 sm:px-6 py-10 sm:py-14">
+        {/* Document header — intentionally compact; the markdown content
+            already starts with its own H1. We use this block as an eyebrow
+            label + subtitle, without re-stating the page title. */}
+        <div className="mb-8 pb-6 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2 mb-2">
+            <FileText className="w-3.5 h-3.5 text-gold/70" />
             <span className="text-[10px] font-mono uppercase tracking-[0.22em] text-steel/45">
-              Technical Whitepaper
+              Technical Whitepaper · v1.0 · 2026-04
             </span>
           </div>
-          <h1 className="text-4xl sm:text-5xl font-display font-semibold tracking-[-0.035em] text-white mb-3">
-            Aegis Vault
-          </h1>
-          <p className="text-[14px] text-steel/60 leading-relaxed">
+          <p className="text-[13px] text-steel/55 leading-relaxed max-w-[640px]">
             AI-managed, risk-controlled trading vaults with contract-enforced guardrails
-            and dual-chain real execution. Version 1.0.
+            and dual-chain real execution.
           </p>
         </div>
 
@@ -114,7 +113,7 @@ export default function WhitepaperPage() {
 
       {/* Footer */}
       <footer className="border-t border-white/[0.04] py-8 mt-16">
-        <div className="max-w-[760px] mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] font-mono text-steel/40">
+        <div className="max-w-[820px] mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] font-mono text-steel/40">
           <div>© Aegis Vault · Experimental software · Not audited</div>
           <div className="flex items-center gap-4">
             <a
