@@ -4,6 +4,18 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Prevent "Invalid hook call" errors when a dependency hoists its own copy
+  // of react/react-dom. Forcing dedupe at resolution time means the app
+  // always uses the top-level React, regardless of what child packages
+  // might try to pull in.
+  resolve: {
+    dedupe: ['react', 'react-dom'],
+  },
+  // Ensure markdown ESM packages are pre-bundled together so React is not
+  // duplicated in the vite dep cache.
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-markdown', 'remark-gfm'],
+  },
   server: {
     host: '0.0.0.0',
     allowedHosts: ['nectiq.xyz', 'aegisvaults.xyz'],
