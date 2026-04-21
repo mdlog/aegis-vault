@@ -31,10 +31,8 @@ Fresh 0G redeploy (14 contracts, real Jaine venue — USDC.e/W0G/WETH/WBTC pools
 ## Link
 
 ```
-https://github.com/mdlog/aegis-vault/commit/HEAD
+https://github.com/mdlog/aegis-vault/commit/5f62523
 ```
-
-> After push, replace `HEAD` with the actual commit short hash (7-10 chars).
 
 ---
 
