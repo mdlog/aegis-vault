@@ -6,6 +6,7 @@ import { Toaster } from 'sonner';
 import { wagmiConfig } from './lib/wagmiConfig.js';
 import './index.css';
 import './styles/editorial.css';
+import './styles/whitepaper.css';
 import App from './App.jsx';
 
 const queryClient = new QueryClient();

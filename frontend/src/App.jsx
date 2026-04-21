@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import DashboardPage from './pages/DashboardPage';
@@ -11,6 +12,11 @@ import OperatorProfilePage from './pages/OperatorProfilePage';
 import GovernancePage from './pages/GovernancePage';
 import FaucetPage from './pages/FaucetPage';
 import AppShell from './components/dashboard/AppShell';
+
+// Lazy-load the whitepaper page so react-markdown + remark-gfm don't bloat
+// the main bundle. Visitors hitting /whitepaper see a brief loading state
+// while the chunk fetches, which is acceptable for a document page.
+const WhitepaperPage = lazy(() => import('./pages/WhitepaperPage'));
 
 function AppLayout({ children }) {
   return <AppShell>{children}</AppShell>;
@@ -45,6 +51,16 @@ function App() {
 
         {/* Vault creation */}
         <Route path="/create" element={<AppLayout><CreateVaultPage /></AppLayout>} />
+
+        {/* Whitepaper — standalone document page, outside the dashboard shell */}
+        <Route
+          path="/whitepaper"
+          element={
+            <Suspense fallback={<div className="min-h-screen bg-obsidian flex items-center justify-center text-steel-400 text-sm">Loading whitepaper…</div>}>
+              <WhitepaperPage />
+            </Suspense>
+          }
+        />
       </Routes>
     </BrowserRouter>
   );

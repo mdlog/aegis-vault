@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Auto-synced from root WHITEPAPER.md via 'npm run sync:whitepaper'
+public/WHITEPAPER.md

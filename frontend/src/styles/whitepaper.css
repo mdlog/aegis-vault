@@ -1,0 +1,180 @@
+/* Whitepaper markdown typography — editorial serif + monospace hybrid */
+
+.whitepaper-article {
+  color: var(--ed-steel-100, #d5dbe5);
+  line-height: 1.7;
+  font-size: 15px;
+}
+
+/* Headings */
+.whitepaper-article h1 {
+  font-family: 'EditorialNew', 'Playfair Display', Georgia, serif;
+  font-size: 40px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: #fff;
+  margin: 48px 0 16px;
+}
+.whitepaper-article h1:first-child { margin-top: 0; }
+
+.whitepaper-article h2 {
+  font-family: 'EditorialNew', 'Playfair Display', Georgia, serif;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: #f1f5f9;
+  margin: 56px 0 16px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.whitepaper-article h3 {
+  font-family: 'EditorialNew', 'Playfair Display', Georgia, serif;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #f1f5f9;
+  margin: 36px 0 12px;
+}
+
+.whitepaper-article h4 {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #94a3b8;
+  margin: 28px 0 10px;
+}
+
+/* Paragraphs */
+.whitepaper-article p {
+  margin: 0 0 18px;
+  color: #cbd5e1;
+}
+
+/* Strong + emphasis */
+.whitepaper-article strong { color: #f1f5f9; font-weight: 600; }
+.whitepaper-article em { color: #d5dbe5; font-style: italic; }
+
+/* Links */
+.whitepaper-article a {
+  color: #60cfff;
+  text-decoration: underline;
+  text-decoration-color: rgba(96, 207, 255, 0.35);
+  text-underline-offset: 3px;
+  transition: color 0.15s, text-decoration-color 0.15s;
+}
+.whitepaper-article a:hover {
+  color: #e0f2fe;
+  text-decoration-color: #60cfff;
+}
+
+/* Lists */
+.whitepaper-article ul,
+.whitepaper-article ol {
+  margin: 0 0 20px;
+  padding-left: 24px;
+}
+.whitepaper-article li { margin: 6px 0; color: #cbd5e1; }
+.whitepaper-article ul li::marker { color: #f2c14e; }
+.whitepaper-article ol li::marker { color: #94a3b8; }
+
+/* Inline code */
+.whitepaper-article code {
+  font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: #fcd34d;
+}
+
+/* Code blocks */
+.whitepaper-article pre {
+  background: #060912;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 18px 20px;
+  margin: 22px 0;
+  overflow-x: auto;
+  font-size: 12.5px;
+}
+.whitepaper-article pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #e2e8f0;
+  font-size: inherit;
+}
+
+/* Blockquote */
+.whitepaper-article blockquote {
+  border-left: 3px solid #f2c14e;
+  padding: 8px 20px;
+  margin: 24px 0;
+  color: #94a3b8;
+  font-style: italic;
+  background: rgba(242, 193, 78, 0.04);
+}
+
+/* Horizontal rule */
+.whitepaper-article hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 40px 0;
+}
+
+/* Tables (GitHub flavored markdown) */
+.whitepaper-article table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 24px 0;
+  font-size: 13px;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+.whitepaper-article thead {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.whitepaper-article th {
+  text-align: left;
+  padding: 10px 12px;
+  color: #f1f5f9;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.whitepaper-article td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
+  vertical-align: top;
+}
+.whitepaper-article tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+.whitepaper-article td code {
+  font-size: 11.5px;
+}
+
+/* First-paragraph after H2 — slight emphasis */
+.whitepaper-article h2 + p {
+  color: #e2e8f0;
+  font-size: 16px;
+}
+
+/* Small screens */
+@media (max-width: 640px) {
+  .whitepaper-article { font-size: 14.5px; }
+  .whitepaper-article h1 { font-size: 32px; }
+  .whitepaper-article h2 { font-size: 24px; }
+  .whitepaper-article h3 { font-size: 18px; }
+  .whitepaper-article pre { font-size: 11.5px; padding: 14px; }
+  .whitepaper-article table { font-size: 12px; }
+  .whitepaper-article th,
+  .whitepaper-article td { padding: 8px; }
+}
