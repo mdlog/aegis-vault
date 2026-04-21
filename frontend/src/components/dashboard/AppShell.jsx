@@ -55,6 +55,12 @@ export default function AppShell({ children }) {
   const currentVaultLabel = activeVaultAddress
     ? `Vault ${activeVaultAddress?.slice(0, 6)}...${activeVaultAddress?.slice(-4)}`
     : 'No Vault';
+  // Mainnet chains use real canonical tokens (USDC.e / WETH / WBTC via Jaine on
+  // 0G, canonical USDC / WETH / WBTC via Uniswap V3 on Arbitrum). Faucet is a
+  // mock-token mint UI that only works on chains where mockUSDC/WBTC/WETH have
+  // a public `mint()` — i.e. hardhat local and 0G Galileo testnet. Hide it on
+  // mainnet so users don't click a button that would revert.
+  const isMainnet = chainId === 16661 || chainId === 42161;
   const navItems = [
     { label: 'Overview', path: '/app', icon: LayoutDashboard, active: location.pathname === '/app' },
     { label: 'Vault Detail', path: getVaultRoute(activeVaultAddress), icon: Shield, active: location.pathname.startsWith('/app/vault') },
@@ -62,7 +68,9 @@ export default function AppShell({ children }) {
     { label: 'Governance', path: '/governance', icon: Vote, active: location.pathname === '/governance' },
     { label: 'AI Actions', path: '/app/actions', icon: Activity, active: location.pathname === '/app/actions' || location.pathname === '/app/journal' },
     { label: 'Settings', path: getSettingsRoute(activeVaultAddress), icon: Settings, active: location.pathname.startsWith('/app/settings') },
-    { label: 'Faucet', path: '/faucet', icon: Droplets, active: location.pathname === '/faucet' },
+    ...(isMainnet ? [] : [
+      { label: 'Faucet', path: '/faucet', icon: Droplets, active: location.pathname === '/faucet' },
+    ]),
   ];
   const alertCount = Math.max(alerts?.length || 0, orchStatus?.pendingApprovalCount || 0);
   const showDemoPill = ENABLE_DEMO_FALLBACKS && (!isConnected || displayVaults.length === 0);

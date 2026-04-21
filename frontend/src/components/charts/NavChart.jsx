@@ -1,10 +1,15 @@
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { navHistory } from '../../data/mockData';
 
-function CustomTooltip({ active, payload, label }) {
+// Tooltip pulls `fullLabel` from the data point (which includes time) when
+// available — the axis only shows a compact date so it doesn't crowd, but the
+// tooltip still gives precise timestamp context on hover.
+function CustomTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
+  const point = payload[0].payload || {};
+  const label = point.fullLabel || point.date || '';
   return (
-    <div className="glass-panel rounded-lg px-3 py-2">
+    <div className="glass-panel rounded-lg px-3 py-2 border border-white/[0.08]">
       <div className="text-[10px] font-mono text-steel/60 mb-1">{label}</div>
       <div className="text-sm font-display font-semibold text-white">
         ${payload[0].value.toLocaleString()}
@@ -27,29 +32,38 @@ export default function NavChart({ height = 200, data = navHistory, emptyLabel =
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
+      <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 8, left: 4 }}>
         <defs>
           <linearGradient id="navGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#4cc9f0" stopOpacity={0.2} />
+            <stop offset="0%" stopColor="#4cc9f0" stopOpacity={0.22} />
             <stop offset="100%" stopColor="#4cc9f0" stopOpacity={0} />
           </linearGradient>
         </defs>
+        <CartesianGrid stroke="rgba(255,255,255,0.04)" strokeDasharray="3 3" vertical={false} />
         <XAxis
           dataKey="date"
           tick={{ fontSize: 10, fill: '#8a8a9a', fontFamily: 'JetBrains Mono' }}
           axisLine={false}
           tickLine={false}
-          interval="preserveStartEnd"
+          // minTickGap thins labels automatically based on pixel distance —
+          // 60px keeps roughly 4–6 labels on a standard width without overlap.
+          minTickGap={64}
+          tickMargin={10}
+          height={30}
         />
         <YAxis
-          domain={['dataMin - 2000', 'dataMax + 2000']}
+          domain={([min, max]) => {
+            const range = max - min;
+            const pad = Math.max(range * 0.1, Math.max(max * 0.005, 1));
+            return [min - pad, max + pad];
+          }}
           tick={{ fontSize: 10, fill: '#8a8a9a', fontFamily: 'JetBrains Mono' }}
           axisLine={false}
           tickLine={false}
-          tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-          width={44}
+          tickFormatter={(v) => (Math.abs(v) >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(0)}`)}
+          width={52}
         />
-        <Tooltip content={<CustomTooltip />} />
+        <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(76,201,240,0.3)', strokeDasharray: '3 3' }} />
         <Area
           type="monotone"
           dataKey="nav"

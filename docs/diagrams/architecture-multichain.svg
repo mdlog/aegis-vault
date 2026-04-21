@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" font-family="Inter, system-ui, -apple-system, sans-serif">
+  <!-- ═══════════════════════════════════════════════════════════════════
+       AEGIS VAULT — Multichain Architecture
+       Hybrid design: 0G Chain = intelligence, Arbitrum = execution
+       1920×1080 (16:9) slide-ready
+       ═══════════════════════════════════════════════════════════════════ -->
+
+  <defs>
+    <!-- Background gradient -->
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#0a0f1c"/>
+      <stop offset="100%" stop-color="#060912"/>
+    </linearGradient>
+
+    <!-- 0G accent: cyan/teal (intelligence, cool) -->
+    <linearGradient id="ogGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#0b3a5a" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#0a1a2a" stop-opacity="0.85"/>
+    </linearGradient>
+
+    <!-- Arbitrum accent: amber/gold (execution, warm) -->
+    <linearGradient id="arbGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#5a3a08" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#2a1a08" stop-opacity="0.85"/>
+    </linearGradient>
+
+    <!-- Arrow marker -->
+    <marker id="arrowWhite" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#cbd5e1"/>
+    </marker>
+    <marker id="arrowGold" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#f2c14e"/>
+    </marker>
+
+    <!-- Drop shadow -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1920" height="1080" fill="url(#bgGrad)"/>
+  <!-- Subtle grid -->
+  <g stroke="#1a2540" stroke-width="1" opacity="0.25">
+    <line x1="0" y1="180" x2="1920" y2="180"/>
+    <line x1="0" y1="900" x2="1920" y2="900"/>
+  </g>
+
+  <!-- ═════════  HEADER  ═════════ -->
+  <g transform="translate(80, 70)">
+    <text font-size="48" font-weight="700" fill="#f8fafc" letter-spacing="-0.5">
+      AEGIS VAULT <tspan fill="#64748b" font-weight="400">— Multichain Architecture</tspan>
+    </text>
+    <text y="50" font-size="24" font-weight="400" fill="#94a3b8" letter-spacing="0.3">
+      <tspan fill="#60cfff" font-weight="600">AI on 0G.</tspan>
+      <tspan fill="#e2e8f0"> Real liquidity on </tspan>
+      <tspan fill="#60cfff" font-weight="600">0G (Jaine)</tspan>
+      <tspan fill="#e2e8f0"> + </tspan>
+      <tspan fill="#f2c14e" font-weight="600">Arbitrum (Uniswap V3)</tspan>
+      <tspan fill="#e2e8f0">. Bound by EIP-712.</tspan>
+    </text>
+  </g>
+
+  <!-- ═════════  0G BOX (left)  ═════════ -->
+  <g transform="translate(80, 220)">
+    <!-- Card -->
+    <rect width="780" height="680" rx="18" ry="18"
+          fill="url(#ogGrad)" stroke="#60cfff" stroke-width="1.5" opacity="0.95"/>
+    <!-- Header strip -->
+    <rect width="780" height="84" rx="18" ry="18" fill="#60cfff" opacity="0.12"/>
+
+    <text x="36" y="50" font-size="32" font-weight="700" fill="#e0f2fe">0G Aristotle Mainnet</text>
+    <text x="36" y="76" font-size="16" fill="#7dd3fc" letter-spacing="0.5">
+      CHAIN 16661 · INTELLIGENCE + REAL EXECUTION (Jaine)
+    </text>
+
+    <!-- Role chip -->
+    <g transform="translate(580, 30)">
+      <rect width="170" height="40" rx="20" ry="20" fill="#60cfff" fill-opacity="0.15" stroke="#60cfff" stroke-width="1"/>
+      <text x="85" y="25" text-anchor="middle" font-size="14" font-weight="600" fill="#60cfff">DUAL-ROLE LAYER</text>
+    </g>
+
+    <!-- Contents grid -->
+    <g transform="translate(36, 120)" font-family="Inter, system-ui" fill="#cbd5e1">
+      <!-- AI Compute -->
+      <g transform="translate(0, 0)">
+        <circle cx="12" cy="12" r="5" fill="#60cfff"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#f1f5f9">0G Compute</text>
+        <text x="30" y="40" font-size="14" fill="#64748b">GLM-5-FP8 verified inference (processResponse)</text>
+      </g>
+      <!-- 0G Storage -->
+      <g transform="translate(0, 70)">
+        <circle cx="12" cy="12" r="5" fill="#60cfff"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#f1f5f9">0G Storage</text>
+        <text x="30" y="40" font-size="14" fill="#64748b">Decision journals, strategy manifests (immutable)</text>
+      </g>
+      <!-- Operator Registry -->
+      <g transform="translate(0, 140)">
+        <circle cx="12" cy="12" r="5" fill="#60cfff"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#f1f5f9">OperatorRegistry v2</text>
+        <text x="30" y="40" font-size="14" fill="#64748b">Bonded manifests + AI model declarations, slashable</text>
+      </g>
+      <!-- Staking -->
+      <g transform="translate(0, 210)">
+        <circle cx="12" cy="12" r="5" fill="#60cfff"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#f1f5f9">Operator Staking + Reputation</text>
+        <text x="30" y="40" font-size="14" fill="#64748b">Locked collateral + on-chain performance score</text>
+      </g>
+      <!-- Governor -->
+      <g transform="translate(0, 280)">
+        <circle cx="12" cy="12" r="5" fill="#60cfff"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#f1f5f9">AegisGovernor</text>
+        <text x="30" y="40" font-size="14" fill="#64748b">M-of-N multisig · slashing · blacklist · params</text>
+      </g>
+      <!-- Treasury -->
+      <g transform="translate(0, 350)">
+        <circle cx="12" cy="12" r="5" fill="#60cfff"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#f1f5f9">Treasury + InsurancePool</text>
+        <text x="30" y="40" font-size="14" fill="#64748b">Protocol revenue sink · operator misbehavior backstop</text>
+      </g>
+      <!-- AegisVault -->
+      <g transform="translate(0, 420)">
+        <circle cx="12" cy="12" r="5" fill="#60cfff"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#f1f5f9">AegisVault + JaineVenueAdapter</text>
+        <text x="30" y="40" font-size="14" fill="#64748b">Sealed-intent · commit-reveal · real Uniswap V3 swap</text>
+      </g>
+      <!-- Jaine pools ACTIVE -->
+      <g transform="translate(0, 490)">
+        <circle cx="12" cy="12" r="5" fill="#34d399"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#f1f5f9">Jaine pools (ACTIVE, ~$1M TVL)</text>
+        <text x="30" y="40" font-size="14" fill="#64748b">USDC.e/W0G $360K · WETH/W0G $278K · WBTC/W0G $189K</text>
+      </g>
+    </g>
+
+    <!-- Stat footer -->
+    <g transform="translate(36, 620)">
+      <text font-size="14" fill="#64748b" letter-spacing="0.5">CONTRACTS LIVE</text>
+      <text y="28" font-size="36" font-weight="700" fill="#60cfff">18</text>
+      <text x="110" y="28" font-size="18" fill="#94a3b8">· factory · registry · libs · 5 protocol contracts · demo</text>
+    </g>
+  </g>
+
+  <!-- ═════════  MIDDLE: EIP-712 BINDING  ═════════ -->
+  <g transform="translate(885, 220)">
+    <!-- Connecting rail -->
+    <line x1="0" y1="240" x2="150" y2="240" stroke="#cbd5e1" stroke-width="2"
+          stroke-dasharray="6 6" marker-end="url(#arrowWhite)"/>
+    <line x1="150" y1="440" x2="0" y2="440" stroke="#cbd5e1" stroke-width="2"
+          stroke-dasharray="6 6" marker-end="url(#arrowWhite)"/>
+
+    <!-- EIP-712 core -->
+    <g transform="translate(10, 280)">
+      <rect width="130" height="120" rx="12" ry="12" fill="#1e293b" stroke="#f2c14e" stroke-width="1.5"/>
+      <text x="65" y="28" text-anchor="middle" font-size="13" font-weight="700" fill="#f2c14e" letter-spacing="1">EIP-712</text>
+      <text x="65" y="50" text-anchor="middle" font-size="11" fill="#cbd5e1">domain separator</text>
+      <line x1="15" y1="60" x2="115" y2="60" stroke="#334155" stroke-width="1"/>
+      <text x="65" y="82" text-anchor="middle" font-size="12" font-weight="600" fill="#f8fafc">block.chainid</text>
+      <text x="65" y="100" text-anchor="middle" font-size="11" fill="#64748b">binds intent</text>
+      <text x="65" y="114" text-anchor="middle" font-size="11" fill="#64748b">to chain</text>
+    </g>
+
+    <!-- Labels on rails -->
+    <text x="75" y="232" text-anchor="middle" font-size="12" fill="#cbd5e1" font-weight="600">intent + sig</text>
+    <text x="75" y="432" text-anchor="middle" font-size="12" fill="#cbd5e1" font-weight="600">reputation + journal</text>
+  </g>
+
+  <!-- ═════════  ARBITRUM BOX (right)  ═════════ -->
+  <g transform="translate(1060, 220)">
+    <rect width="780" height="680" rx="18" ry="18"
+          fill="url(#arbGrad)" stroke="#f2c14e" stroke-width="1.5" opacity="0.95"/>
+    <rect width="780" height="84" rx="18" ry="18" fill="#f2c14e" opacity="0.12"/>
+
+    <text x="36" y="50" font-size="32" font-weight="700" fill="#fef3c7">Arbitrum One</text>
+    <text x="36" y="76" font-size="16" fill="#fcd34d" letter-spacing="0.5">
+      CHAIN 42161 · REAL EXECUTION + LIQUIDITY
+    </text>
+
+    <g transform="translate(580, 30)">
+      <rect width="170" height="40" rx="20" ry="20" fill="#f2c14e" fill-opacity="0.15" stroke="#f2c14e" stroke-width="1"/>
+      <text x="85" y="25" text-anchor="middle" font-size="14" font-weight="600" fill="#f2c14e">EXECUTION LAYER</text>
+    </g>
+
+    <g transform="translate(36, 120)" fill="#e7e5e4">
+      <!-- AegisVault -->
+      <g transform="translate(0, 0)">
+        <circle cx="12" cy="12" r="5" fill="#f2c14e"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#fafaf9">AegisVault + Factory</text>
+        <text x="30" y="40" font-size="14" fill="#78716c">Same bytecode as 0G · EIP-1167 clone per user</text>
+      </g>
+      <!-- Libraries -->
+      <g transform="translate(0, 70)">
+        <circle cx="12" cy="12" r="5" fill="#f2c14e"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#fafaf9">SealedLib · ExecLib · IOLib</text>
+        <text x="30" y="40" font-size="14" fill="#78716c">Shared external libraries — intent-hash parity across chains</text>
+      </g>
+      <!-- UniV3 adapter -->
+      <g transform="translate(0, 140)">
+        <circle cx="12" cy="12" r="5" fill="#f2c14e"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#fafaf9">UniswapV3VenueAdapter</text>
+        <text x="30" y="40" font-size="14" fill="#78716c">Atomic swap through SwapRouter02 · nonReentrant</text>
+      </g>
+      <!-- NAV calculator -->
+      <g transform="translate(0, 210)">
+        <circle cx="12" cy="12" r="5" fill="#f2c14e"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#fafaf9">VaultNAVCalculator (Pyth)</text>
+        <text x="30" y="40" font-size="14" fill="#78716c">Real-time NAV · slippage floor · fresh oracle reads</text>
+      </g>
+      <!-- Canonical tokens -->
+      <g transform="translate(0, 280)">
+        <circle cx="12" cy="12" r="5" fill="#f2c14e"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#fafaf9">Canonical USDC · WETH · WBTC</text>
+        <text x="30" y="40" font-size="14" fill="#78716c">Circle USDC · Uniswap V3 pools · millions USD TVL</text>
+      </g>
+      <!-- ExecutionRegistry -->
+      <g transform="translate(0, 350)">
+        <circle cx="12" cy="12" r="5" fill="#f2c14e"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#fafaf9">ExecutionRegistry</text>
+        <text x="30" y="40" font-size="14" fill="#78716c">Replay guard · intent history · cross-chain-safe</text>
+      </g>
+      <!-- Uniswap V3 rail -->
+      <g transform="translate(0, 420)">
+        <circle cx="12" cy="12" r="5" fill="#94a3b8"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#cbd5e1">Uniswap V3 (canonical)</text>
+        <text x="30" y="40" font-size="14" fill="#78716c">Router: 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45</text>
+      </g>
+      <!-- Pyth -->
+      <g transform="translate(0, 490)">
+        <circle cx="12" cy="12" r="5" fill="#94a3b8"/>
+        <text x="30" y="18" font-size="20" font-weight="600" fill="#cbd5e1">Pyth on Arbitrum</text>
+        <text x="30" y="40" font-size="14" fill="#78716c">BTC · ETH · USDC feeds · pull model</text>
+      </g>
+    </g>
+
+    <g transform="translate(36, 620)">
+      <text font-size="14" fill="#78716c" letter-spacing="0.5">CONTRACTS LIVE</text>
+      <text y="28" font-size="36" font-weight="700" fill="#f2c14e">8</text>
+      <text x="70" y="28" font-size="18" fill="#a8a29e">· factory · 3 libs · impl · registry · adapter · NAV</text>
+    </g>
+  </g>
+
+  <!-- ═════════  BOTTOM TRADE FLOW (optional strip)  ═════════ -->
+  <g transform="translate(80, 940)">
+    <text font-size="14" font-weight="600" fill="#64748b" letter-spacing="2">SINGLE TRADE FLOW — ACROSS BOTH CHAINS</text>
+    <g transform="translate(0, 30)" font-size="13" fill="#cbd5e1">
+      <!-- Step bubbles -->
+      <g>
+        <rect x="0"    y="0" width="195" height="80" rx="10" fill="#60cfff" fill-opacity="0.08" stroke="#60cfff" stroke-width="1"/>
+        <text x="10" y="22" font-size="12" fill="#60cfff" font-weight="700">STEP 1 · 0G</text>
+        <text x="10" y="44" font-weight="600" fill="#f1f5f9">AI inference</text>
+        <text x="10" y="64" fill="#94a3b8">GLM-5-FP8 on 0G Compute</text>
+      </g>
+      <g transform="translate(215, 0)">
+        <rect width="195" height="80" rx="10" fill="#60cfff" fill-opacity="0.08" stroke="#60cfff" stroke-width="1"/>
+        <text x="10" y="22" font-size="12" fill="#60cfff" font-weight="700">STEP 2 · off-chain</text>
+        <text x="10" y="44" font-weight="600" fill="#f1f5f9">EIP-712 sign</text>
+        <text x="10" y="64" fill="#94a3b8">domain.chainId = 42161</text>
+      </g>
+      <g transform="translate(430, 0)">
+        <rect width="195" height="80" rx="10" fill="#60cfff" fill-opacity="0.08" stroke="#60cfff" stroke-width="1"/>
+        <text x="10" y="22" font-size="12" fill="#60cfff" font-weight="700">STEP 3 · 0G</text>
+        <text x="10" y="44" font-weight="600" fill="#f1f5f9">Journal decision</text>
+        <text x="10" y="64" fill="#94a3b8">0G Storage immutable log</text>
+      </g>
+      <g transform="translate(645, 0)">
+        <rect width="195" height="80" rx="10" fill="#f2c14e" fill-opacity="0.08" stroke="#f2c14e" stroke-width="1"/>
+        <text x="10" y="22" font-size="12" fill="#f2c14e" font-weight="700">STEP 4 · Arbitrum</text>
+        <text x="10" y="44" font-weight="600" fill="#fafaf9">commitIntent()</text>
+        <text x="10" y="64" fill="#a8a29e">anti-MEV commit hash</text>
+      </g>
+      <g transform="translate(860, 0)">
+        <rect width="195" height="80" rx="10" fill="#f2c14e" fill-opacity="0.08" stroke="#f2c14e" stroke-width="1"/>
+        <text x="10" y="22" font-size="12" fill="#f2c14e" font-weight="700">STEP 5 · Arbitrum</text>
+        <text x="10" y="44" font-weight="600" fill="#fafaf9">executeIntent()</text>
+        <text x="10" y="64" fill="#a8a29e">ECDSA verify + policy</text>
+      </g>
+      <g transform="translate(1075, 0)">
+        <rect width="195" height="80" rx="10" fill="#f2c14e" fill-opacity="0.08" stroke="#f2c14e" stroke-width="1"/>
+        <text x="10" y="22" font-size="12" fill="#f2c14e" font-weight="700">STEP 6 · real DEX</text>
+        <text x="10" y="44" font-weight="600" fill="#fafaf9">Jaine OR Uniswap V3</text>
+        <text x="10" y="64" fill="#a8a29e">routed per vault's chain</text>
+      </g>
+      <g transform="translate(1290, 0)">
+        <rect width="195" height="80" rx="10" fill="#60cfff" fill-opacity="0.08" stroke="#60cfff" stroke-width="1"/>
+        <text x="10" y="22" font-size="12" fill="#60cfff" font-weight="700">STEP 7 · 0G</text>
+        <text x="10" y="44" font-weight="600" fill="#f1f5f9">Reputation update</text>
+        <text x="10" y="64" fill="#94a3b8">operator score refreshed</text>
+      </g>
+      <g transform="translate(1505, 0)">
+        <rect width="335" height="80" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+        <text x="16" y="22" font-size="12" fill="#94a3b8" font-weight="700">CROSS-CHAIN SECURITY</text>
+        <text x="16" y="44" font-weight="600" fill="#f1f5f9">Built into EIP-712 standard</text>
+        <text x="16" y="64" fill="#64748b">Same bytecode, different domain per chain</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Footer micro-credits -->
+  <text x="1840" y="1050" text-anchor="end" font-size="11" fill="#475569"
+        letter-spacing="1">AEGIS VAULT · HACKATHON TRACK 2 · 2026-04</text>
+</svg>

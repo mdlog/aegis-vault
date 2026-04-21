@@ -136,8 +136,19 @@ export async function initialize() {
   // Initialize 0G Storage (non-blocking)
   await initOGStorage().catch(() => {});
 
-  if (config.strictMode && !isOGStorageAvailable()) {
-    throw new Error('STRICT_MODE requires 0G Storage to initialize successfully');
+  // STRICT_MODE requires 0G Storage when the operator chose to use it. If the
+  // operator has explicitly opted out (empty `OG_INDEXER_RPC` in .env) — which
+  // is the current default because 0G Storage KV is known unstable during the
+  // hackathon window (see HACKATHON_SUBMISSION.md "Honest Disclosures") — we
+  // allow STRICT_MODE to proceed with the local-JSON journal fallback. The
+  // other strict guards (market data, AI inference, contract presence, API
+  // keys, CORS) still apply.
+  const storageOptedOut = process.env.OG_INDEXER_RPC === '';
+  if (config.strictMode && !storageOptedOut && !isOGStorageAvailable()) {
+    throw new Error('STRICT_MODE requires 0G Storage to initialize successfully (set OG_INDEXER_RPC= in .env to explicitly opt out)');
+  }
+  if (config.strictMode && storageOptedOut) {
+    logger.warn('STRICT_MODE active but 0G Storage intentionally disabled (OG_INDEXER_RPC empty) — using local JSON journal fallback. Expected during hackathon window; revisit when 0G Storage KV stabilizes.');
   }
 
   if (isOGStorageAvailable()) {
@@ -240,6 +251,13 @@ async function runVaultCycle(vaultAddress, marketSummary) {
     Object.assign(vaultState, positionState);
 
     logger.info(`    NAV: $${vaultState.nav.toLocaleString()} | Base: $${vaultState.baseBalance.toLocaleString()} | Paused: ${vaultState.paused} | Actions: ${vaultState.dailyActionsUsed} | Position: ${positionState.current_position_side}${positionState.current_position_asset ? ` ${positionState.current_position_asset}` : ''}`);
+
+    vaultResult.vaultState = {
+      nav: vaultState.nav,
+      baseBalance: vaultState.baseBalance,
+      totalDeposited: vaultState.totalDeposited,
+      primaryPositionAsset: vaultState.primaryPositionAsset || null,
+    };
 
     if (vaultState.paused) {
       logger.info(`    Paused — skipping`);

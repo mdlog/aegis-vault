@@ -158,14 +158,29 @@ export default function GovernancePage() {
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
       {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
+      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-display font-semibold text-white tracking-tight mb-1">
-            Governance
+          <div className="flex items-baseline gap-3.5 mb-2">
+            <span className="ed-eyebrow">§ G.01</span>
+            <span
+              className="ed-mono text-[10.5px] tracking-[0.22em] uppercase"
+              style={{ color: 'var(--ed-steel-400)' }}
+            >
+              {displayThreshold}-of-{displayOwners.length} multi-sig council
+            </span>
+          </div>
+          <h1
+            className="ed-display"
+            style={{ fontSize: 40, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+          >
+            Council{' '}
+            <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>
+              proposals.
+            </span>
           </h1>
-          <p className="text-xs text-steel/50 max-w-2xl">
-            {displayThreshold}-of-{displayOwners.length} multi-sig controlling slashing, treasury, verified badges,
-            and owner rotation. All sensitive actions flow through here.
+          <p className="text-[13px] mt-3 max-w-[680px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
+            Slashing, treasury spend, verified badges, and owner rotation — every sensitive action flows through
+            {' '}{displayThreshold}-of-{displayOwners.length} signatures before it touches the chain.
           </p>
         </div>
         {isGovernorOwner && (
@@ -601,8 +616,13 @@ function ProposalCard({
     <GlassPanel className="p-4">
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-            <span className="text-[10px] font-mono text-steel/40">#{proposal.id}</span>
+          <div className="flex items-baseline gap-3 mb-1.5 flex-wrap">
+            <span
+              className="ed-italic flex-shrink-0"
+              style={{ fontSize: 24, color: 'var(--ed-gold)', lineHeight: 1 }}
+            >
+              № {proposal.id}
+            </span>
             <h4 className="text-sm font-display font-medium text-white truncate">{proposal.description || '(no description)'}</h4>
             <StatusPill label={statusLabel} variant={statusVariant} pulse={status === 'ready'} />
           </div>
@@ -724,8 +744,13 @@ function DemoProposalCard({ proposal, threshold }) {
     <GlassPanel className="p-4">
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-            <span className="text-[10px] font-mono text-steel/40">#{proposal.id}</span>
+          <div className="flex items-baseline gap-3 mb-1.5 flex-wrap">
+            <span
+              className="ed-italic flex-shrink-0"
+              style={{ fontSize: 24, color: 'var(--ed-gold)', lineHeight: 1 }}
+            >
+              № {proposal.id}
+            </span>
             <h4 className="text-sm font-display font-medium text-white truncate">{proposal.title}</h4>
             <StatusPill label={labelMap[proposal.status]} variant={variantMap[proposal.status]} pulse={proposal.status === 'ready'} />
             <span className="text-[8px] font-mono text-gold/70 px-1 py-0.5 rounded bg-gold/5 border border-gold/10">DEMO</span>

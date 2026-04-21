@@ -20,7 +20,13 @@ function filterJournalEntries(entries, { type, vault, level }) {
 
   if (vault) {
     const targetVault = vault.toLowerCase();
-    filtered = filtered.filter((entry) => (entry.vault || '').toLowerCase() === targetVault);
+    filtered = filtered.filter((entry) => {
+      if ((entry.vault || '').toLowerCase() === targetVault) return true;
+      if (Array.isArray(entry.vaultResults)) {
+        return entry.vaultResults.some((r) => (r.vault || '').toLowerCase() === targetVault);
+      }
+      return false;
+    });
   }
 
   if (level) {

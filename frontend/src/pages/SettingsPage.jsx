@@ -47,8 +47,30 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
-      <h1 className="text-xl font-display font-semibold text-white tracking-tight mb-1">Settings & System Info</h1>
-      <p className="text-xs text-steel/50 mb-6">Contract addresses, policy configuration, and system status.</p>
+      <div className="mb-8">
+        <div className="flex items-baseline gap-3.5 mb-2">
+          <span className="ed-eyebrow">§ S.01</span>
+          <span
+            className="ed-mono text-[10.5px] tracking-[0.22em] uppercase"
+            style={{ color: 'var(--ed-steel-400)' }}
+          >
+            System file
+          </span>
+        </div>
+        <h1
+          className="ed-display"
+          style={{ fontSize: 36, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+        >
+          Settings & <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>system info.</span>
+        </h1>
+        <p
+          className="text-[13px] mt-3 max-w-[620px]"
+          style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}
+        >
+          Contract addresses, policy configuration, and live system status — every dependency this vault
+          touches, spelled out on one page.
+        </p>
+      </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Contract Addresses */}

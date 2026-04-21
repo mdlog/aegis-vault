@@ -64,30 +64,35 @@ const STATIC_DEPLOYMENTS = {
     demoVault: '0xFFac2840f762b6003Ce291bd5B19c2890Ea5DAB2',
     orchestratorWallet: '0xDB13C2dE3CD57d529CeA16E8EE6ae53a498b878D',
   },
-  // 0G Aristotle Mainnet — VERIFICATION layer (operator identity, staking,
-  // reputation, governance). Submit-required for hackathon. Fill after running
-  // deploy-0g-verification.js.
+  // 0G Aristotle Mainnet — intelligence + REAL execution layer (Jaine DEX).
+  // Fill `aegisVaultFactory` / `executionRegistry` / `jaineVenueAdapter` etc
+  // after running deploy-mainnet.js. Addresses below under `realTokens` are
+  // fixed 0G-mainnet canonical addresses (verified via Jaine pool swap events).
   16661: {
-    // Verification layer
+    // Core protocol contracts — populated by deploy-mainnet.js + sync-frontend.js
     operatorRegistry: '',
     operatorStaking: '',
     insurancePool: '',
     operatorReputation: '',
     aegisGovernor: '',
     protocolTreasury: '',
-    // Execution layer NOT here — lives on Arbitrum (chain 42161)
     executionRegistry: '',
     aegisVaultFactory: '',
-    // Real on-chain stake token (Hyperlane bridged USDT)
-    oUSDT: '0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189',
-    W0G:   '0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c',
-    // mockUSDC alias points to oUSDT so existing hooks read the right token
-    mockUSDC: '0x6f66f804ECf406587343aF976c6f38c3395d6cDa',
-    mockWBTC: '0x5959097B719cBACD35D11f8d959c145EBbb88f33',
-    mockWETH: '0x4f69AC64BBB4D73a098c398af498024A3715ff57',
-    mockDEX: '0xE21dbC01424533ABc96237BfAeaE5d625d58e359',
-    demoVault: '0xAa3E0d5B9D86B947fA43b6Bb63A0f4aD6E8f91C1',
-    orchestratorWallet: '0xD11A7E3eF93B1eC7fC0A5b8d2A6fD3e9C41B27A1',
+    vaultNAVCalculator: '',
+    jaineVenueAdapter: '',          // real Jaine venue (replaces mockDEX)
+    // Real on-chain tokens backing Jaine pools (verified via pool swap events)
+    USDCe: '0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E',  // 6 dec — stablecoin
+    WETH:  '0x564770837Ef8bbF077cFe54E5f6106538c815B22',  // 18 dec
+    WBTC:  '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c',  // 8 dec
+    W0G:   '0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c',  // 18 dec — wrapped native
+    // Aliases so existing hooks (CreateVaultPage BTC/ETH/USDC asset map) resolve
+    // to the real Jaine tokens without needing a symbol-map refactor.
+    mockUSDC: '0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E',
+    mockWETH: '0x564770837Ef8bbF077cFe54E5f6106538c815B22',
+    mockWBTC: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c',
+    mockDEX:  '',                                           // no longer used on 0G
+    demoVault: '',                                          // no pre-built demo
+    orchestratorWallet: '',
   },
   // Arbitrum One — EXECUTION layer (vault custody + Uniswap V3 swaps).
   // Real DeFi liquidity. Fill after running deploy-arbitrum-execution.js.

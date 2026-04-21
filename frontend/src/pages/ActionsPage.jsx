@@ -168,10 +168,23 @@ export default function ActionsPage() {
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-end justify-between mb-8">
         <div>
-          <h1 className="text-xl font-display font-semibold text-white tracking-tight mb-1">AI Actions</h1>
-          <p className="text-xs text-steel/50">Every AI decision, execution, and blocked action logged here.</p>
+          <div className="flex items-baseline gap-3.5 mb-2">
+            <span className="ed-eyebrow">§ X.01</span>
+            <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
+              AI execution trail
+            </span>
+          </div>
+          <h1
+            className="ed-display"
+            style={{ fontSize: 40, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+          >
+            Every decision, <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>on the record.</span>
+          </h1>
+          <p className="text-[13px] mt-3 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
+            Signed by an operator. Gated by policy. Receipted on-chain. Nothing the agent does escapes this page.
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {displayStatus && (
@@ -193,6 +206,48 @@ export default function ActionsPage() {
           </ControlButton>
         </div>
       </div>
+
+      {/* Editorial tally strip — 5-col summary of orchestrator counters */}
+      {displayStatus && (
+        <div
+          className="grid gap-3 mb-6"
+          style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}
+        >
+          {[
+            { k: 'Cycles · lifetime', v: displayStatus.cycleCount || 0, c: 'var(--ed-steel-100)' },
+            { k: 'Executed', v: displayStatus.totalExecutions || 0, c: 'var(--ed-emerald)' },
+            { k: 'Blocked', v: displayStatus.totalBlocked || 0, c: 'var(--ed-rose)' },
+            { k: 'Skipped', v: displayStatus.totalSkipped || 0, c: 'var(--ed-amber)' },
+            {
+              k: 'Source',
+              v: status ? 'LIVE' : 'DEMO',
+              c: status ? 'var(--ed-cyan)' : 'var(--ed-gold)',
+            },
+          ].map((x, i) => (
+            <div key={i} className="ed-card" style={{ padding: 18 }}>
+              <div
+                className="ed-mono mb-1.5"
+                style={{ fontSize: 10, color: 'var(--ed-steel-500)', letterSpacing: '0.2em' }}
+              >
+                {x.k.toUpperCase()}
+              </div>
+              <div
+                className="ed-display"
+                style={{
+                  fontSize: 26,
+                  color: x.c,
+                  fontWeight: 600,
+                  letterSpacing: '-0.03em',
+                }}
+              >
+                {x.v}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <DecisionTracePrimer />
 
       {!displayStatus && !ENABLE_DEMO_FALLBACKS && (
         <GlassPanel className="p-4 mb-5">
@@ -236,6 +291,131 @@ export default function ActionsPage() {
 
       {tab === 'feed' && <ActionFeed limit={20} fallbackEntries={fallbackEntries} />}
       {tab === 'journal' && <JournalTab fallbackEntries={fallbackEntries} />}
+    </div>
+  );
+}
+
+// Editorial 3-gate decision trace primer — shown above the action feed to
+// frame what readers are looking at. Static schematic of the signal → policy
+// → execution pipeline every AI action passes through before funds move.
+function DecisionTracePrimer() {
+  const gates = [
+    {
+      step: '01',
+      title: 'Operator signal',
+      status: 'SIGNED',
+      tone: 'var(--ed-cyan)',
+      toneChip: 'cyan',
+      rows: [
+        ['model', 'on-chain committed hash'],
+        ['operator', 'staked + reputation-scored'],
+        ['input hash', 'attested inference'],
+        ['attest', '0G Compute · TEE'],
+      ],
+    },
+    {
+      step: '02',
+      title: 'Policy gate',
+      status: 'CHECKED',
+      tone: 'var(--ed-emerald)',
+      toneChip: 'emerald',
+      rows: [
+        ['drawdown', 'live / max cap'],
+        ['turnover', 'daily rate vs cap'],
+        ['concentration', 'single-asset cap'],
+        ['confidence', 'floor enforced'],
+      ],
+    },
+    {
+      step: '03',
+      title: 'Execution',
+      status: 'RECEIPTED',
+      tone: 'var(--ed-gold)',
+      toneChip: 'gold',
+      rows: [
+        ['tx', 'on-chain receipt minted'],
+        ['block', 'next block inclusion'],
+        ['gas', 'native token gas only'],
+        ['commit-reveal', 'sealed mode · optional'],
+      ],
+    },
+  ];
+  return (
+    <div className="ed-card overflow-hidden mb-6">
+      <div className="px-5 pt-5">
+        <div className="flex items-baseline gap-3.5 mb-2">
+          <span className="ed-eyebrow">§ X.03</span>
+          <span
+            className="ed-mono text-[10.5px] tracking-[0.22em] uppercase"
+            style={{ color: 'var(--ed-steel-400)' }}
+          >
+            Decision trace
+          </span>
+        </div>
+        <h3
+          className="ed-display"
+          style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}
+        >
+          Three gates,{' '}
+          <span className="ed-italic" style={{ color: 'var(--ed-gold)', fontWeight: 400 }}>
+            all logged
+          </span>
+        </h3>
+      </div>
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        {gates.map((s, i) => (
+          <div
+            key={i}
+            className="relative"
+            style={{
+              padding: 22,
+              borderTop: '1px solid rgba(255,255,255,0.05)',
+              borderRight: i < 2 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+              marginTop: 16,
+            }}
+          >
+            <div className="flex items-baseline justify-between mb-3.5">
+              <span
+                className="ed-italic"
+                style={{ fontSize: 28, color: s.tone, lineHeight: 1 }}
+              >
+                {s.step}
+              </span>
+              <span className={`ed-chip ed-chip-${s.toneChip}`}>{s.status}</span>
+            </div>
+            <h4
+              className="ed-display"
+              style={{
+                fontSize: 16,
+                fontWeight: 600,
+                margin: '0 0 10px',
+                color: 'var(--ed-steel-50)',
+              }}
+            >
+              {s.title}
+            </h4>
+            {s.rows.map(([k, v], j) => (
+              <div
+                key={j}
+                className="flex justify-between py-1.5"
+              >
+                <span
+                  className="ed-mono text-[10px]"
+                  style={{ color: 'var(--ed-steel-500)', letterSpacing: '0.14em' }}
+                >
+                  {k.toUpperCase()}
+                </span>
+                <span
+                  className="ed-mono text-[11px]"
+                  style={{ color: 'var(--ed-steel-200)' }}
+                >
+                  {v}
+                </span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

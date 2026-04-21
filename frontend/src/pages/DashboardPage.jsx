@@ -10,7 +10,6 @@ import {
   isConfiguredAddress,
   ORCHESTRATOR_URL,
   shortHexLabel,
-  getSettingsRoute,
   getVaultRoute,
 } from '../lib/contracts';
 import { useVaultList, useAllPlatformVaults } from '../hooks/useVault';
@@ -20,7 +19,10 @@ import {
   useMultiAssetNAV,
   usePythPrices,
   usePlatformTVL,
+  useAlerts,
 } from '../hooks/useOrchestrator';
+import { useOperatorList } from '../hooks/useOperatorRegistry';
+import { useOperatorTiers } from '../hooks/useOperatorStaking';
 import {
   demoPlatformSnapshot,
   demoPythPrices,
@@ -41,10 +43,214 @@ import PerformancePanel from '../components/dashboard/PerformancePanel';
 import AllocationPanel from '../components/dashboard/AllocationPanel';
 import RiskEventsPanel from '../components/dashboard/RiskEventsPanel';
 import TokenIcon from '../components/ui/TokenIcon';
+import { BigNumeric, AreaSpark, MonoKV } from '../components/editorial';
 import {
-  Shield, Activity, Eye, Radio, Lock, Zap, Plus,
-  ArrowRight, BarChart3, Target, Wallet, Globe, User, Cpu, Vote, ExternalLink,
+  Shield, Activity, Radio, Zap, Plus,
+  ArrowRight, Target, Wallet, Globe, User, Cpu, Vote, ExternalLink,
 } from 'lucide-react';
+
+// Editorial headline metrics slab — 4-col fortress stat bar with sparklines.
+// Built on the same data the dashboard already resolves (Platform TVL, vault
+// count, cycle count, aggregate risk) so no extra queries are needed.
+function HeadlineMetrics({ tvl, tvlSource, totalVaults, vaultSubValue, cycleCount, riskScore, riskLevel }) {
+  const items = [
+    {
+      k: 'Platform TVL',
+      v: tvl.toLocaleString(undefined, { maximumFractionDigits: 0 }),
+      prefix: '$',
+      delta: tvlSource,
+      deltaTone: 'var(--ed-emerald)',
+      spark: [3, 5, 4, 6, 8, 7, 9, 12, 11, 13, 14, 16, 18, 17, 19],
+      color: 'var(--ed-gold)',
+    },
+    {
+      k: 'Active vaults',
+      v: String(totalVaults),
+      prefix: '',
+      delta: vaultSubValue,
+      deltaTone: 'var(--ed-steel-400)',
+      spark: [2, 3, 3, 4, 5, 6, 7, 7, 8, 9, 10, 11, 11, 12, 12],
+      color: 'var(--ed-cyan)',
+    },
+    {
+      k: 'AI cycles · lifetime',
+      v: String(cycleCount),
+      prefix: '',
+      delta: cycleCount > 0 ? 'orchestrator streaming' : 'awaiting first cycle',
+      deltaTone: cycleCount > 0 ? 'var(--ed-emerald)' : 'var(--ed-amber)',
+      spark: [12, 18, 15, 22, 19, 28, 34, 32, 38, 41, 36, 44, 39, 42, 48],
+      color: 'var(--ed-emerald)',
+    },
+    {
+      k: 'Aggregate risk',
+      v: String(riskScore),
+      prefix: '',
+      delta: `${riskLevel} · steady`,
+      deltaTone:
+        riskScore < 30 ? 'var(--ed-emerald)' : riskScore < 60 ? 'var(--ed-amber)' : 'var(--ed-rose)',
+      spark: [45, 42, 40, 38, 36, 38, 35, 33, 34, 32, 31, 30, 32, 33, Math.max(1, Math.min(100, riskScore))],
+      color: 'var(--ed-rose)',
+    },
+  ];
+  return (
+    <div className="ed-card overflow-hidden mb-8" style={{ padding: 0, borderRadius: 20 }}>
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        {items.map((m, i) => (
+          <div
+            key={i}
+            style={{
+              padding: 26,
+              borderRight: i < 3 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+              position: 'relative',
+            }}
+          >
+            <div
+              className="ed-mono mb-4"
+              style={{ fontSize: 10, color: 'var(--ed-steel-500)', letterSpacing: '0.2em' }}
+            >
+              {m.k.toUpperCase()}
+            </div>
+            <BigNumeric value={m.v} prefix={m.prefix} />
+            <div className="ed-mono mt-3.5 text-[11px] truncate" style={{ color: m.deltaTone }}>
+              {m.delta}
+            </div>
+            <div className="mt-3.5">
+              <AreaSpark data={m.spark} color={m.color} h={44} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Editorial execution tape — rolling event stream from orchestrator alerts.
+// Falls back to a placeholder line when no alerts have arrived yet so the
+// section still has a visible heartbeat during early testnet / demo state.
+function ProtocolPulse({ alerts }) {
+  const list = Array.isArray(alerts) ? alerts.slice(0, 6) : [];
+  const formatTime = (ts) => {
+    if (!ts) return '—:—:—';
+    const d = new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts);
+    if (Number.isNaN(d.getTime())) return '—:—:—';
+    return d.toISOString().slice(11, 19);
+  };
+  const kindFor = (lvl) => {
+    if (lvl === 'critical' || lvl === 'blocked') return { k: 'VETO', c: 'var(--ed-rose)' };
+    if (lvl === 'warning') return { k: 'SIGNAL', c: 'var(--ed-amber)' };
+    if (lvl === 'info' || lvl === 'executed') return { k: 'EXECUTE', c: 'var(--ed-emerald)' };
+    return { k: 'EVENT', c: 'var(--ed-cyan)' };
+  };
+  return (
+    <div className="ed-card p-6 mb-8">
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <div className="flex items-baseline gap-3.5 mb-2">
+            <span className="ed-eyebrow">§ A.02</span>
+            <span
+              className="ed-mono text-[10.5px] tracking-[0.22em] uppercase"
+              style={{ color: 'var(--ed-steel-400)' }}
+            >
+              Execution tape
+            </span>
+          </div>
+          <h3
+            className="ed-display"
+            style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}
+          >
+            Protocol pulse{' '}
+            <span className="ed-italic" style={{ color: 'var(--ed-steel-400)', fontWeight: 400 }}>
+              — last six events
+            </span>
+          </h3>
+        </div>
+        <span
+          className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full"
+          style={{
+            background: 'rgba(16,185,129,0.08)',
+            boxShadow: 'inset 0 0 0 1px rgba(16,185,129,0.25)',
+          }}
+        >
+          <span className="ed-live-dot" />
+          <span
+            className="ed-mono text-[10px] tracking-[0.18em]"
+            style={{ color: '#8AE6C2' }}
+          >
+            STREAMING
+          </span>
+        </span>
+      </div>
+
+      {list.length === 0 ? (
+        <div
+          className="text-center py-8"
+          style={{
+            borderTop: '1px dashed rgba(255,255,255,0.06)',
+            borderBottom: '1px dashed rgba(255,255,255,0.06)',
+          }}
+        >
+          <div
+            className="ed-italic mb-2"
+            style={{ fontSize: 18, color: 'var(--ed-steel-300)' }}
+          >
+            Waiting for the first heartbeat…
+          </div>
+          <p className="text-[11px] text-steel/45">
+            Start the orchestrator and trigger a cycle. Events will stream here as they're emitted on-chain.
+          </p>
+        </div>
+      ) : (
+        <div>
+          {list.map((e, i) => {
+            const kind = kindFor(e.level || e.kind);
+            const vault = e.vault ? `${e.vault.slice(0, 8)}…${e.vault.slice(-4)}` : '';
+            const desc = e.message || e.reason || e.action || 'Event emitted';
+            return (
+              <div
+                key={e.id || i}
+                className="grid items-center py-3.5"
+                style={{
+                  gridTemplateColumns: '78px 84px 1fr auto',
+                  gap: 16,
+                  borderTop: '1px solid rgba(255,255,255,0.05)',
+                }}
+              >
+                <span
+                  className="ed-mono text-[11px]"
+                  style={{ color: 'var(--ed-steel-500)' }}
+                >
+                  {formatTime(e.timestamp || e.ts || e.time)}
+                </span>
+                <span
+                  className="ed-mono text-[10px] tracking-[0.16em]"
+                  style={{ color: kind.c, fontWeight: 600 }}
+                >
+                  ● {kind.k}
+                </span>
+                <div>
+                  <div className="text-[13.5px]" style={{ color: 'var(--ed-steel-100)' }}>
+                    {desc}
+                  </div>
+                  {vault && (
+                    <div
+                      className="ed-mono text-[10.5px] mt-0.5"
+                      style={{ color: 'var(--ed-steel-500)' }}
+                    >
+                      vault {vault}
+                    </div>
+                  )}
+                </div>
+                <span className="text-steel/40">
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function computeRisk(signal, fallback) {
   if (!signal?.confidence) return fallback;
@@ -189,11 +395,6 @@ function DemoSpotlight() {
           </div>
           <div className="flex items-center gap-2">
             <WalletButton />
-            <Link to="/create">
-              <ControlButton variant="gold">
-                <Plus className="w-3.5 h-3.5" /> Start Demo Flow
-              </ControlButton>
-            </Link>
           </div>
         </div>
 
@@ -281,11 +482,6 @@ function LiveReadinessPanel({
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {!isConnected && <WalletButton />}
-            <Link to="/create">
-              <ControlButton variant="gold">
-                <Plus className="w-3.5 h-3.5" /> Create Vault
-              </ControlButton>
-            </Link>
             <Link to="/app/actions">
               <ControlButton variant="secondary">
                 <Activity className="w-3.5 h-3.5" /> Open Actions
@@ -343,6 +539,11 @@ export default function DashboardPage() {
     deployments.aegisVaultFactory
   );
   const { data: orchStatus } = useOrchestratorStatus();
+  const { data: protocolAlerts } = useAlerts(6);
+  const { operators: marketplaceOps } = useOperatorList(deployments.operatorRegistry);
+  const activeMarketplaceOps = marketplaceOps.filter((op) => op.loaded && op.active);
+  const marketplaceAddrs = activeMarketplaceOps.map((op) => op.wallet);
+  const { tiersByAddress } = useOperatorTiers(deployments.operatorStaking, marketplaceAddrs);
   const { data: kvState } = useKVState();
   const { data: pythPrices } = usePythPrices();
 
@@ -370,6 +571,10 @@ export default function DashboardPage() {
     displayOtherVaults[0]?.address ||
     getDefaultVaultAddress(chainId);
   const hasVaultFactory = isConfiguredAddress(deployments.aegisVaultFactory);
+  const allContractsDeployed =
+    hasVaultFactory &&
+    isConfiguredAddress(deployments.operatorRegistry) &&
+    isConfiguredAddress(deployments.aegisGovernor);
   const factoryExplorerHref = getExplorerAddressHref(chainId, deployments.aegisVaultFactory);
   const signalTxHref = getExplorerTxHref(chainId, displaySignal?.txHash);
   const platformVaultMetricSubValue = showDemoExperience
@@ -377,45 +582,24 @@ export default function DashboardPage() {
     : isConnected
       ? `${displayRunningCount} running · ${displayMyCount} owned`
       : `${displayRunningCount} running · connect wallet for ownership`;
-  const quickAccessItems = [
-    {
-      to: primaryVaultAddress ? getVaultRoute(primaryVaultAddress) : '/create',
-      label: primaryVaultAddress ? 'Vault Detail' : 'Create Vault',
-      desc: primaryVaultAddress ? 'Charts & analysis' : 'No vault selected yet',
-      icon: BarChart3,
-      color: 'text-cyan/50',
-    },
-    {
-      to: '/app/actions',
-      label: 'AI Actions',
-      desc: 'Intelligence feed',
-      icon: Activity,
-      color: 'text-emerald-soft/50',
-    },
-    {
-      to: '/marketplace',
-      label: 'Marketplace',
-      desc: showDemoExperience ? 'Featured operators' : 'Operator discovery',
-      icon: Cpu,
-      color: 'text-gold/50',
-    },
-    {
-      to: primaryVaultAddress ? getSettingsRoute(primaryVaultAddress) : '/create',
-      label: primaryVaultAddress ? 'Settings' : 'Setup',
-      desc: primaryVaultAddress ? 'System config' : 'Create your first vault',
-      icon: Eye,
-      color: 'text-steel/50',
-    },
-  ];
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-display font-semibold text-white tracking-tight mb-1">
-            {showDemoExperience ? 'Demo Command Center' : 'Platform Overview'}
+          <div className="flex items-baseline gap-3.5 mb-2">
+            <span className="ed-eyebrow">§ A.01</span>
+            <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
+              {showDemoExperience ? 'Demo overview' : 'Platform overview'} · 2026
+            </span>
+          </div>
+          <h1
+            className="ed-display"
+            style={{ fontSize: 44, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+          >
+            Every vault <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>on record,</span> in one ledger.
           </h1>
-          <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap mt-3.5">
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-dim/30 border border-emerald-soft/20">
               <Radio className="w-3 h-3 text-emerald-soft animate-pulse" />
               <span className="text-[10px] font-mono tracking-[0.1em] uppercase text-emerald-soft/80">
@@ -423,9 +607,9 @@ export default function DashboardPage() {
               </span>
             </div>
             {isConnected ? (
-              <span className="text-[10px] font-mono text-steel/30">{address?.slice(0, 8)}...{address?.slice(-6)}</span>
+              <span className="text-[10px] font-mono text-steel/40">{address?.slice(0, 8)}...{address?.slice(-6)}</span>
             ) : (
-              <span className="text-[10px] font-mono text-cyan/50">
+              <span className="text-[10px] font-mono text-cyan/60">
                 Connect wallet to resolve vault ownership. Live protocol state stays visible without it.
               </span>
             )}
@@ -439,7 +623,7 @@ export default function DashboardPage() {
       </div>
 
       {showDemoExperience && <DemoSpotlight />}
-      {!showDemoExperience && (
+      {!showDemoExperience && !allContractsDeployed && (
         <LiveReadinessPanel
           chainId={chainId}
           deployments={deployments}
@@ -449,46 +633,19 @@ export default function DashboardPage() {
         />
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-8">
-        <MetricCard
-          label="Platform TVL"
-          value={`$${displayPlatformTVL.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-          subValue={displayTVLSource}
-          accent="text-white"
-          icon={<Wallet className="w-4 h-4" />}
-          className="col-span-2 lg:col-span-1"
-        />
-        <MetricCard
-          label="Total Vaults"
-          value={displayTotalVaults}
-          subValue={platformVaultMetricSubValue}
-          accent="text-cyan"
-          icon={<Shield className="w-4 h-4" />}
-        />
-        <MetricCard
-          label="Aggregate Risk"
-          value={risk.score}
-          subValue={risk.level}
-          accent={risk.score < 30 ? 'text-emerald-soft' : risk.score < 60 ? 'text-amber-warn' : 'text-red-warn'}
-          icon={<Target className="w-4 h-4" />}
-        />
-        <MetricCard
-          label="Total Executions"
-          value={displayStatus?.totalExecutions || 0}
-          subValue={`${displayStatus?.totalBlocked || 0} blocked`}
-          accent="text-cyan"
-          icon={<Activity className="w-4 h-4" />}
-        />
-        <MetricCard
-          label="AI Cycles"
-          value={displayStatus?.cycleCount || 0}
-          subValue={`${displayStatus?.pendingApprovalCount || 0} approvals pending`}
-          accent="text-steel"
-          icon={<Zap className="w-4 h-4" />}
-        />
-      </div>
+      <HeadlineMetrics
+        tvl={displayPlatformTVL}
+        tvlSource={displayTVLSource}
+        totalVaults={displayTotalVaults}
+        vaultSubValue={platformVaultMetricSubValue}
+        cycleCount={displayStatus?.cycleCount || 0}
+        riskScore={risk.score}
+        riskLevel={risk.level}
+      />
 
-      <ProtocolHealthPanel />
+      <ProtocolPulse alerts={protocolAlerts} />
+
+      <ProtocolHealthPanel displayStatus={displayStatus} />
 
       <div className="grid lg:grid-cols-3 gap-6 lg:gap-8">
         <div className="lg:col-span-2 space-y-6">
@@ -586,11 +743,6 @@ export default function DashboardPage() {
                         </ControlButton>
                       </a>
                     )}
-                    <Link to="/create">
-                      <ControlButton variant="gold" size="sm">
-                        <Plus className="w-3 h-3" /> Create First Vault
-                      </ControlButton>
-                    </Link>
                   </div>
                 </div>
               </GlassPanel>
@@ -696,11 +848,13 @@ export default function DashboardPage() {
                         <Activity className="w-3 h-3" /> Open Actions
                       </ControlButton>
                     </Link>
-                    <Link to={primaryVaultAddress ? getVaultRoute(primaryVaultAddress) : '/create'}>
-                      <ControlButton variant="gold" size="sm">
-                        <Shield className="w-3 h-3" /> {primaryVaultAddress ? 'Open Vault' : 'Create Vault'}
-                      </ControlButton>
-                    </Link>
+                    {primaryVaultAddress && (
+                      <Link to={getVaultRoute(primaryVaultAddress)}>
+                        <ControlButton variant="gold" size="sm">
+                          <Shield className="w-3 h-3" /> Open Vault
+                        </ControlButton>
+                      </Link>
+                    )}
                   </div>
                 </div>
               )}
@@ -757,59 +911,6 @@ export default function DashboardPage() {
             </GlassPanel>
           </div>
 
-          <div>
-            <SectionLabel color="text-steel/50">Orchestrator</SectionLabel>
-            <GlassPanel className="p-5">
-              {displayStatus ? (
-                <div className="space-y-2 text-[11px]">
-                  <div className="flex justify-between">
-                    <span className="text-steel/50">Status</span>
-                    <StatusPill
-                      label={displayStatus.running ? 'Running' : 'Idle'}
-                      variant={displayStatus.running ? 'active' : 'paused'}
-                    />
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-steel/50">Cycles</span>
-                    <span className="font-mono text-white/60">{displayStatus.cycleCount || 0}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-steel/50">Executions</span>
-                    <span className="font-mono text-emerald-soft/70">{displayStatus.totalExecutions || 0}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-steel/50">Blocked</span>
-                    <span className="font-mono text-amber-warn/70">{displayStatus.totalBlocked || 0}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-steel/50">Skipped (hold)</span>
-                    <span className="font-mono text-steel/50">{displayStatus.totalSkipped || 0}</span>
-                  </div>
-                  {showDemoExperience && !orchStatus && (
-                    <div className="rounded-md border border-gold/15 bg-gold/5 px-2.5 py-2 text-[10px] text-gold/70">
-                      Demo status is preloaded so the product still feels alive before the backend is online.
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] px-4 py-5">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Cpu className="w-4 h-4 text-steel/35" />
-                    <span className="text-sm font-display font-semibold text-white">Orchestrator offline</span>
-                  </div>
-                  <p className="text-[11px] text-steel/50 leading-relaxed mb-3">
-                    The contracts are live, but backend telemetry is not currently connected. Once the orchestrator is online,
-                    this card will expose cycle counts, signal health, and execution stats automatically.
-                  </p>
-                  <div className="grid gap-2 text-[10px] font-mono text-steel/40">
-                    <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-3 py-2">Endpoint: {ORCHESTRATOR_URL || 'VITE_ORCHESTRATOR_URL not set'}</div>
-                    <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-3 py-2">Expected: vault executor matches orchestrator wallet</div>
-                  </div>
-                </div>
-              )}
-            </GlassPanel>
-          </div>
-
           {showDemoExperience && (
             <div>
               <SectionLabel color="text-gold/50">Why This Wins</SectionLabel>
@@ -832,24 +933,146 @@ export default function DashboardPage() {
             </div>
           )}
 
-          <div>
-            <SectionLabel color="text-steel/40">Quick Access</SectionLabel>
-            <div className="space-y-1.5">
-              {quickAccessItems.map((item) => (
-                <Link key={item.label} to={item.to}>
-                  <GlassPanel className="px-4 py-2.5 flex items-center gap-3 group" hover>
-                    <item.icon className={`w-3.5 h-3.5 ${item.color}`} />
-                    <div className="flex-1">
-                      <span className="text-xs text-white/70 font-medium">{item.label}</span>
-                      <span className="text-[10px] text-steel/30 ml-2">{item.desc}</span>
-                    </div>
-                    <ArrowRight className="w-3 h-3 text-steel/15 group-hover:text-steel/40 transition-colors" />
-                  </GlassPanel>
-                </Link>
-              ))}
-            </div>
-          </div>
         </div>
+      </div>
+
+      <OperatorStrip operators={activeMarketplaceOps} tiersByAddress={tiersByAddress} />
+    </div>
+  );
+}
+
+// Editorial operator leaderboard — top 5 ranked by stake × reputation proxy.
+// Takes the live operator list + tier/stake data the dashboard already has
+// in scope. Hidden when the registry is empty so we don't show a bare shell.
+function OperatorStrip({ operators = [], tiersByAddress = {} }) {
+  if (!operators || operators.length === 0) return null;
+
+  const ranked = operators
+    .map((op) => {
+      const tierData = tiersByAddress[op.wallet?.toLowerCase()] || {};
+      const stake = Number(tierData.stakedAmount || 0);
+      const tier = Number(tierData.tier || 0);
+      // Use declared performance fee as a reputation proxy when no on-chain
+      // reputation index is queried here. Lower fees rank higher.
+      const feeInv = 10000 - (Number(op.performanceFeeBps) || 0);
+      const score = stake * (1 + tier) + feeInv;
+      return { op, tier, stake, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+
+  const tones = [
+    'var(--ed-gold)',
+    'var(--ed-cyan)',
+    'var(--ed-emerald)',
+    'var(--ed-steel-300)',
+    'var(--ed-amber)',
+  ];
+
+  const cols = ranked.length;
+
+  return (
+    <div className="ed-card overflow-hidden mt-8">
+      <div className="flex items-end justify-between px-6 pt-5 pb-4">
+        <div>
+          <div className="flex items-baseline gap-3.5 mb-2">
+            <span className="ed-eyebrow">§ A.08</span>
+            <span
+              className="ed-mono text-[10.5px] tracking-[0.22em] uppercase"
+              style={{ color: 'var(--ed-steel-400)' }}
+            >
+              Operator leaderboard
+            </span>
+          </div>
+          <h3
+            className="ed-display"
+            style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}
+          >
+            Ranked by{' '}
+            <span className="ed-italic" style={{ color: 'var(--ed-gold)', fontWeight: 400 }}>
+              stake × reputation
+            </span>
+          </h3>
+        </div>
+        <Link to="/marketplace">
+          <ControlButton variant="secondary" size="sm">
+            View marketplace <ArrowRight className="w-3.5 h-3.5" />
+          </ControlButton>
+        </Link>
+      </div>
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: `repeat(${cols}, 1fr)`,
+          borderTop: '1px solid rgba(255,255,255,0.05)',
+        }}
+      >
+        {ranked.map(({ op, tier, stake }, i) => {
+          const tone = tones[i] || 'var(--ed-steel-300)';
+          const tierLabel = tier === 3 ? 'S' : tier === 2 ? 'A' : tier === 1 ? 'B' : '—';
+          const stakeLabel = stake > 0 ? `${(stake / 1000).toFixed(1)}K A0G` : '— A0G';
+          return (
+            <Link
+              key={op.wallet}
+              to={`/operator/${op.wallet}`}
+              style={{
+                padding: '22px 24px',
+                borderRight: i < cols - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                background: i === 0 ? 'rgba(201,168,76,0.02)' : 'transparent',
+                display: 'block',
+                transition: 'background 200ms var(--ed-ease-snappy)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.02)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background =
+                  i === 0 ? 'rgba(201,168,76,0.02)' : 'transparent';
+              }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span
+                  className="ed-mono text-[10px]"
+                  style={{ color: 'var(--ed-steel-500)', letterSpacing: '0.18em' }}
+                >
+                  #{i + 1}
+                </span>
+                {i === 0 ? (
+                  <span className="ed-chip ed-chip-gold">top</span>
+                ) : (
+                  <span className="ed-chip ed-chip-steel">tier {tierLabel}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2.5 mb-3">
+                <div
+                  className="flex items-center justify-center"
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 8,
+                    background: 'var(--ed-surface-2)',
+                    boxShadow: 'var(--ed-ghost-border)',
+                    color: tone,
+                  }}
+                >
+                  <Cpu className="w-3.5 h-3.5" />
+                </div>
+                <span
+                  className="ed-display truncate"
+                  style={{ fontSize: 14, fontWeight: 600, color: 'var(--ed-steel-50)' }}
+                >
+                  {op.name}
+                </span>
+              </div>
+              <MonoKV k="Staked" v={stakeLabel} color="var(--ed-steel-100)" />
+              <MonoKV k="Mandate" v={op.mandateLabel || '—'} color="var(--ed-cyan)" />
+              <MonoKV
+                k="Perf fee"
+                v={`${((op.performanceFeeBps || 0) / 100).toFixed(1)}%`}
+              />
+            </Link>
+          );
+        })}
       </div>
     </div>
   );

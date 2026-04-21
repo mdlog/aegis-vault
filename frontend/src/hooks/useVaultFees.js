@@ -1,10 +1,38 @@
 import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatUnits } from 'viem';
+import { toast } from 'sonner';
 import { AegisVaultABI } from '../lib/contracts.js';
 
 /**
  * Phase 1: Vault fee read & write hooks
+ *
+ * NOTE: the slim AegisVault (the build currently deployed on 0G mainnet)
+ * does NOT expose fee-management functions — no highWaterMark, no accrual,
+ * no HWM, no pendingFeeChange, no setNavCalculator, no claim/accrue/queue.
+ * The write hooks below are neutered to show a clear toast instead of
+ * submitting a tx that would revert. The read hooks fall through to wagmi,
+ * which returns undefined for missing functions (UI handles gracefully).
+ *
+ * When the full fee-bearing vault is deployed (e.g. on Arbitrum execution
+ * layer), re-wire these hooks to the real `writeContract` calls.
  */
+const SLIM_VAULT_UNSUPPORTED_MSG =
+  'Fee management requires the full vault build. Only available on the Arbitrum execution layer.';
+
+function unsupportedFeeHook(fnKey) {
+  const noop = () => {
+    toast.error('Fee control not available', { description: SLIM_VAULT_UNSUPPORTED_MSG });
+  };
+  const base = {
+    hash: undefined,
+    isPending: false,
+    isConfirming: false,
+    isSuccess: false,
+    error: null,
+    _unsupported: true,
+  };
+  return { [fnKey]: noop, ...base };
+}
 
 // ── Read: full fee state of a vault ──
 export function useVaultFeeState(vaultAddress, decimals = 6) {
@@ -104,104 +132,14 @@ export function useFeeConstants(vaultAddress) {
   };
 }
 
-// ── Write: claim accrued fees (operator only) ──
-export function useClaimFees() {
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+// ── Write hooks ── (slim vault does not expose fee functions; see header note)
 
-  const claim = (vaultAddress) => {
-    writeContract({
-      address: vaultAddress,
-      abi: AegisVaultABI,
-      functionName: 'claimFees',
-    });
-  };
-
-  return { claim, hash, isPending, isConfirming, isSuccess, error };
-}
-
-// ── Write: trigger fee accrual (anyone) ──
-export function useAccrueFees() {
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
-
-  const accrue = (vaultAddress) => {
-    writeContract({
-      address: vaultAddress,
-      abi: AegisVaultABI,
-      functionName: 'accrueFees',
-    });
-  };
-
-  return { accrue, hash, isPending, isConfirming, isSuccess, error };
-}
-
-// ── Write: queue fee change (owner only, 7-day cooldown) ──
-export function useQueueFeeChange() {
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
-
-  const queue = (vaultAddress, perfBps, mgmtBps, entryBps, exitBps) => {
-    writeContract({
-      address: vaultAddress,
-      abi: AegisVaultABI,
-      functionName: 'queueFeeChange',
-      args: [BigInt(perfBps), BigInt(mgmtBps), BigInt(entryBps), BigInt(exitBps)],
-    });
-  };
-
-  return { queue, hash, isPending, isConfirming, isSuccess, error };
-}
-
-// ── Write: apply queued fee change after cooldown ──
-export function useApplyFeeChange() {
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
-
-  const apply = (vaultAddress) => {
-    writeContract({
-      address: vaultAddress,
-      abi: AegisVaultABI,
-      functionName: 'applyFeeChange',
-    });
-  };
-
-  return { apply, hash, isPending, isConfirming, isSuccess, error };
-}
-
-// ── Write: set fee recipient (owner only) ──
-export function useSetFeeRecipient() {
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
-
-  const setRecipient = (vaultAddress, newRecipient) => {
-    writeContract({
-      address: vaultAddress,
-      abi: AegisVaultABI,
-      functionName: 'setFeeRecipient',
-      args: [newRecipient],
-    });
-  };
-
-  return { setRecipient, hash, isPending, isConfirming, isSuccess, error };
-}
-
-// ── Write: set NAV calculator (owner only) ──
-export function useSetNavCalculator() {
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
-
-  const setCalculator = (vaultAddress, calculatorAddress) => {
-    writeContract({
-      address: vaultAddress,
-      abi: AegisVaultABI,
-      functionName: 'setNavCalculator',
-      args: [calculatorAddress],
-    });
-  };
-
-  return { setCalculator, hash, isPending, isConfirming, isSuccess, error };
-}
+export function useClaimFees()       { return unsupportedFeeHook('claim'); }
+export function useAccrueFees()      { return unsupportedFeeHook('accrue'); }
+export function useQueueFeeChange()  { return unsupportedFeeHook('queue'); }
+export function useApplyFeeChange()  { return unsupportedFeeHook('apply'); }
+export function useSetFeeRecipient() { return unsupportedFeeHook('setRecipient'); }
+export function useSetNavCalculator(){ return unsupportedFeeHook('setCalculator'); }
 
 // ── Helpers ──
 

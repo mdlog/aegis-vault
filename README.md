@@ -8,7 +8,8 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Track-2%20Agentic%20Trading%20Arena-blueviolet?style=for-the-badge" alt="Track 2" />
-  <img src="https://img.shields.io/badge/0G_Mainnet-Aristotle_16661-orange?style=for-the-badge" alt="0G Mainnet" />
+  <img src="https://img.shields.io/badge/0G_Mainnet-Jaine_real_venue-cyan?style=for-the-badge" alt="0G Mainnet" />
+  <img src="https://img.shields.io/badge/Arbitrum-Uniswap_V3_real_venue-gold?style=for-the-badge" alt="Arbitrum" />
   <img src="https://img.shields.io/badge/Tests-28%20passing%20(slim%20build)-brightgreen?style=for-the-badge" alt="Tests" />
 </p>
 
@@ -23,7 +24,7 @@
   <img src="https://img.shields.io/badge/OpenZeppelin-4E5EE4?style=for-the-badge&logo=openzeppelin&logoColor=white" alt="OpenZeppelin" />
 </p>
 
-> AI-managed, risk-controlled trading vault on 0G — with **sealed strategy mode, TEE attestation, EIP-712 typed data, operator economics, skin-in-the-game staking, on-chain reputation, and multi-sig governance**. Users deposit, pick an operator from the marketplace, and let on-chain rules enforce every action. The AI proposes. The contract enforces. Every fee, slash, and rating is auditable. In sealed mode, strategy parameters never leave the TEE.
+> AI-managed, risk-controlled trading vault — **dual-chain real execution**: Jaine (Uniswap V3 fork on 0G mainnet) AND Uniswap V3 on Arbitrum. Features sealed strategy mode, TEE attestation, EIP-712 typed data, operator economics, skin-in-the-game staking, on-chain reputation, and multi-sig governance. Users deposit, pick an operator from the marketplace, and let on-chain rules enforce every action. The AI proposes. The contract enforces. Every fee, slash, and rating is auditable. In sealed mode, strategy parameters never leave the TEE.
 
 ---
 
@@ -146,11 +147,12 @@ Slashing: up to 50% of stake per governance action. Slashed funds flow to the in
 
 | Layer | What It Does |
 |---|---|
-| **0G Chain — Aristotle mainnet (16661)** | Full Track 2 stack deployed: 3 external libraries (SealedLib + ExecLib + IOLib) + slim vault + EIP-1167 factory + Phase 1-5 stack. Factory: `0xE03336e792F061f9fDEbd2B62ce9324f4868a683` |
-| **0G Compute** | Real AI inference via `GLM-5-FP8` — decentralized verifiable reasoning + structured JSON output; response hashed as `attestationReportHash` |
-| **0G Storage** | KV state snapshots + blob upload — decision journal, execution reports, strategy memory; hydrated on orchestrator restart |
-| **Pyth Network** | Multi-asset NAV oracle for BTC/ETH/USDC; live on 0G mainnet (`0x2880ab155794e7179c9ee2e38200202908c17b43`) |
-| **Jaine DEX** | Uniswap V3 fork on 0G mainnet; `JaineVenueAdapter` deployed; MockDEX used for demo while Jaine pools fill |
+| **0G Chain — Aristotle mainnet (16661)** | Full Track 2 stack live + real execution via Jaine. 3 external libraries (SealedLib/ExecLib/IOLib) + slim vault + EIP-1167 factory + OperatorRegistry v2 + Staking + Reputation + Governor + Treasury + Insurance + JaineVenueAdapter + Pyth NAV. Factory: `0x7D0D6c77e2C3476Aa310DE192A774164c3f55151` |
+| **0G Compute** | Real AI inference via `GLM-5-FP8` — decentralized verifiable reasoning + structured JSON output; response hashed as `attestationReportHash`. 6 chatbot services live, provider `0xd9966e13a6026Fcca4b13E7ff95c94DE268C471C` selected |
+| **0G Storage** | KV state snapshots + blob upload — decision journal, execution reports, strategy memory; falls back to local JSON during hackathon window per [honest disclosure](HACKATHON_SUBMISSION.md#honest-disclosures) |
+| **Jaine DEX** | Uniswap V3 fork on 0G mainnet — **ACTIVE real liquidity**. USDC.e/W0G ~$360K TVL, WETH/W0G ~$278K, WBTC/W0G ~$189K plus cbBTC + st0G pairs. `JaineVenueAdapter`: `0x3d5fe23DE2F0B1aCBde70395C7787DEC79413D92` |
+| **Pyth Network** | Multi-asset NAV oracle for BTC/ETH/USDC; live on both chains. 0G: `0x2880ab155794e7179c9ee2e38200202908c17b43`, Arbitrum: `0xff1a0f4744e8582DF1aE09D5611b887B6a12925C` |
+| **Arbitrum One (42161)** | Execution-layer sibling deployment for deeper DeFi liquidity. Uniswap V3 via UniswapV3VenueAdapter (canonical USDC/WETH/WBTC). Factory: `0x49354460eAdE1C2E786E36B3B3e7A18Fb4283C45`. Cross-chain safe via EIP-712 `block.chainid` domain separator |
 
 ---
 
@@ -260,27 +262,51 @@ Steps 1-4 same, steps 6-7 skipped, `executeIntent()` skips attestation branch.
 | `VaultNAVCalculator` | — | Pyth-backed multi-asset NAV pricing |
 | `JaineVenueAdapter` | — | Uniswap V3 fork router (Jaine mainnet DEX) |
 
-**Deployed on 0G Aristotle mainnet (chain 16661) — full Track 2 sealed mode:**
+**Deployed on 0G Aristotle mainnet (chain 16661) — fresh deploy 2026-04-21, real Jaine venue:**
 
 | Contract | Address |
 |---|---|
-| SealedLib | `0xe8AaB350495bBFf3868f89681eBC36814cB64D61` |
-| ExecLib | `0x2e29a14dDbDa85760a765A775B41B69Aca60bAA7` |
-| IOLib | `0xa49b7898bfd5eEaC9C0fA748c2309e23a8e876Dd` |
-| AegisVault impl | `0x4720686cCC199fD645B824F8d0A037c44Bc8336A` |
-| AegisVaultFactory | `0xE03336e792F061f9fDEbd2B62ce9324f4868a683` |
-| ExecutionRegistry | `0xa8b9807038c855737cc300dD9D9da4377570bE93` |
-| MockDEX | `0x54BD07427d344373da0c8EA13fa13c2B75916b16` |
-| MockUSDC | `0x6f66f804ECf406587343aF976c6f38c3395d6cDa` |
+| AegisVaultFactory | `0x7D0D6c77e2C3476Aa310DE192A774164c3f55151` |
+| AegisVault impl | `0xF7A9f61eF536C4B21e3336e2178A817D06CE1A91` |
+| ExecutionRegistry | `0x8489306Bdf106cb0e5485486C30EF223D9888c74` |
+| SealedLib | `0x2732878473489f427B795ba7C38B6B9491049b7e` |
+| ExecLib | `0x64729eB3De843d62e6850fCc0d457b34366CcF7f` |
+| IOLib | `0x6350dF660C66a861Fa5dE897e9933c3868e0Bd7a` |
+| OperatorRegistry v2 | `0x4C6e88812101C346974c7E48c1587D6Cd3B2C2A9` |
+| OperatorStaking (USDC.e stake) | `0xbb73584d07dBFcA69FB2d3032F28d7E059D3E2E7` |
+| OperatorReputation | `0xa55c04E1688fFbea734044775834C2F66a2EE8F2` |
+| AegisGovernor | `0xf3Ffa341950d807bF2177D1dD7C76db993b12a89` |
+| InsurancePool | `0xdEA7542458b229aD35CC1F06746824fd31bcB4e2` |
+| ProtocolTreasury | `0xb71d34Bc3DE959f5681d28c2496f754664b925c5` |
+| **JaineVenueAdapter (ACTIVE)** | `0x3d5fe23DE2F0B1aCBde70395C7787DEC79413D92` |
+| VaultNAVCalculator | `0xFC7b533b3Aa3f4AecFB8aec49cB816E6095cD97A` |
+| USDC.e (Jaine canonical) | `0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E` |
+| WETH (Jaine canonical) | `0x564770837Ef8bbF077cFe54E5f6106538c815B22` |
+| WBTC (Jaine canonical) | `0x0555E30da8f98308EdB960aa94C0Db47230d2B9c` |
+| W0G (wrapped native) | `0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c` |
 | Pyth oracle | `0x2880ab155794e7179c9ee2e38200202908c17b43` |
+
+**Deployed on Arbitrum One (chain 42161) — execution layer:**
+
+| Contract | Address |
+|---|---|
+| AegisVaultFactory | `0x49354460eAdE1C2E786E36B3B3e7A18Fb4283C45` |
+| AegisVault impl | `0x9047E26eE93F68732eF614D0636b15bD493A3d0b` |
+| UniswapV3VenueAdapter | `0xB3f6611Dd1d76d20d3BF47C7173310F9e606FAb1` |
+| VaultNAVCalculator | `0x0F8B269368925Fd55C62560B6f818173A8cB25eD` |
+| Uniswap V3 Router (canonical) | `0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45` |
 
 **Verified on-chain executions:**
 
-| Flow | Transaction | Description |
-|---|---|---|
-| Sealed commit | [`0x081c8053...`](https://chainscan.0g.ai/tx/0x081c80537a10fce866a57e3e6ff74fc9c63127bf31de25d6011cacc80d5c5442) | `commitIntent(commitHash)` — sealed mode step 1 |
-| Sealed reveal | [`0x039242e7...`](https://chainscan.0g.ai/tx/0x039242e7a5595fb8b715946804e8ca6a53eeb29731a7661e6437a94b34e44365) | `executeIntent(intent, sig)` — commit-reveal + ECDSA verify |
-| Organic AI SELL | [`0x96b3e454...`](https://chainscan.0g.ai/tx/0x96b3e45435156849ee38c8a94c72ab3582a1abba1fa7cbf5d06374777e102a26) | Orchestrator cycle #848 — GLM-5-FP8 inference, confidence 62%, regime RANGE_NOISY |
+| Flow | Chain | Transaction | Description |
+|---|---|---|---|
+| Sealed commit (historical) | 0G | [`0x081c8053...`](https://chainscan.0g.ai/tx/0x081c80537a10fce866a57e3e6ff74fc9c63127bf31de25d6011cacc80d5c5442) | `commitIntent(commitHash)` — sealed mode step 1 (prior MockDEX deploy) |
+| Sealed reveal (historical) | 0G | [`0x039242e7...`](https://chainscan.0g.ai/tx/0x039242e7a5595fb8b715946804e8ca6a53eeb29731a7661e6437a94b34e44365) | `executeIntent(intent, sig)` — commit-reveal + ECDSA verify |
+| Organic AI SELL (historical) | 0G | [`0x96b3e454...`](https://chainscan.0g.ai/tx/0x96b3e45435156849ee38c8a94c72ab3582a1abba1fa7cbf5d06374777e102a26) | Orchestrator cycle #848 — GLM-5-FP8 inference, confidence 62%, regime RANGE_NOISY |
+| Operator register (current) | 0G | [`0x28766ddc...`](https://chainscan.0g.ai/tx/0x28766ddce2d1e1f47d9094010d64eb78cc8631e9e0158d5369daa0ac591d5c4b) | `OperatorRegistry.register()` — Aegis Alpha bot (fresh deploy) |
+| First vault on Jaine real venue | 0G | Vault `0xAEDAc17B531d55b8Ac587691922DEAec6C273181` | Sealed-mode vault, 1 USDC.e deposit, allowed assets [USDC.e/WETH/WBTC], attested signer = operator |
+
+**First real Jaine swap via vault** — populated here after the orchestrator cycle completes against the new vault.
 
 **Security invariants:**
 - AI has **zero authority** — can only propose intents; vault enforces every rule
@@ -420,7 +446,7 @@ STRICT_MODE=true npm start
         │   ├── OperatorMarketplacePage
         │   ├── OperatorProfilePage, OperatorRegisterPage
         │   ├── GovernancePage
-        │   └── FaucetPage               Mint mock tokens (mUSDC, mWBTC, mWETH) for testing
+        │   └── FaucetPage               Info panel (mainnet) / mint mock tokens (testnet only)
         └── hooks/
             ├── useVault.js
             ├── useVaultFees.js

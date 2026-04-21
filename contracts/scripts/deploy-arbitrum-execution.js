@@ -5,7 +5,10 @@
  *
  * Deploys:
  *   - ExecutionRegistry        replay guard + intent history
- *   - AegisVaultFactory        clones AegisVault per user
+ *   - SealedLib / ExecLib /
+ *     IOLib                    3 external libraries DELEGATECALL'd by vault
+ *   - AegisVault (impl)        linked clone template for the factory
+ *   - AegisVaultFactory        EIP-1167 clones AegisVault per user
  *   - UniswapV3VenueAdapter    real DEX execution via Uniswap V3 SwapRouter02
  *   - VaultNAVCalculator       Pyth-priced multi-asset NAV
  *
@@ -116,10 +119,51 @@ async function main() {
   deployments.executionRegistry = await execRegistry.getAddress();
   console.log("      →", deployments.executionRegistry);
 
-  // ─── 2: AegisVaultFactory ───
-  console.log("[2/4] AegisVaultFactory...");
+  // ─── 2: Vault libraries + implementation ───
+  // Arbitrum's block gas is plentiful so libraries aren't strictly required,
+  // but keeping them matches the 0G build 1:1 so intent-hash parity is
+  // guaranteed (same bytecode, same domain separator semantics).
+  console.log("[2a/4] SealedLib...");
+  const SealedLib = await ethers.getContractFactory("SealedLib");
+  const sealedLib = await SealedLib.deploy();
+  await sealedLib.waitForDeployment();
+  deployments.sealedLibrary = await sealedLib.getAddress();
+  console.log("      →", deployments.sealedLibrary);
+
+  console.log("[2b/4] ExecLib...");
+  const ExecLib = await ethers.getContractFactory("ExecLib");
+  const execLib = await ExecLib.deploy();
+  await execLib.waitForDeployment();
+  deployments.execLibrary = await execLib.getAddress();
+  console.log("      →", deployments.execLibrary);
+
+  console.log("[2c/4] IOLib...");
+  const IOLib = await ethers.getContractFactory("IOLib");
+  const ioLib = await IOLib.deploy();
+  await ioLib.waitForDeployment();
+  deployments.ioLibrary = await ioLib.getAddress();
+  console.log("      →", deployments.ioLibrary);
+
+  console.log("[2d/4] AegisVault implementation (linked clone template)...");
+  const VaultImpl = await ethers.getContractFactory("AegisVault", {
+    libraries: {
+      SealedLib: deployments.sealedLibrary,
+      ExecLib:   deployments.execLibrary,
+      IOLib:     deployments.ioLibrary,
+    },
+  });
+  const vaultImpl = await VaultImpl.deploy();
+  await vaultImpl.waitForDeployment();
+  deployments.aegisVaultImplementation = await vaultImpl.getAddress();
+  console.log("      →", deployments.aegisVaultImplementation);
+
+  console.log("[2e/4] AegisVaultFactory (EIP-1167 clone factory)...");
   const Factory = await ethers.getContractFactory("AegisVaultFactory");
-  const factory = await Factory.deploy(deployments.executionRegistry, treasuryAddress);
+  const factory = await Factory.deploy(
+    deployments.aegisVaultImplementation,
+    deployments.executionRegistry,
+    treasuryAddress
+  );
   await factory.waitForDeployment();
   deployments.aegisVaultFactory = await factory.getAddress();
   console.log("      →", deployments.aegisVaultFactory);

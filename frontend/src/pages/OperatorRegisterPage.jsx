@@ -682,28 +682,33 @@ export default function OperatorRegisterPage() {
                       <label className="text-[10px] font-mono uppercase tracking-wider text-steel/40 block mb-1.5">
                         Model
                       </label>
-                      <select
+                      <input
+                        type="text"
+                        list="ai-model-suggestions"
                         value={aiModel}
                         onChange={(event) => {
-                          setAIModel(event.target.value);
-                          const model = availableModels?.models?.find((item) => item.model === event.target.value);
-                          if (model) {
-                            setAIProvider(model.provider);
-                            setAIEndpoint(model.url);
+                          const value = event.target.value;
+                          setAIModel(value);
+                          // If the typed/picked value matches a known model, auto-fill provider + endpoint
+                          const match = availableModels?.models?.find((item) => item.model === value);
+                          if (match) {
+                            setAIProvider(match.provider);
+                            setAIEndpoint(match.url);
                           }
                         }}
+                        placeholder="zai-org/GLM-5-FP8"
                         className="w-full px-3 py-2 rounded-md bg-obsidian/60 border border-white/[0.08] text-xs font-mono text-white"
-                      >
-                        <option value="">Select model</option>
+                      />
+                      <datalist id="ai-model-suggestions">
                         {availableModels?.models?.map((model) => (
                           <option key={`${model.model}-${model.provider}`} value={model.model}>
-                            {model.model} ({model.provider.slice(0, 10)}...)
+                            {model.provider.slice(0, 10)}…
                           </option>
                         ))}
-                      </select>
+                      </datalist>
                       {!availableModels?.models?.length && (
                         <p className="mt-1.5 text-[10px] text-amber-warn/60">
-                          Model list unavailable. Fill it manually if needed.
+                          Live model list unavailable (orchestrator offline). Type the model name manually — any string is accepted on-chain.
                         </p>
                       )}
                     </div>
@@ -1035,14 +1040,41 @@ function ConfirmRow({ label, value, valueClass = 'text-white/85', compact = fals
 function StepSection({ step, title, description, children }) {
   return (
     <section>
-      <div className="flex items-start gap-3 mb-4">
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-gold/20 bg-gold/10 text-[11px] font-mono text-gold">
-          {step}
+      <div className="flex items-start gap-3.5 mb-4">
+        <div
+          className="ed-italic flex-shrink-0"
+          style={{
+            fontSize: 40,
+            color: 'var(--ed-gold)',
+            lineHeight: 1,
+            width: 48,
+          }}
+        >
+          0{step}
         </div>
         <div>
-          <h2 className="text-lg font-display font-semibold text-white">{title}</h2>
+          <div className="flex items-baseline gap-3.5 mb-1">
+            <span className="ed-eyebrow">§ R.0{step}</span>
+            <span
+              className="ed-mono text-[10.5px] tracking-[0.22em] uppercase"
+              style={{ color: 'var(--ed-steel-400)' }}
+            >
+              Operator onboarding
+            </span>
+          </div>
+          <h2
+            className="ed-display"
+            style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', margin: 0, color: 'var(--ed-steel-50)' }}
+          >
+            {title}
+          </h2>
           {description && (
-            <p className="text-[12px] text-steel/50 mt-1">{description}</p>
+            <p
+              className="ed-italic mt-1.5"
+              style={{ fontSize: 13, color: 'var(--ed-steel-300)' }}
+            >
+              {description}
+            </p>
           )}
         </div>
       </div>

@@ -133,14 +133,22 @@ export default function OperatorMarketplacePage() {
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
       {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
+      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-display font-semibold text-white tracking-tight mb-1">
-            Operator Marketplace
+          <div className="flex items-baseline gap-3.5 mb-2">
+            <span className="ed-eyebrow">§ M.01</span>
+            <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
+              Operator marketplace
+            </span>
+          </div>
+          <h1
+            className="ed-display"
+            style={{ fontSize: 40, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+          >
+            The operators, <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>and their record.</span>
           </h1>
-          <p className="text-xs text-steel/50 max-w-2xl">
-            Browse AI agent operators registered on-chain. Pick an operator to manage your vault — they only execute
-            within your policy and can be replaced anytime. Funds stay in your vault.
+          <p className="text-[13px] mt-3 max-w-[680px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
+            Stake is skin. Reputation is history. Every operator here can be slashed — and every vault is free to replace them.
           </p>
         </div>
         <Link to="/operator/register">
@@ -195,46 +203,53 @@ export default function OperatorMarketplacePage() {
         </GlassPanel>
       )}
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <GlassPanel className="p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Users className="w-3.5 h-3.5 text-cyan/60" />
-            <span className="text-[10px] font-mono uppercase tracking-wider text-steel/50">Operators</span>
-          </div>
-          <div className="text-2xl font-display font-semibold text-white">{countLabel}</div>
-        </GlassPanel>
-        <GlassPanel className="p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-soft/60" />
-            <span className="text-[10px] font-mono uppercase tracking-wider text-steel/50">Active</span>
-          </div>
-          <div className="text-2xl font-display font-semibold text-emerald-soft">
-            {operatorSource.filter((o) => o.loaded && o.active).length}
-          </div>
-        </GlassPanel>
-        <GlassPanel className="p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Activity className="w-3.5 h-3.5 text-gold/60" />
-            <span className="text-[10px] font-mono uppercase tracking-wider text-steel/50">Strategies</span>
-          </div>
-          <div className="text-2xl font-display font-semibold text-gold">
-            {new Set(operatorSource.filter((o) => o.loaded).map((o) => o.mandateLabel)).size}
-          </div>
-        </GlassPanel>
-        <GlassPanel className="p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Cpu className="w-3.5 h-3.5 text-steel/60" />
-            <span className="text-[10px] font-mono uppercase tracking-wider text-steel/50">Registry</span>
-          </div>
-          <div className="text-[10px] font-mono text-white/50 break-all">
-            {useDemoOperators
-              ? 'Hackathon demo roster'
+      {/* Editorial summary strip — 4-col fortress stat grid */}
+      <div
+        className="grid gap-3 mb-6"
+        style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}
+      >
+        {[
+          { k: 'Operators', v: String(countLabel), c: 'var(--ed-steel-100)' },
+          {
+            k: 'Active',
+            v: String(operatorSource.filter((o) => o.loaded && o.active).length),
+            c: 'var(--ed-emerald)',
+          },
+          {
+            k: 'Mandates',
+            v: String(new Set(operatorSource.filter((o) => o.loaded).map((o) => o.mandateLabel)).size),
+            c: 'var(--ed-gold)',
+          },
+          {
+            k: 'Source',
+            v: useDemoOperators ? 'DEMO' : registryAddress ? 'LIVE' : 'OFFLINE',
+            c: useDemoOperators
+              ? 'var(--ed-gold)'
               : registryAddress
-                ? `${registryAddress.slice(0, 8)}...${registryAddress.slice(-6)}`
-                : 'Not deployed'}
+                ? 'var(--ed-cyan)'
+                : 'var(--ed-rose)',
+          },
+        ].map((x, i) => (
+          <div key={i} className="ed-card" style={{ padding: 20 }}>
+            <div
+              className="ed-mono mb-2"
+              style={{ fontSize: 10, color: 'var(--ed-steel-500)', letterSpacing: '0.2em' }}
+            >
+              {x.k.toUpperCase()}
+            </div>
+            <div
+              className="ed-display"
+              style={{
+                fontSize: 28,
+                color: x.c,
+                fontWeight: 600,
+                letterSpacing: '-0.03em',
+              }}
+            >
+              {x.v}
+            </div>
           </div>
-        </GlassPanel>
+        ))}
       </div>
 
       {/* Filters */}
@@ -344,6 +359,18 @@ export default function OperatorMarketplacePage() {
           </div>
         </div>
       </div>
+
+      {/* Editorial featured operator + staking tiers legend (2-col) */}
+      {filtered.length > 0 && (
+        <div className="grid gap-5 mb-6" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
+          <FeaturedOperatorCard
+            op={filtered[0]}
+            tier={tierSource[filtered[0].wallet?.toLowerCase()]}
+            reputation={reputationSource[filtered[0].wallet?.toLowerCase()]}
+          />
+          <StakingTiersPanel />
+        </div>
+      )}
 
       {/* Operator Grid */}
       {!registryConfigured && !useDemoOperators ? (
@@ -570,6 +597,254 @@ export default function OperatorMarketplacePage() {
           </div>
         </div>
       </GlassPanel>
+    </div>
+  );
+}
+
+// Editorial featured-operator card — highlighted top row in the marketplace.
+// Uses the actual filtered[0] operator so featured content is data-driven, not
+// hardcoded. Bio comes from the on-chain description field.
+function FeaturedOperatorCard({ op, tier, reputation }) {
+  if (!op) return null;
+  const tierLabel = tier?.tier === 3 ? 'S' : tier?.tier === 2 ? 'A' : tier?.tier === 1 ? 'B' : '—';
+  const handle = op.endpoint ? op.endpoint.replace(/^https?:\/\//, '').split('/')[0] : op.name;
+  const shortAddr = op.wallet ? `${op.wallet.slice(0, 8)}…${op.wallet.slice(-6)}` : '—';
+  const bio = op.description || 'No strategy description provided.';
+  const perfPct = ((op.performanceFeeBps || 0) / 100).toFixed(1);
+  const mgmtPct = ((op.managementFeeBps || 0) / 100).toFixed(1);
+  const repScore = reputation?.reputationScore ?? reputation?.score;
+  const totalExec = reputation?.totalExecutions ?? 0;
+  return (
+    <div
+      className="ed-card ed-ghost-gold relative overflow-hidden"
+      style={{ padding: 28 }}
+    >
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          top: 0,
+          right: 0,
+          width: 300,
+          height: 300,
+          backgroundImage:
+            'radial-gradient(circle at 100% 0%, rgba(201,168,76,0.10), transparent 60%)',
+        }}
+      />
+      <div className="relative">
+        <div className="flex items-center gap-2.5 mb-3">
+          <span className="ed-chip ed-chip-gold">FEATURED · TIER {tierLabel}</span>
+          <span
+            className="ed-mono text-[10px]"
+            style={{ color: 'var(--ed-steel-500)', letterSpacing: '0.14em' }}
+          >
+            RANK 01
+          </span>
+        </div>
+
+        <div className="grid items-start gap-5" style={{ gridTemplateColumns: 'auto 1fr' }}>
+          <div
+            className="flex items-center justify-center"
+            style={{
+              width: 80,
+              height: 80,
+              borderRadius: 16,
+              background: 'linear-gradient(135deg, var(--ed-surface-2), var(--ed-surface-1))',
+              boxShadow: 'var(--ed-ghost-border-gold)',
+              color: 'var(--ed-gold)',
+            }}
+          >
+            <Cpu className="w-9 h-9" />
+          </div>
+          <div className="min-w-0">
+            <h3
+              className="ed-display"
+              style={{ fontSize: 32, fontWeight: 600, letterSpacing: '-0.03em', margin: 0 }}
+            >
+              {op.name}
+            </h3>
+            <div className="flex gap-2.5 items-center flex-wrap mt-1.5">
+              <span className="ed-mono text-[12px]" style={{ color: 'var(--ed-cyan)' }}>
+                {handle}
+              </span>
+              <span style={{ color: 'var(--ed-steel-600)' }}>·</span>
+              <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>
+                {shortAddr}
+              </span>
+            </div>
+            <p
+              className="ed-italic mt-3.5"
+              style={{
+                fontSize: 14,
+                color: 'var(--ed-steel-200)',
+                lineHeight: 1.55,
+                margin: '14px 0 0',
+                maxWidth: 560,
+              }}
+            >
+              "{bio}"
+            </p>
+          </div>
+        </div>
+
+        <div className="ed-hairline my-5" />
+
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+          {[
+            { k: 'Mandate', v: op.mandateLabel || '—', c: 'var(--ed-gold)' },
+            { k: 'Perf fee', v: `${perfPct}%`, c: 'var(--ed-steel-100)' },
+            { k: 'Mgmt fee', v: `${mgmtPct}%`, c: 'var(--ed-steel-100)' },
+            {
+              k: repScore != null ? 'Reputation' : 'Actions',
+              v: repScore != null ? String(repScore) : String(totalExec),
+              c: 'var(--ed-emerald)',
+            },
+          ].map((x, i) => (
+            <div
+              key={i}
+              style={{ borderLeft: i ? '1px solid rgba(255,255,255,0.06)' : 'none', paddingLeft: i ? 18 : 0 }}
+            >
+              <div
+                className="ed-mono mb-1"
+                style={{ fontSize: 9.5, color: 'var(--ed-steel-500)', letterSpacing: '0.2em' }}
+              >
+                {x.k.toUpperCase()}
+              </div>
+              <div
+                className="ed-display"
+                style={{ fontSize: 20, color: x.c, fontWeight: 600, letterSpacing: '-0.02em' }}
+              >
+                {x.v}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2.5 mt-5">
+          <Link to={`/operator/${op.wallet}`}>
+            <ControlButton variant="gold">
+              View profile <ArrowRight className="w-3.5 h-3.5" />
+            </ControlButton>
+          </Link>
+          <Link to="/create">
+            <ControlButton variant="secondary">Assign to vault</ControlButton>
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Editorial stake-tiers panel — reference legend showing what each tier
+// entitles an operator to, and a short note on how slashing works. Sits next
+// to the featured operator card so vault owners see the floor requirement
+// alongside who's at the top of the leaderboard.
+function StakingTiersPanel() {
+  const tiers = [
+    {
+      t: 'S',
+      range: '≥ 50K A0G',
+      perks: 'Featured + sealed mode + governance vote',
+      color: 'var(--ed-gold)',
+      border: 'rgba(201,168,76,0.28)',
+    },
+    {
+      t: 'A',
+      range: '20K – 50K',
+      perks: 'Multi-vault assignments · slashing 20%',
+      color: 'var(--ed-cyan)',
+      border: 'rgba(255,255,255,0.08)',
+    },
+    {
+      t: 'B',
+      range: '5K – 20K',
+      perks: 'Single vault · review-tier signals',
+      color: 'var(--ed-emerald)',
+      border: 'rgba(255,255,255,0.08)',
+    },
+    {
+      t: 'C',
+      range: '< 5K',
+      perks: 'Shadow mode · no live assignment',
+      color: 'var(--ed-steel-300)',
+      border: 'rgba(255,255,255,0.08)',
+    },
+  ];
+  return (
+    <div className="ed-card p-6 flex flex-col">
+      <div className="flex items-baseline gap-3.5 mb-2">
+        <span className="ed-eyebrow">§ M.03</span>
+        <span
+          className="ed-mono text-[10.5px] tracking-[0.22em] uppercase"
+          style={{ color: 'var(--ed-steel-400)' }}
+        >
+          Stake tiers
+        </span>
+      </div>
+      <h3
+        className="ed-display mb-4"
+        style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}
+      >
+        Skin,{' '}
+        <span className="ed-italic" style={{ color: 'var(--ed-gold)', fontWeight: 400 }}>
+          in tiers
+        </span>
+      </h3>
+
+      <div className="mt-3">
+        {tiers.map((r, i) => (
+          <div
+            key={r.t}
+            className="grid items-center gap-3 py-3.5"
+            style={{
+              gridTemplateColumns: '38px 1fr auto',
+              borderTop: i ? '1px solid rgba(255,255,255,0.05)' : 'none',
+            }}
+          >
+            <div
+              className="flex items-center justify-center"
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                background: 'var(--ed-surface-2)',
+                boxShadow: `inset 0 0 0 1px ${r.border}`,
+                color: r.color,
+              }}
+            >
+              <span className="ed-mono text-[13px] font-bold">{r.t}</span>
+            </div>
+            <div>
+              <div className="text-[12.5px]" style={{ color: 'var(--ed-steel-100)' }}>
+                {r.perks}
+              </div>
+              <div
+                className="ed-mono text-[10px] mt-0.5"
+                style={{ color: 'var(--ed-steel-500)' }}
+              >
+                {r.range}
+              </div>
+            </div>
+            <ArrowRight className="w-3.5 h-3.5" color="var(--ed-steel-500)" />
+          </div>
+        ))}
+      </div>
+
+      <div className="flex-1" />
+      <div
+        className="ed-ghost-gold mt-4 p-3.5"
+        style={{ background: 'var(--ed-obsidian-dim)', borderRadius: 10 }}
+      >
+        <div
+          className="ed-mono mb-1.5"
+          style={{ fontSize: 10, color: 'var(--ed-gold)', letterSpacing: '0.18em' }}
+        >
+          SLASHING
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--ed-steel-300)', lineHeight: 1.5, margin: 0 }}>
+          Misbehavior forfeits 10–50% of stake. Treasury claim goes to the affected vault first,
+          then to the insurance tranche.
+        </p>
+      </div>
     </div>
   );
 }

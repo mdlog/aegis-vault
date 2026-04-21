@@ -18,6 +18,7 @@ import {
 } from '../hooks/useOperatorStaking';
 import { demoOperatorTiers, demoOperators } from '../data/demoContent';
 import { ENABLE_DEMO_FALLBACKS, getDeployments } from '../lib/contracts';
+import { resolveVenueAddress, getChainProfile, requiresDemoDisclaimer } from '../lib/chainConfig';
 import { parseTxError } from '../lib/txErrors';
 import { useDraftState } from '../lib/useDraftState';
 import TokenIcon from '../components/ui/TokenIcon';
@@ -434,6 +435,22 @@ export default function CreateVaultPage() {
       return deployments.mockUSDC;
     }).filter(Boolean);
     const baseAssetAddr = deployments[selectedBaseAsset.depKey];
+
+    // Chain-aware venue resolution — on Arbitrum this resolves to the deployed
+    // UniswapV3VenueAdapter; on 0G mainnet to MockDEX (demo). We refuse to deploy
+    // if the venue is not configured, rather than silently creating a vault
+    // bound to address(0) that can never execute a swap.
+    const venueAddr = resolveVenueAddress(chainId);
+    if (!venueAddr) {
+      const profile = getChainProfile(chainId);
+      toast.error('Venue not configured for this chain', {
+        description: profile
+          ? `${profile.label} has no ${profile.venueName} address in the deployments map. Run sync-frontend after deploy.`
+          : `Chain ${chainId} is not supported by Aegis.`,
+      });
+      return;
+    }
+
     // Freeze every value subsequent phases need.
     deploySnapshotRef.current = {
       tokenAddr: baseAssetAddr,
@@ -448,7 +465,7 @@ export default function CreateVaultPage() {
     createVault(
       baseAssetAddr,
       resolvedExecutor,
-      deployments.mockDEX,
+      venueAddr,
       policyStruct,
       assetAddrs,
     );
@@ -647,11 +664,19 @@ export default function CreateVaultPage() {
           {currentStep.key === 'deposit' && (
             <div>
               <div className="mb-6 pb-5 border-b border-white/[0.04]">
-                <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-gold/70 mb-2">Step 01 · Deposit</div>
-                <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white tracking-tight mb-2">
-                  Fund your vault
+                <div className="flex items-baseline gap-3.5 mb-2">
+                  <span className="ed-eyebrow">§ C.01</span>
+                  <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
+                    Deposit
+                  </span>
+                </div>
+                <h2
+                  className="ed-display"
+                  style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+                >
+                  Fund your <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>vault.</span>
                 </h2>
-                <p className="text-sm text-steel/60 max-w-xl">
+                <p className="text-[13px] mt-3 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
                   Specify the initial deposit amount. Your capital remains under smart contract custody.
                 </p>
               </div>
@@ -806,11 +831,19 @@ export default function CreateVaultPage() {
           {currentStep.key === 'risk' && (
             <div>
               <div className="mb-6 pb-5 border-b border-white/[0.04]">
-                <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-gold/70 mb-2">Step 02 · Risk Profile</div>
-                <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white tracking-tight mb-2">
-                  Choose your risk mandate
+                <div className="flex items-baseline gap-3.5 mb-2">
+                  <span className="ed-eyebrow">§ C.02</span>
+                  <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
+                    Risk profile
+                  </span>
+                </div>
+                <h2
+                  className="ed-display"
+                  style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+                >
+                  Choose your risk <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>mandate.</span>
                 </h2>
-                <p className="text-sm text-steel/60 max-w-xl">
+                <p className="text-[13px] mt-3 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
                   This sets the baseline risk posture for your vault. You can fine-tune parameters in the next step.
                 </p>
               </div>
@@ -846,11 +879,19 @@ export default function CreateVaultPage() {
           {currentStep.key === 'policy' && (
             <div>
               <div className="mb-6 pb-5 border-b border-white/[0.04]">
-                <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-gold/70 mb-2">Step 03 · Policy</div>
-                <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white tracking-tight mb-2">
-                  Fine-tune guardrails
+                <div className="flex items-baseline gap-3.5 mb-2">
+                  <span className="ed-eyebrow">§ C.03</span>
+                  <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
+                    Policy
+                  </span>
+                </div>
+                <h2
+                  className="ed-display"
+                  style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+                >
+                  Fine-tune <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>guardrails.</span>
                 </h2>
-                <p className="text-sm text-steel/60 max-w-xl">
+                <p className="text-[13px] mt-3 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
                   Adjust the on-chain policy parameters. These constraints are enforced at the contract level.
                 </p>
               </div>
@@ -901,11 +942,19 @@ export default function CreateVaultPage() {
           {currentStep.key === 'assets' && (
             <div>
               <div className="mb-6 pb-5 border-b border-white/[0.04]">
-                <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-gold/70 mb-2">Step 04 · Assets</div>
-                <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white tracking-tight mb-2">
-                  Select allowed assets
+                <div className="flex items-baseline gap-3.5 mb-2">
+                  <span className="ed-eyebrow">§ C.04</span>
+                  <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
+                    Assets
+                  </span>
+                </div>
+                <h2
+                  className="ed-display"
+                  style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+                >
+                  Select <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>allowed</span> assets.
                 </h2>
-                <p className="text-sm text-steel/60 max-w-xl">
+                <p className="text-[13px] mt-3 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
                   The AI can only trade assets you explicitly authorize. This is enforced on-chain. At least one is required.
                 </p>
               </div>
@@ -954,11 +1003,19 @@ export default function CreateVaultPage() {
           {currentStep.key === 'sealed' && (
             <div>
               <div className="mb-6 pb-5 border-b border-white/[0.04]">
-                <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-gold/70 mb-2">Step 05 · Privacy</div>
-                <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white tracking-tight mb-2">
-                  Privacy & execution mode
+                <div className="flex items-baseline gap-3.5 mb-2">
+                  <span className="ed-eyebrow">§ C.05</span>
+                  <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
+                    Privacy
+                  </span>
+                </div>
+                <h2
+                  className="ed-display"
+                  style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+                >
+                  Privacy & <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>execution</span> mode.
                 </h2>
-                <p className="text-sm text-steel/60 max-w-xl">
+                <p className="text-[13px] mt-3 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
                   Choose whether to run in sealed strategy mode and enable autonomous execution.
                 </p>
               </div>
@@ -1076,11 +1133,19 @@ export default function CreateVaultPage() {
           {currentStep.key === 'review' && (
             <div>
               <div className="mb-6 pb-5 border-b border-white/[0.04]">
-                <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-gold/70 mb-2">Step 06 · Review</div>
-                <h2 className="text-2xl lg:text-3xl font-display font-semibold text-white tracking-tight mb-2">
-                  Review vault configuration
+                <div className="flex items-baseline gap-3.5 mb-2">
+                  <span className="ed-eyebrow">§ C.06</span>
+                  <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
+                    Review & seal
+                  </span>
+                </div>
+                <h2
+                  className="ed-display"
+                  style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+                >
+                  Review, <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>then seal.</span>
                 </h2>
-                <p className="text-sm text-steel/60 max-w-xl">
+                <p className="text-[13px] mt-3 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
                   Confirm your vault parameters before deployment. All policies will be enforced on-chain.
                 </p>
               </div>

@@ -33,12 +33,11 @@ import GlassPanel from '../components/ui/GlassPanel';
 import StatusPill from '../components/ui/StatusPill';
 import SectionLabel from '../components/ui/SectionLabel';
 import MetricCard from '../components/ui/MetricCard';
+import { BigNumeric } from '../components/editorial';
 import PolicyChip from '../components/ui/PolicyChip';
 import ControlButton from '../components/ui/ControlButton';
 import ExplorerAnchor from '../components/ui/ExplorerAnchor';
-import NavChart from '../components/charts/NavChart';
-import DrawdownChart from '../components/charts/DrawdownChart';
-import PnLChart from '../components/charts/PnLChart';
+import PerformanceChart from '../components/charts/PerformanceChart';
 import TEEAttestationPanel from '../components/vault/TEEAttestationPanel';
 import DashboardShield from '../components/dashboard/DashboardShield';
 import TokenIcon from '../components/ui/TokenIcon';
@@ -46,7 +45,7 @@ import {
   Shield, TrendingUp, TrendingDown, Activity, Clock, Target,
   AlertTriangle, Lock, Zap, Layers, Eye, Cpu,
   PauseCircle, PlayCircle, Settings, ArrowDownToLine, ArrowUpToLine, Download,
-  CheckCircle, XCircle, Info, DollarSign, Percent, Wallet, Hourglass
+  CheckCircle, XCircle, Info, DollarSign, Percent, Wallet, Hourglass, ExternalLink
 } from 'lucide-react';
 
 function formatTime(ts) {
@@ -194,10 +193,9 @@ export default function VaultDetailPage() {
     riskLevel = riskScore < 30 ? 'Low' : riskScore < 60 ? 'Moderate' : riskScore < 80 ? 'Elevated' : 'Critical';
   }
 
-  // ── Sharpe / Max Drawdown ──
+  // ── Sharpe ──
   // Requires historical NAV time-series. Display "—" until 0G Storage backend lands.
   const sharpeRatio = null;
-  const maxDrawdown = null;
 
   // Policy — must be live; show neutral defaults that render as "—" if missing
   const pol = effectivePolicy || {
@@ -217,18 +215,33 @@ export default function VaultDetailPage() {
       : pol.maxPositionPct <= 30 ? 'Defensive'
       : pol.maxPositionPct <= 50 ? 'Balanced'
       : 'Tactical';
-  // Derive NAV history from cycle journal entries (each cycle records vault NAV)
+  // Derive NAV history from cycle journal entries (each cycle records vault NAV).
+  // For each point we emit a compact `date` string for the x-axis tick and a
+  // `fullLabel` for the tooltip — so the axis stays readable even with many
+  // points, and the tooltip still shows precise date + time.
   const derivedNavHistory = (journalData || [])
     .filter(e => e.type === 'cycle' && Array.isArray(e.vaultResults))
     .flatMap(e => {
       const r = e.vaultResults.find(v => v.vault?.toLowerCase() === vaultAddr?.toLowerCase());
       if (!r || !r.vaultState?.nav) return [];
       const t = new Date(e.timestamp);
-      const date = Number.isNaN(t.getTime())
-        ? String(e.timestamp)
-        : t.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      let date;
+      let fullLabel;
+      if (Number.isNaN(t.getTime())) {
+        date = String(e.timestamp);
+        fullLabel = String(e.timestamp);
+      } else {
+        date = t.toLocaleString(undefined, { month: 'short', day: 'numeric' });
+        fullLabel = t.toLocaleString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      }
       return [{
         date,
+        fullLabel,
         timestamp: e.timestamp,
         nav: parseFloat(r.vaultState.nav) || 0,
       }];
@@ -243,7 +256,7 @@ export default function VaultDetailPage() {
     return derivedNavHistory.map((p) => {
       if (p.nav > peak) peak = p.nav;
       const dd = peak > 0 ? ((p.nav - peak) / peak) * 100 : 0;
-      return { date: p.date, dd: Math.min(0, dd) };
+      return { date: p.date, fullLabel: p.fullLabel, dd: Math.min(0, dd) };
     });
   })();
   const drawdownHistoryData = showDemoVault ? demoDrawdownHistory : derivedDrawdownHistory;
@@ -255,6 +268,7 @@ export default function VaultDetailPage() {
     const pnl = p.nav - totalDeposited;
     return {
       date: p.date,
+      fullLabel: p.fullLabel,
       pnl,
       pnlPos: pnl >= 0 ? pnl : 0,
       pnlNeg: pnl < 0 ? pnl : 0,
@@ -263,7 +277,7 @@ export default function VaultDetailPage() {
   const demoPnLHistory = showDemoVault
     ? demoNavHistory.map((p) => {
         const pnl = p.nav - demoVault.deposited;
-        return { date: p.date, pnl, pnlPos: pnl >= 0 ? pnl : 0, pnlNeg: pnl < 0 ? pnl : 0 };
+        return { date: p.date, fullLabel: p.fullLabel || p.date, pnl, pnlPos: pnl >= 0 ? pnl : 0, pnlNeg: pnl < 0 ? pnl : 0 };
       })
     : [];
   const pnlHistoryData = showDemoVault ? demoPnLHistory : derivedPnLHistory;
@@ -402,10 +416,21 @@ export default function VaultDetailPage() {
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
       {/* ── Header ── */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8">
+      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-8">
         <div>
-          <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-2xl font-display font-semibold text-white tracking-tight">{vaultTitle}</h1>
+          <div className="flex items-baseline gap-3.5 mb-2">
+            <span className="ed-eyebrow">§ V.01</span>
+            <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
+              Vault file · {networkName}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 mb-2 flex-wrap">
+            <h1
+              className="ed-display"
+              style={{ fontSize: 36, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+            >
+              {vaultTitle}
+            </h1>
             <StatusPill label={isPaused ? 'Paused' : 'Active'} variant={isPaused ? 'paused' : 'active'} pulse={!isPaused} />
             {navData && <StatusPill label="Pyth NAV" variant="gold" />}
             {showDemoVault && <StatusPill label="Demo Data" variant="gold" />}
@@ -419,7 +444,6 @@ export default function VaultDetailPage() {
                 className="text-cyan/60 hover:text-cyan transition-colors"
               />
             )}
-            <span>{networkName}</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -531,89 +555,166 @@ export default function VaultDetailPage() {
         </GlassPanel>
       )}
 
-      {/* ── Vault Summary Row ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-8">
-        <MetricCard
-          label="Net Asset Value"
-          value={`$${nav.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-          subValue={navData ? 'Pyth Oracle' : 'Base asset only'}
-          accent="text-white"
-          icon={<Eye className="w-4 h-4" />}
-          className="col-span-2 lg:col-span-1"
-        />
-        <MetricCard
-          label="All-Time Return"
-          value={`${returnIsPositive ? '+' : ''}${allTimeReturnPct.toFixed(2)}%`}
-          subValue={`${returnIsPositive ? '+' : ''}$${Math.abs(allTimeReturnUsd).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-          accent={returnIsPositive ? 'text-emerald-soft' : 'text-red-warn'}
-          icon={returnIsPositive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-        />
-        <MetricCard
-          label="Risk Score"
-          value={riskScore}
-          subValue={riskLevel}
-          accent={riskScore < 30 ? 'text-emerald-soft' : riskScore < 60 ? 'text-amber-warn' : 'text-red-warn'}
-          icon={<Shield className="w-4 h-4" />}
-        />
-        <MetricCard
-          label="Executions"
-          value={executions}
-          subValue={`${dailyActions} today`}
-          accent="text-cyan"
-          icon={<Activity className="w-4 h-4" />}
-        />
-        <MetricCard
-          label="Sharpe Ratio"
-          value={sharpeRatio !== null ? sharpeRatio : '—'}
-          subValue={maxDrawdown !== null ? `Max DD: ${maxDrawdown}%` : 'Awaiting history'}
-          accent="text-white"
-          icon={<TrendingDown className="w-4 h-4" />}
-        />
+      {/* ── Vault Summary Slab (editorial) ── */}
+      <div className="ed-card overflow-hidden mb-8" style={{ borderRadius: 20 }}>
+        <div
+          className="grid"
+          style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', borderTop: 0 }}
+        >
+          <div
+            style={{
+              padding: 22,
+              borderRight: '1px solid rgba(255,255,255,0.05)',
+              background: 'linear-gradient(135deg, rgba(201,168,76,0.04), transparent)',
+            }}
+          >
+            <div
+              className="ed-mono mb-2.5"
+              style={{ fontSize: 10, color: 'var(--ed-gold)', letterSpacing: '0.2em' }}
+            >
+              NET ASSET VALUE
+            </div>
+            <BigNumeric
+              value={nav.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              prefix="$"
+            />
+            <div
+              className="ed-mono mt-2 text-[11px]"
+              style={{ color: returnIsPositive ? 'var(--ed-emerald)' : 'var(--ed-rose)' }}
+            >
+              {returnIsPositive ? '+' : ''}${Math.abs(allTimeReturnUsd).toLocaleString(undefined, { maximumFractionDigits: 0 })} / {returnIsPositive ? '+' : ''}{allTimeReturnPct.toFixed(2)}% · all-time
+            </div>
+          </div>
+          {[
+            {
+              k: 'Risk score',
+              v: String(riskScore),
+              c:
+                riskScore < 30
+                  ? 'var(--ed-emerald)'
+                  : riskScore < 60
+                    ? 'var(--ed-amber)'
+                    : 'var(--ed-rose)',
+            },
+            { k: 'Executions', v: String(executions), c: 'var(--ed-cyan)' },
+            { k: 'Actions · today', v: String(dailyActions), c: 'var(--ed-steel-100)' },
+            {
+              k: 'Sharpe',
+              v: sharpeRatio !== null ? String(sharpeRatio) : '—',
+              c: 'var(--ed-steel-100)',
+            },
+          ].map((x, i) => (
+            <div
+              key={i}
+              style={{
+                padding: 22,
+                borderRight: i < 3 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+              }}
+            >
+              <div
+                className="ed-mono mb-2.5"
+                style={{ fontSize: 10, color: 'var(--ed-steel-500)', letterSpacing: '0.2em' }}
+              >
+                {x.k.toUpperCase()}
+              </div>
+              <div
+                className="ed-display"
+                style={{
+                  fontSize: 30,
+                  fontWeight: 600,
+                  color: x.c,
+                  letterSpacing: '-0.03em',
+                  lineHeight: 1,
+                }}
+              >
+                {x.v}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ── Main Grid ── */}
       <div className="grid lg:grid-cols-3 gap-6 lg:gap-8">
         {/* Left 2/3 */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Performance chart */}
+          {/* Unified performance chart — NAV / PnL / Drawdown behind one toggle */}
           <div>
             <SectionLabel color="text-cyan/60">Performance</SectionLabel>
             <GlassPanel className="p-5">
               {!showDemoVault && navHistoryData.length === 0 && (
                 <div className="rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] px-4 py-3 mb-4">
                   <p className="text-[11px] text-steel/50 leading-relaxed">
-                    Historical NAV snapshots will appear here after the orchestrator stores recurring state updates for this vault.
+                    Historical snapshots populate as the orchestrator emits cycle updates. Switch between NAV, PnL, and
+                    drawdown once data lands.
                   </p>
                 </div>
               )}
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-4">
-                  <div>
-                    <span className="text-[9px] font-mono tracking-[0.1em] uppercase text-steel/40 block">Realized PnL</span>
-                    <span className={`text-sm font-display font-semibold ${pnlRealized >= 0 ? 'text-emerald-soft' : 'text-red-warn'}`}>
-                      {pnlRealized >= 0 ? '+' : ''}${Math.abs(pnlRealized).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] font-mono tracking-[0.1em] uppercase text-steel/40 block">Unrealized PnL</span>
-                    <span className={`text-sm font-display font-semibold ${pnlUnrealized >= 0 ? 'text-cyan' : 'text-red-warn'}`}>
-                      {pnlUnrealized >= 0 ? '+' : ''}${Math.abs(pnlUnrealized).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                    </span>
-                  </div>
+
+              {/* Compact stats row — 4 always-visible readouts */}
+              <div
+                className="grid gap-3 mb-4"
+                style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}
+              >
+                <div>
+                  <span className="text-[9px] font-mono tracking-[0.1em] uppercase text-steel/40 block">
+                    Realized PnL
+                  </span>
+                  <span
+                    className={`text-sm font-display font-semibold tabular-nums ${
+                      pnlRealized >= 0 ? 'text-emerald-soft' : 'text-red-warn'
+                    }`}
+                  >
+                    {pnlRealized >= 0 ? '+' : ''}$
+                    {Math.abs(pnlRealized).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[9px] font-mono tracking-[0.1em] uppercase text-steel/40 block">
+                    Unrealized PnL
+                  </span>
+                  <span
+                    className={`text-sm font-display font-semibold tabular-nums ${
+                      pnlUnrealized >= 0 ? 'text-cyan' : 'text-red-warn'
+                    }`}
+                  >
+                    {pnlUnrealized >= 0 ? '+' : ''}$
+                    {Math.abs(pnlUnrealized).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[9px] font-mono tracking-[0.1em] uppercase text-steel/40 block">
+                    Cumulative
+                  </span>
+                  <span
+                    className={`text-sm font-display font-semibold tabular-nums ${
+                      pnlRealized + pnlUnrealized >= 0 ? 'text-emerald-soft' : 'text-red-warn'
+                    }`}
+                  >
+                    {pnlRealized + pnlUnrealized >= 0 ? '+' : ''}$
+                    {Math.abs(pnlRealized + pnlUnrealized).toLocaleString(undefined, {
+                      maximumFractionDigits: 0,
+                    })}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[9px] font-mono tracking-[0.1em] uppercase text-steel/40 block">
+                    Cost basis
+                  </span>
+                  <span className="text-sm font-display font-semibold text-white/80 tabular-nums">
+                    $
+                    {totalDeposited.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
                 </div>
               </div>
-              <NavChart height={220} data={navHistoryData} emptyLabel="NAV history will appear after journal snapshots accumulate." />
-              <div className="mt-4 pt-3 border-t border-white/[0.04]">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[9px] font-mono tracking-[0.12em] uppercase text-steel/40">Cumulative PnL</span>
-                  <span className="text-[9px] font-mono text-steel/35">vs ${totalDeposited.toLocaleString(undefined, { maximumFractionDigits: 0 })} cost basis</span>
-                </div>
-                <PnLChart height={140} data={pnlHistoryData} emptyLabel="PnL history will appear after journal snapshots accumulate." />
-              </div>
-              <div className="mt-4 pt-3 border-t border-white/[0.04]">
-                <span className="text-[9px] font-mono tracking-[0.12em] uppercase text-steel/40 block mb-2">Drawdown</span>
-                <DrawdownChart height={100} data={drawdownHistoryData} emptyLabel="Drawdown history requires stored NAV snapshots." />
-              </div>
+
+              <PerformanceChart
+                height={260}
+                navData={navHistoryData}
+                pnlData={pnlHistoryData}
+                drawdownData={drawdownHistoryData}
+                defaultMetric="nav"
+              />
             </GlassPanel>
           </div>
 
@@ -665,6 +766,9 @@ export default function VaultDetailPage() {
               </div>
             </GlassPanel>
           </div>
+
+          {/* Editorial execution log — compact on-chain receipt table */}
+          <ExecutionLogTable rows={executionData} chainId={chainId} />
 
           {/* AI Reasoning Journal (REAL from orchestrator or mock) */}
           <div>
@@ -965,26 +1069,85 @@ export default function VaultDetailPage() {
             </div>
           )}
 
-          {/* Current Policy (REAL from chain or mock) */}
+          {/* Policy bounds — editorial fortress panel with progress bars */}
           <div>
-            <SectionLabel color="text-gold/60">Current Policy</SectionLabel>
-            <GlassPanel gold className="p-5">
+            <div className="flex items-baseline gap-3.5 mb-2.5">
+              <span className="ed-eyebrow">§ V.02</span>
+              <span
+                className="ed-mono text-[10.5px] tracking-[0.22em] uppercase"
+                style={{ color: 'var(--ed-steel-400)' }}
+              >
+                Policy contract
+              </span>
+            </div>
+            <h3
+              className="ed-display mb-2"
+              style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}
+            >
+              Policy{' '}
+              <span className="ed-italic" style={{ color: 'var(--ed-gold)', fontWeight: 400 }}>
+                bounds
+              </span>
+            </h3>
+            <div className="ed-card ed-ghost-gold p-6 mt-4">
               <div className="flex items-center gap-2 mb-4">
                 <Shield className="w-4 h-4 text-gold/60" />
-                <span className="text-xs font-display font-medium text-white/80">{mandateType} Mandate</span>
-                <StatusPill label={isPaused ? 'Paused' : 'Active'} variant={isPaused ? 'paused' : 'active'} pulse={!isPaused} />
+                <span className="text-xs font-display font-medium text-white/80">
+                  {mandateType} Mandate
+                </span>
+                <StatusPill
+                  label={isPaused ? 'Paused' : 'Active'}
+                  variant={isPaused ? 'paused' : 'active'}
+                  pulse={!isPaused}
+                />
+                {pol.sealedMode && <StatusPill label="Sealed" variant="sealed" />}
+                {pol.autoExecution && <StatusPill label="Auto-execute" variant="active" />}
               </div>
-              <div className="space-y-0">
-                <PolicyChip label="Max Position" value={`${pol.maxPositionPct}%`} icon={<Target className="w-3.5 h-3.5" />} />
-                <PolicyChip label="Max Daily Loss" value={`${pol.maxDailyLossPct}%`} icon={<TrendingDown className="w-3.5 h-3.5" />} />
-                <PolicyChip label="Stop-Loss" value={`${pol.stopLossPct}%`} icon={<AlertTriangle className="w-3.5 h-3.5" />} />
-                <PolicyChip label="Cooldown" value={`${pol.cooldownSeconds}s`} icon={<Clock className="w-3.5 h-3.5" />} />
-                <PolicyChip label="Confidence Min" value={`${pol.confidenceThresholdPct}%`} icon={<Zap className="w-3.5 h-3.5" />} />
-                <PolicyChip label="Max Actions/Day" value={pol.maxActionsPerDay} icon={<Layers className="w-3.5 h-3.5" />} />
-                <PolicyChip label="Auto-Execution" value={pol.autoExecution ? 'Enabled' : 'Off'} icon={<Zap className="w-3.5 h-3.5" />} />
-                <PolicyChip label="Sealed Mode" value={pol.sealedMode ? 'Enabled' : 'Off'} icon={<Lock className="w-3.5 h-3.5" />} />
+              <p className="text-[12px] text-steel/50 mb-5 leading-relaxed">
+                Compiled to Solidity. Breach triggers automatic refusal and logs the reason on-chain.
+              </p>
+
+              <div className="flex flex-col gap-3.5">
+                <PolicyBar
+                  label="Max position size"
+                  cur={pol.maxPositionPct}
+                  max={100}
+                  unit="%"
+                />
+                <PolicyBar
+                  label="Max daily loss"
+                  cur={pol.maxDailyLossPct}
+                  max={15}
+                  unit="%"
+                  inverse
+                />
+                <PolicyBar
+                  label="Stop-loss"
+                  cur={pol.stopLossPct}
+                  max={30}
+                  unit="%"
+                  inverse
+                />
+                <PolicyBar
+                  label="Confidence floor"
+                  cur={pol.confidenceThresholdPct}
+                  max={100}
+                  unit="%"
+                />
+                <PolicyBar
+                  label="Max actions / day"
+                  cur={pol.maxActionsPerDay}
+                  max={50}
+                  unit=""
+                />
+                <PolicyBar
+                  label="Cooldown"
+                  cur={pol.cooldownSeconds}
+                  max={3600}
+                  unit="s"
+                />
               </div>
-            </GlassPanel>
+            </div>
           </div>
 
           {/* ── Operator Fees ── */}
@@ -1718,6 +1881,226 @@ export default function VaultDetailPage() {
           </GlassPanel>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Editorial progress bar for a single policy bound.
+// Colors based on ratio current/max: low = emerald, mid = amber, near limit = rose.
+// `inverse` flips the semantics — for caps like "max daily loss" where a low
+// current reading is good (green) and approaching the cap is bad (red).
+function PolicyBar({ label, cur, max, unit = '', inverse = false }) {
+  const safeMax = Number(max) || 0;
+  const safeCur = Number(cur) || 0;
+  const ratio = safeMax > 0 ? Math.min(1, safeCur / safeMax) : 0;
+  const displayRatio = inverse ? ratio : Math.min(1, safeCur / safeMax);
+  let tone = 'var(--ed-emerald)';
+  if (displayRatio > 0.8) tone = 'var(--ed-rose)';
+  else if (displayRatio > 0.6) tone = 'var(--ed-amber)';
+  return (
+    <div>
+      <div className="flex justify-between items-baseline mb-1.5">
+        <span className="text-[12.5px]" style={{ color: 'var(--ed-steel-200)' }}>
+          {label}
+        </span>
+        <span className="ed-mono text-[11px]" style={{ color: tone }}>
+          {safeCur}
+          {unit}{' '}
+          <span style={{ color: 'var(--ed-steel-500)' }}>
+            / {safeMax}
+            {unit}
+          </span>
+        </span>
+      </div>
+      <div
+        className="relative"
+        style={{ height: 6, background: 'rgba(255,255,255,0.04)', borderRadius: 3, overflow: 'hidden' }}
+      >
+        <div
+          style={{
+            width: `${ratio * 100}%`,
+            height: '100%',
+            background: tone,
+            opacity: 0.85,
+            transition: 'width 300ms var(--ed-ease-snappy)',
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: -2,
+            bottom: -2,
+            width: 1,
+            background: 'var(--ed-rose)',
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// Editorial execution log — compact on-chain receipt table.
+// Reads straight from the orchestrator's executions feed (already pulled into
+// the page via useExecutions). Shows time, kind, action, delta, confidence,
+// source, state chip, and a tx link column.
+function ExecutionLogTable({ rows = [], chainId }) {
+  const list = Array.isArray(rows) ? rows.slice(0, 8) : [];
+  if (list.length === 0) return null;
+  const formatTime = (ts) => {
+    if (!ts) return '—';
+    const d = new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toISOString().slice(11, 19);
+  };
+  const counts = list.reduce(
+    (acc, r) => {
+      const s = (r.outcome || r.state || r.status || 'executed').toLowerCase();
+      if (s === 'blocked' || s === 'vetoed' || s === 'policy') acc.veto += 1;
+      else if (s === 'skipped' || s === 'governance') acc.skip += 1;
+      else acc.exec += 1;
+      return acc;
+    },
+    { exec: 0, veto: 0, skip: 0 },
+  );
+  return (
+    <div className="ed-card overflow-hidden mb-8">
+      <div className="flex items-end justify-between px-6 pt-5 pb-4">
+        <div>
+          <div className="flex items-baseline gap-3.5 mb-2">
+            <span className="ed-eyebrow">§ V.05</span>
+            <span
+              className="ed-mono text-[10.5px] tracking-[0.22em] uppercase"
+              style={{ color: 'var(--ed-steel-400)' }}
+            >
+              Execution log
+            </span>
+          </div>
+          <h3
+            className="ed-display"
+            style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}
+          >
+            Last 24 hours
+          </h3>
+        </div>
+        <div className="flex gap-1.5">
+          <span className="ed-chip ed-chip-emerald">executed · {counts.exec}</span>
+          <span className="ed-chip ed-chip-rose">veto · {counts.veto}</span>
+          <span className="ed-chip ed-chip-amber">skipped · {counts.skip}</span>
+        </div>
+      </div>
+
+      <div
+        className="grid items-center px-6 py-2.5"
+        style={{
+          gridTemplateColumns: '80px 80px 1fr 80px 80px 90px 90px 40px',
+          gap: 14,
+          borderTop: '1px solid rgba(255,255,255,0.05)',
+          borderBottom: '1px solid rgba(255,255,255,0.05)',
+          background: 'var(--ed-obsidian-dim)',
+        }}
+      >
+        {['TIME', 'KIND', 'ACTION', 'Δ', 'CONF', 'SOURCE', 'STATE', ''].map((h, i) => (
+          <span
+            key={i}
+            className="ed-mono"
+            style={{ fontSize: 9.5, color: 'var(--ed-steel-500)', letterSpacing: '0.22em' }}
+          >
+            {h}
+          </span>
+        ))}
+      </div>
+
+      {list.map((r, i) => {
+        const stateRaw = (r.outcome || r.state || r.status || 'executed').toLowerCase();
+        const state = stateRaw === 'blocked' || stateRaw === 'policy' || stateRaw === 'vetoed'
+          ? 'veto'
+          : stateRaw === 'skipped' || stateRaw === 'governance'
+            ? 'skip'
+            : 'exec';
+        const stateColor =
+          state === 'veto' ? 'var(--ed-rose)' : state === 'skip' ? 'var(--ed-amber)' : 'var(--ed-emerald)';
+        const kind = state === 'veto' ? 'VETO' : state === 'skip' ? 'HOLD' : 'EXECUTE';
+        const chipTone = state === 'veto' ? 'rose' : state === 'skip' ? 'amber' : 'emerald';
+        const actionName = (r.action || r.type || 'action').toString().toUpperCase();
+        const delta = r.deltaPct != null
+          ? `${r.deltaPct > 0 ? '+' : ''}${r.deltaPct.toFixed(1)}%`
+          : r.pnl != null
+            ? `${r.pnl > 0 ? '+' : '-'}$${Math.abs(r.pnl).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+            : '—';
+        const deltaColor = String(delta).startsWith('-') || String(delta).startsWith('−')
+          ? 'var(--ed-rose)'
+          : String(delta).startsWith('+')
+            ? 'var(--ed-emerald)'
+            : 'var(--ed-steel-400)';
+        const conf = r.confidence != null ? `${(r.confidence * 100).toFixed(0)}%` : '—';
+        const source = r.source || (r.model ? r.model : '0g-compute');
+        const txHref = r.txHash ? getExplorerTxHref(chainId, r.txHash) : null;
+        const txShort = r.txHash ? `${r.txHash.slice(0, 8)}…${r.txHash.slice(-4)}` : '—';
+        return (
+          <div
+            key={r.id || i}
+            className="grid items-center px-6 py-3.5"
+            style={{
+              gridTemplateColumns: '80px 80px 1fr 80px 80px 90px 90px 40px',
+              gap: 14,
+              borderBottom: '1px solid rgba(255,255,255,0.05)',
+            }}
+          >
+            <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>
+              {formatTime(r.timestamp || r.ts)}
+            </span>
+            <span
+              className="ed-mono text-[10px] font-semibold"
+              style={{ color: stateColor, letterSpacing: '0.14em' }}
+            >
+              ● {kind}
+            </span>
+            <div className="flex items-baseline gap-2.5 min-w-0">
+              <span
+                className="ed-display truncate"
+                style={{ fontSize: 14, color: 'var(--ed-steel-50)', fontWeight: 600 }}
+              >
+                {actionName}
+              </span>
+              {txHref ? (
+                <a
+                  href={txHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ed-mono text-[10px] hover:text-cyan transition-colors"
+                  style={{ color: 'var(--ed-cyan)' }}
+                >
+                  {txShort}
+                </a>
+              ) : r.txHash ? (
+                <span className="ed-mono text-[10px]" style={{ color: 'var(--ed-cyan)' }}>
+                  {txShort}
+                </span>
+              ) : null}
+            </div>
+            <span className="ed-mono text-[12px]" style={{ color: deltaColor }}>
+              {delta}
+            </span>
+            <span className="ed-mono text-[12px]" style={{ color: 'var(--ed-steel-100)' }}>
+              {conf}
+            </span>
+            <span
+              className="ed-mono text-[10.5px] truncate"
+              style={{
+                color: source.includes('0g-compute') ? 'var(--ed-cyan)' : 'var(--ed-steel-400)',
+              }}
+              title={source}
+            >
+              {source}
+            </span>
+            <span className={`ed-chip ed-chip-${chipTone}`}>{state === 'exec' ? 'executed' : state === 'veto' ? 'blocked' : 'skipped'}</span>
+            <span style={{ color: 'var(--ed-steel-500)' }}>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

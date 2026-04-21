@@ -6,8 +6,9 @@ import { useStakingStats, useInsurancePoolStats } from '../../hooks/useOperatorS
 import { useGovernorConfig, useProposals } from '../../hooks/useGovernor';
 import GlassPanel from '../ui/GlassPanel';
 import SectionLabel from '../ui/SectionLabel';
+import StatusPill from '../ui/StatusPill';
 import {
-  Lock, Vote, ShieldCheck, DollarSign, ArrowRight, Award,
+  Lock, Vote, ShieldCheck, DollarSign, ArrowRight, Award, Cpu,
 } from 'lucide-react';
 
 /**
@@ -20,7 +21,7 @@ import {
  * Hidden entirely if none of these contracts are deployed on the current chain
  * (graceful degradation for MVP / dev networks).
  */
-export default function ProtocolHealthPanel() {
+export default function ProtocolHealthPanel({ displayStatus }) {
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
 
@@ -136,11 +137,33 @@ export default function ProtocolHealthPanel() {
           </Link>
         </div>
 
+        {/* Orchestrator telemetry row */}
+        <div className="mt-4 pt-3 border-t border-white/[0.04]">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5">
+              <Cpu className="w-3 h-3 text-steel/50" />
+              <span className="text-[9px] font-mono uppercase tracking-wider text-steel/45">
+                Orchestrator
+              </span>
+            </div>
+            <StatusPill
+              label={displayStatus?.running ? 'Running' : displayStatus ? 'Idle' : 'Offline'}
+              variant={displayStatus?.running ? 'active' : 'paused'}
+            />
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] font-mono">
+            <OrchStat label="Cycles" value={displayStatus?.cycleCount ?? '—'} tone="text-white/70" />
+            <OrchStat label="Executions" value={displayStatus?.totalExecutions ?? '—'} tone="text-emerald-soft/80" />
+            <OrchStat label="Blocked" value={displayStatus?.totalBlocked ?? '—'} tone="text-amber-warn/80" />
+            <OrchStat label="Skipped" value={displayStatus?.totalSkipped ?? '—'} tone="text-steel/60" />
+          </div>
+        </div>
+
         {/* Call-to-action strip */}
-        <div className="mt-4 pt-3 border-t border-white/[0.04] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[10px] font-mono text-steel/40">
+        <div className="mt-3 pt-3 border-t border-white/[0.04] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[10px] font-mono text-steel/40">
           <span className="flex items-center gap-1.5">
             <Award className="w-3 h-3 text-gold/60" />
-            Protocol health reflects Phase 1-4 deployment. Slashing, treasury, insurance gated via governance.
+            Slashing, treasury, insurance gated via governance.
           </span>
           <Link
             to="/marketplace"
@@ -150,6 +173,15 @@ export default function ProtocolHealthPanel() {
           </Link>
         </div>
       </GlassPanel>
+    </div>
+  );
+}
+
+function OrchStat({ label, value, tone }) {
+  return (
+    <div className="rounded-md border border-white/[0.04] bg-white/[0.015] px-2.5 py-1.5">
+      <div className="text-[9px] text-steel/40 uppercase tracking-wider">{label}</div>
+      <div className={`text-xs font-semibold tabular-nums ${tone}`}>{value}</div>
     </div>
   );
 }

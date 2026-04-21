@@ -43,8 +43,8 @@ function App() {
         {/* Faucet — mint mock tokens for testing */}
         <Route path="/faucet" element={<AppLayout><FaucetPage /></AppLayout>} />
 
-        {/* Vault creation (standalone layout) */}
-        <Route path="/create" element={<CreateVaultPage />} />
+        {/* Vault creation */}
+        <Route path="/create" element={<AppLayout><CreateVaultPage /></AppLayout>} />
       </Routes>
     </BrowserRouter>
   );

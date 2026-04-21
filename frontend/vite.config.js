@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     host: '0.0.0.0',
-    allowedHosts: ['nectiq.xyz'],
+    allowedHosts: ['nectiq.xyz', 'aegisvaults.xyz'],
   },
   build: {
     // Raise the warning threshold — wagmi + viem + recharts are heavy by nature.

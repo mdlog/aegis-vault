@@ -64,6 +64,12 @@ if (!chainId) {
 
 function buildManifestEntry(targetChainId, source) {
   if (targetChainId === '16661') {
+    // 0G Aristotle Mainnet — real Jaine DEX tokens (USDC.e, WETH, WBTC, W0G).
+    // Addresses are the live Jaine-pair tokens verified via swap events.
+    const USDC_E = source.realTokens?.USDCe || '0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E';
+    const WETH_REAL = source.realTokens?.WETH || '0x564770837Ef8bbF077cFe54E5f6106538c815B22';
+    const WBTC_REAL = source.realTokens?.WBTC || '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c';
+    const W0G = source.realTokens?.W0G || '0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c';
     return {
       operatorRegistry: source.operatorRegistry || '',
       operatorStaking: source.operatorStaking || '',
@@ -73,11 +79,16 @@ function buildManifestEntry(targetChainId, source) {
       protocolTreasury: source.protocolTreasury || '',
       executionRegistry: source.executionRegistry || '',
       aegisVaultFactory: source.aegisVaultFactory || '',
-      oUSDT: source.realTokens?.oUSDT || source.stakeToken || '0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189',
-      W0G: source.realTokens?.W0G || '0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c',
-      mockUSDC: source.realTokens?.oUSDT || source.stakeToken || '0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189',
-      mockWBTC: '',
-      mockWETH: '',
+      vaultNAVCalculator: source.vaultNAVCalculator || '',
+      jaineVenueAdapter: source.jaineVenueAdapter || '',
+      USDCe: USDC_E,
+      WETH:  WETH_REAL,
+      WBTC:  WBTC_REAL,
+      W0G:   W0G,
+      // Back-compat aliases for CreateVaultPage's BTC/ETH/USDC asset map
+      mockUSDC: USDC_E,
+      mockWETH: WETH_REAL,
+      mockWBTC: WBTC_REAL,
       mockDEX: '',
       demoVault: '',
       orchestratorWallet: source.orchestratorWallet || '',

@@ -1,6 +1,36 @@
 import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { parseUnits, formatUnits, decodeEventLog } from 'viem';
+import { toast } from 'sonner';
 import { AegisVaultABI, AegisVaultFactoryABI, MockERC20ABI, getDeployments } from '../lib/contracts.js';
+
+/**
+ * Slim AegisVault (the build currently deployed on 0G mainnet) exposes only:
+ *   deposit · withdraw · commitIntent · executeIntent · getAllowedAssets ·
+ *   getPolicy · getVaultSummary
+ *
+ * The full vault — with pause, updatePolicy, setExecutor, fee accrual, HWM,
+ * NAV calculator, etc. — is deployed only on gas-plentiful chains (Arbitrum
+ * execution layer). Hooks that target full-vault-only functions are neutered
+ * below: clicking them shows an explanatory toast instead of submitting a tx
+ * that would revert with a cryptic error on 0G.
+ */
+const SLIM_VAULT_UNSUPPORTED_MSG =
+  'This control requires the full vault build. Only available on the Arbitrum execution layer.';
+
+function unsupportedWriteHook() {
+  const noop = () => {
+    toast.error('Control not available', { description: SLIM_VAULT_UNSUPPORTED_MSG });
+  };
+  return {
+    hash: undefined,
+    isPending: false,
+    isConfirming: false,
+    isSuccess: false,
+    error: null,
+    _unsupported: true,
+    _call: noop,
+  };
+}
 
 // ── Read Vault Summary ──
 //
@@ -339,28 +369,16 @@ export function useWithdraw() {
   return { withdraw, hash, isPending, isConfirming, isSuccess, error };
 }
 
-// ── Write: Pause / Unpause ──
+// ── Write: Pause / Unpause ── (full-vault only)
 
 export function usePause() {
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
-
-  const pause = (vaultAddress) => {
-    writeContract({ address: vaultAddress, abi: AegisVaultABI, functionName: 'pause' });
-  };
-
-  return { pause, hash, isPending, isConfirming, isSuccess, error };
+  const stub = unsupportedWriteHook();
+  return { pause: stub._call, ...stub };
 }
 
 export function useUnpause() {
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
-
-  const unpause = (vaultAddress) => {
-    writeContract({ address: vaultAddress, abi: AegisVaultABI, functionName: 'unpause' });
-  };
-
-  return { unpause, hash, isPending, isConfirming, isSuccess, error };
+  const stub = unsupportedWriteHook();
+  return { unpause: stub._call, ...stub };
 }
 
 // ── Write: Create Vault via Factory ──
@@ -413,58 +431,21 @@ export function useCreateVault() {
   };
 }
 
-// ── Write: Update Policy ──
+// ── Write: Update Policy / Set Executor / Set Reputation Recorder ── (full-vault only)
 
 export function useUpdatePolicy() {
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
-
-  const updatePolicy = (vaultAddress, policy) => {
-    writeContract({
-      address: vaultAddress,
-      abi: AegisVaultABI,
-      functionName: 'updatePolicy',
-      args: [policy],
-    });
-  };
-
-  return { updatePolicy, hash, isPending, isConfirming, isSuccess, error };
+  const stub = unsupportedWriteHook();
+  return { updatePolicy: stub._call, ...stub };
 }
-
-// ── Write: Set Executor ──
 
 export function useSetExecutor() {
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
-
-  const setExecutor = (vaultAddress, executorAddress) => {
-    writeContract({
-      address: vaultAddress,
-      abi: AegisVaultABI,
-      functionName: 'setExecutor',
-      args: [executorAddress],
-    });
-  };
-
-  return { setExecutor, hash, isPending, isConfirming, isSuccess, error };
+  const stub = unsupportedWriteHook();
+  return { setExecutor: stub._call, ...stub };
 }
 
-// ── Write: Set Reputation Recorder (Phase 5) ──
-
 export function useSetReputationRecorder() {
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
-
-  const setRecorder = (vaultAddress, recorderAddress) => {
-    writeContract({
-      address: vaultAddress,
-      abi: AegisVaultABI,
-      functionName: 'setReputationRecorder',
-      args: [recorderAddress],
-    });
-  };
-
-  return { setRecorder, hash, isPending, isConfirming, isSuccess, error };
+  const stub = unsupportedWriteHook();
+  return { setRecorder: stub._call, ...stub };
 }
 
 // ── Read: Vault's reputation recorder address ──

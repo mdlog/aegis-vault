@@ -45,9 +45,13 @@ library ExecLib {
     }
 
     /// @notice Inline policy + hash + swap pipeline. DELEGATECALL'd from vault.
+    /// @dev allowedAssets is passed from vault storage (_allowedAssets) so the
+    ///      whitelist check runs against the exact policy-committed list, not
+    ///      against any list the caller could control.
     function runExecution(
         ExecutionIntent calldata intent,
         VaultPolicy memory _policy,
+        address[] memory allowedAssets,
         address venue,
         address baseAssetAddr,
         address registryAddr,
@@ -63,6 +67,17 @@ library ExecLib {
         require(intent.confidenceBps >= _policy.confidenceThresholdBps, "conf");
         require(dailyActionCount < _policy.maxActionsPerDay, "actions");
         require(IERC20(intent.assetIn).balanceOf(address(this)) >= intent.amountIn, "tokIn");
+
+        // Asset whitelist enforcement (Finding 1 fix — both sides of the swap
+        // must appear in the vault's policy-committed allowedAssets list).
+        bool inOk;
+        bool outOk;
+        for (uint256 i = 0; i < allowedAssets.length; i++) {
+            if (allowedAssets[i] == intent.assetIn)  inOk  = true;
+            if (allowedAssets[i] == intent.assetOut) outOk = true;
+        }
+        require(inOk, "assetIn!wl");
+        require(outOk, "assetOut!wl");
 
         ExecutionRegistry(registryAddr).registerIntent(intent.intentHash, address(this));
         emit VaultEvents.IntentSubmitted(address(this), intent.intentHash, intent.assetIn, intent.assetOut, intent.amountIn);

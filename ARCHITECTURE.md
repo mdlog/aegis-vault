@@ -2,6 +2,13 @@
 
 This document describes the production architecture of Aegis Vault (Phase 1-5): economic model, contract topology, trust model, threat analysis, and state machines.
 
+Aegis Vault runs as a **dual-chain deployment** bound by EIP-712 cross-chain replay protection:
+
+- **0G Aristotle Mainnet (chain 16661)** — intelligence + real execution layer. AI inference via 0G Compute (GLM-5-FP8, 6 chatbot services live), decision journals via 0G Storage, full operator/staking/governance stack, AND real-liquidity execution via `JaineVenueAdapter` → Jaine DEX (Uniswap V3 fork on 0G). Pools verified live: USDC.e/W0G ~$360K, WETH/W0G ~$278K, WBTC/W0G ~$189K.
+- **Arbitrum One (chain 42161)** — additional execution layer. Uniswap V3 canonical via `UniswapV3VenueAdapter` against Circle USDC, WETH, WBTC. Same bytecode as 0G — `block.chainid` in the EIP-712 domain separator is the only thing that differs at runtime.
+
+See [HACKATHON_SUBMISSION.md](HACKATHON_SUBMISSION.md) for the full address table + verified TXs.
+
 ---
 
 ## 1. Contract Topology
@@ -482,23 +489,30 @@ If the AI goes rogue, the vault **refuses** to execute. Worst case: 0 intents pa
 
 ### 10.1 Deployment Order
 
-`scripts/deploy-all.js` handles this:
+`scripts/deploy-mainnet.js` (0G) and `scripts/deploy-arbitrum-execution.js` (Arbitrum) handle this. The 0G flow:
 
 1. `ProtocolTreasury(admin=deployer)`
 2. `ExecutionRegistry()`
-3. `AegisVaultFactory(executionRegistry, protocolTreasury)`
-4. Transfer `executionRegistry` admin → factory
-5. `OperatorRegistry()`
-6. (testnet) Mock USDC/WBTC/WETH + MockDEX + pair rates + liquidity
-7. `InsurancePool(usdc, arbitrator=deployer)`
-8. `OperatorStaking(usdc, operatorRegistry, insurancePool, arbitrator=deployer)`
-9. `OperatorReputation(admin=deployer)` + authorize factory as recorder
-10. `AegisGovernor(owners, threshold)`
-11. (optional, `TRANSFER_ADMINS=1`) Rotate all admin roles → governor
+3. Deploy 3 external libraries: `SealedLib`, `ExecLib`, `IOLib`
+4. Deploy `AegisVault` implementation (linked with the 3 libraries)
+5. `AegisVaultFactory(vaultImplementation, executionRegistry, protocolTreasury)` — 3-arg slim factory
+6. Transfer `executionRegistry` admin → factory
+7. `OperatorRegistry()`
+8. `JaineVenueAdapter(jaineRouter, jaineFactory)` — ACTIVE real venue on 0G
+9. `InsurancePool(usdce, arbitrator=deployer)` — stake token is real USDC.e
+10. `OperatorStaking(usdce, operatorRegistry, insurancePool, arbitrator=deployer)`
+11. `OperatorReputation(admin=deployer)` + authorize factory as recorder
+12. `AegisGovernor(owners, threshold)`
+13. `VaultNAVCalculator(pyth)` + `addAsset()` for USDC.e, WETH, WBTC with Pyth feeds
+14. (optional, `TRANSFER_ADMINS=1`) Rotate all admin roles → governor
+
+No MockDEX, no mock tokens, no pre-built demo vault — operators create their own vaults through `/create`, pointing at the Jaine adapter with real canonical tokens.
+
+The Arbitrum flow mirrors steps 2-6 + venue adapter (`UniswapV3VenueAdapter` pointing at Uniswap V3 SwapRouter02) + NAV calculator with canonical Arbitrum USDC/WETH/WBTC. Operator identity and governance stay anchored on 0G — not duplicated on Arbitrum.
 
 ### 10.2 Per-vault Deployment
 
-Each user vault is a fresh `AegisVault` contract cloned via `factory.createVault()`. Gas cost is ~2-3M per clone. Future optimization: minimal proxy (EIP-1167).
+Each user vault is an EIP-1167 minimal-proxy clone produced by `factory.createVault()`. Clone deployment is ~400K gas. `AegisVault` implementation is deployed once with `ExecLib`/`SealedLib`/`IOLib` linked; every clone delegatecalls into the same library code.
 
 ---
 

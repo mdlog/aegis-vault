@@ -1,8 +1,24 @@
 /**
  * Aegis Vault — 0G Mainnet (Aristotle, chain 16661) deployment.
  *
- * Production-grade Phase 1-5 stack with Jaine DEX as the real venue. NO mocks,
- * NO demo vault, NO MockDEX. Uses real on-chain tokens (oUSDT, W0G).
+ * Production-grade Phase 1-5 stack with Jaine DEX as the real venue. Uses real
+ * on-chain canonical tokens (USDC.e, WETH, WBTC, W0G) — the same tokens Jaine
+ * pools are actually seeded with. NO MockDEX, NO mock tokens, NO demo vault.
+ *
+ * Verified real tokens on 0G mainnet (addresses derived from Jaine pool swap
+ * events at block #31141171):
+ *   USDC.e:  0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E (6 decimals)
+ *   WETH:    0x564770837Ef8bbF077cFe54E5f6106538c815B22 (18 decimals)
+ *   WBTC:    0x0555E30da8f98308EdB960aa94C0Db47230d2B9c (8 decimals)
+ *   W0G:     0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c (18 decimals)
+ *
+ * Known active Jaine pools (live TVL as of 2026-04-21):
+ *   USDC.e/W0G  0.3% fee   ~$360K TVL
+ *   USDC.e/W0G  1%   fee   ~$360K TVL
+ *   WETH/W0G    0.3% fee   ~$278K TVL
+ *   WBTC/W0G    0.3% fee   ~$189K TVL
+ *   USDC.e/WETH 0.3% fee   ~$3K   TVL
+ *   plus st0G / cbBTC / PAI pools
  *
  * Required environment variables:
  *   GOVERNOR_OWNERS     comma-separated owner addresses (min 3 recommended)
@@ -19,13 +35,9 @@
  *   ARBITRATOR_ADDRESS=0xddd TRANSFER_ADMINS=1 CONFIRM_MAINNET=1 \
  *   npx hardhat run scripts/deploy-mainnet.js --network og_mainnet
  *
- * Jaine Mainnet:
+ * Jaine canonical infra:
  *   SwapRouter: 0x8b598a7c136215a95ba0282b4d832b9f9801f2e2
  *   Factory:    0x9bdcA5798E52e592A08e3b34d3F18EeF76Af7ef4
- *   W0G:        0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c
- *
- * Real tokens:
- *   oUSDT:      0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189 (Hyperlane bridged, 6dec)
  */
 
 const { ethers } = require("hardhat");
@@ -33,11 +45,15 @@ const fs = require("fs");
 const path = require("path");
 
 // ── Verified live addresses on 0G Aristotle Mainnet (chain 16661) ──
-// Verified by direct RPC eth_getCode + functional calls during pre-flight
+// Verified by direct RPC eth_getCode + Jaine pool swap event probing
 const JAINE_ROUTER  = "0x8b598a7c136215a95ba0282b4d832b9f9801f2e2";
 const JAINE_FACTORY = "0x9bdcA5798E52e592A08e3b34d3F18EeF76Af7ef4";
 const W0G_ADDRESS   = "0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c";
-const oUSDT_ADDRESS = "0x1217BfE6c773EEC6cc4A38b5Dc45B92292B6E189";
+
+// Real Jaine-pair tokens (swap events confirm these are used in live pools)
+const USDCE_ADDRESS = "0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E"; // bridged Circle USDC
+const WETH_ADDRESS  = "0x564770837Ef8bbF077cFe54E5f6106538c815B22";
+const WBTC_ADDRESS  = "0x0555E30da8f98308EdB960aa94C0Db47230d2B9c";
 
 // Pyth Oracle on 0G mainnet (verified live with real BTC feed)
 const PYTH_ADDRESS = "0x2880ab155794e7179c9ee2e38200202908c17b43";
@@ -208,36 +224,39 @@ async function main() {
   console.log("        →", deployments.operatorRegistry);
 
   // ═══════════════════════════════════════════════
-  // Real venue (Jaine — Uniswap V3 fork on 0G mainnet)
-  // Adapter deployed for future use; current oUSDT/W0G pool is empty so
-  // demo vaults default to MockDEX (deployed below) until real pools exist.
+  // Real venue (Jaine — Uniswap V3 fork on 0G mainnet).
+  // Pools verified live via swap-event scan: USDC.e/W0G (~$360K TVL),
+  // WETH/W0G (~$278K TVL), WBTC/W0G (~$189K TVL), USDC.e/cbBTC, USDC.e/WETH.
+  // Vaults on 0G route through this adapter against those real pools — no
+  // MockDEX fallback in this build.
   // ═══════════════════════════════════════════════
-  console.log("\n── Real Venue Adapter (Jaine, Phase 5 future-proofing) ──");
+  console.log("\n── Real Venue Adapter (Jaine) ──");
   console.log("  [+] Deploying JaineVenueAdapter...");
   const Adapter = await ethers.getContractFactory("JaineVenueAdapter");
   const adapter = await Adapter.deploy(JAINE_ROUTER, JAINE_FACTORY);
   await adapter.waitForDeployment();
   deployments.jaineVenueAdapter = await adapter.getAddress();
   console.log("        →", deployments.jaineVenueAdapter);
-  console.log("        Note: oUSDT/W0G pool not yet seeded. Vaults default to MockDEX.");
+  console.log("        Active pools (USDC.e/W0G, WETH/W0G, WBTC/W0G) via factory", JAINE_FACTORY);
 
   // ═══════════════════════════════════════════════
   // PHASE 2: Stake & Slashing
   // ═══════════════════════════════════════════════
   console.log("\n── Phase 2: Stake & Slashing ──");
 
-  // Use oUSDT as the canonical stake token on mainnet
-  console.log("  [6/9] Deploying InsurancePool (stake token = oUSDT)...");
+  // USDC.e is the canonical Jaine-pair stablecoin — operators stake in USDC.e
+  // so the stake denomination matches the vault base-asset denomination.
+  console.log("  [6/9] Deploying InsurancePool (stake token = USDC.e)...");
   const Insurance = await ethers.getContractFactory("InsurancePool");
-  const insurance = await Insurance.deploy(oUSDT_ADDRESS, arbitratorAddress);
+  const insurance = await Insurance.deploy(USDCE_ADDRESS, arbitratorAddress);
   await insurance.waitForDeployment();
   deployments.insurancePool = await insurance.getAddress();
   console.log("        →", deployments.insurancePool);
 
-  console.log("  [7/9] Deploying OperatorStaking...");
+  console.log("  [7/9] Deploying OperatorStaking (stake token = USDC.e)...");
   const Staking = await ethers.getContractFactory("OperatorStaking");
   const staking = await Staking.deploy(
-    oUSDT_ADDRESS,
+    USDCE_ADDRESS,
     deployments.operatorRegistry,
     deployments.insurancePool,
     arbitratorAddress
@@ -300,128 +319,31 @@ async function main() {
   console.log("        →", deployments.vaultNAVCalculator);
   console.log("        Pyth address:", PYTH_ADDRESS);
 
-  // Configure assets — only stablecoin for now since BTC/ETH on 0G mainnet
-  // require their own ERC20 deployments. We'll add WBTC/WETH if MockDEX path used.
-  console.log("        Adding oUSDT as stablecoin...");
-  await (await navCalc.addAsset(oUSDT_ADDRESS, PYTH_FEED_USDC, 6, true)).wait();
+  // Configure NAV calculator with the real Jaine-pair tokens. These are the
+  // exact tokens the Jaine pools are seeded with — same USDC.e that backs the
+  // ~$360K TVL USDC.e/W0G pool, same WETH that backs the USDC.e/WETH pool, etc.
+  console.log("        Adding USDC.e (Jaine stablecoin)...");
+  await (await navCalc.addAsset(USDCE_ADDRESS, PYTH_FEED_USDC, 6, true)).wait();
+  console.log("        ✓");
+  console.log("        Adding WETH...");
+  await (await navCalc.addAsset(WETH_ADDRESS, PYTH_FEED_ETH, 18, false)).wait();
+  console.log("        ✓");
+  console.log("        Adding WBTC...");
+  await (await navCalc.addAsset(WBTC_ADDRESS, PYTH_FEED_BTC, 8, false)).wait();
   console.log("        ✓");
 
   // ═══════════════════════════════════════════════
-  // Demo Venue: MockDEX + mock BTC/ETH tokens
-  // Why: Jaine pools for oUSDT/W0G are empty (verified). To demonstrate
-  // the full vault flow including swaps, we deploy MockDEX with controlled
-  // liquidity. JaineVenueAdapter is also deployed (above) so vault owners
-  // can switch venues post-launch when real Jaine pools come online.
+  // No MockDEX, no mock tokens, no demo vault.
+  //
+  // This deployment targets the REAL Jaine DEX on 0G mainnet. Judges + users
+  // create their own vault via the frontend (`/create`), pointing at the
+  // JaineVenueAdapter deployed above. The adapter reads live pools from
+  // JaineFactory (`0x9bdcA5...`) and executes swaps against real liquidity
+  // (USDC.e/W0G 0.3% ≈ $360K TVL, WETH/W0G 0.3% ≈ $278K TVL, etc).
+  //
+  // The previous deploy had a demo vault pre-wired to MockDEX; we remove it
+  // here to keep the on-chain surface clean for a hackathon-ready mainnet.
   // ═══════════════════════════════════════════════
-  if (process.env.DEPLOY_DEMO_DEX !== "0") {
-    console.log("\n── Demo Swap Venue (MockDEX + mock tokens) ──");
-
-    const MockERC20 = await ethers.getContractFactory("MockERC20");
-    const MockDEX = await ethers.getContractFactory("MockDEX");
-
-    console.log("  [+] Deploying mockBTC...");
-    const mockBTC = await MockERC20.deploy("Mock Wrapped BTC", "mWBTC", 8);
-    await mockBTC.waitForDeployment();
-    deployments.mockWBTC = await mockBTC.getAddress();
-    console.log("        →", deployments.mockWBTC);
-
-    console.log("  [+] Deploying mockETH...");
-    const mockETH = await MockERC20.deploy("Mock Wrapped ETH", "mWETH", 18);
-    await mockETH.waitForDeployment();
-    deployments.mockWETH = await mockETH.getAddress();
-    console.log("        →", deployments.mockWETH);
-
-    console.log("  [+] Deploying MockDEX...");
-    const mockDex = await MockDEX.deploy();
-    await mockDex.waitForDeployment();
-    deployments.mockDEX = await mockDex.getAddress();
-    console.log("        →", deployments.mockDEX);
-
-    // Set pair rates (using real-ish prices ~BTC $70k, ETH $2.2k)
-    console.log("        Setting pair rates...");
-    // 1 oUSDT = 0.0000143 mWBTC (BTC ~$70k)
-    await (await mockDex.setPairRate(oUSDT_ADDRESS, deployments.mockWBTC, ethers.parseUnits("0.0000143", 18), 6, 8)).wait();
-    // 1 oUSDT = 0.000455 mWETH (ETH ~$2.2k)
-    await (await mockDex.setPairRate(oUSDT_ADDRESS, deployments.mockWETH, ethers.parseUnits("0.000455", 18), 6, 18)).wait();
-    console.log("        ✓");
-
-    // Mint liquidity into MockDEX
-    console.log("        Seeding MockDEX liquidity...");
-    await (await mockBTC.mint(deployments.mockDEX, ethers.parseUnits("10", 8))).wait();   // 10 mWBTC
-    await (await mockETH.mint(deployments.mockDEX, ethers.parseUnits("100", 18))).wait(); // 100 mWETH
-    console.log("        ✓");
-
-    // Add mock assets to NAV calculator
-    console.log("        Adding mWBTC + mWETH to NAV calculator...");
-    await (await navCalc.addAsset(deployments.mockWBTC, PYTH_FEED_BTC, 8, false)).wait();
-    await (await navCalc.addAsset(deployments.mockWETH, PYTH_FEED_ETH, 18, false)).wait();
-    console.log("        ✓");
-  } else {
-    console.log("\n  [SKIPPED] Demo DEX deployment (DEPLOY_DEMO_DEX=0)");
-  }
-
-  // ═══════════════════════════════════════════════
-  // Demo Vault — pre-create one vault for hackathon judges
-  // to immediately interact with without writing scripts
-  // ═══════════════════════════════════════════════
-  if (process.env.DEPLOY_DEMO_VAULT !== "0" && deployments.mockDEX) {
-    console.log("\n── Demo Vault (pre-created for judges) ──");
-
-    const allowedAssets = [oUSDT_ADDRESS];
-    if (deployments.mockWBTC) allowedAssets.push(deployments.mockWBTC);
-    if (deployments.mockWETH) allowedAssets.push(deployments.mockWETH);
-
-    const demoPolicy = {
-      maxPositionBps: 5000,           // 50% max position
-      maxDailyLossBps: 1000,          // 10% daily loss cap
-      stopLossBps: 1500,              // 15% global stop-loss
-      cooldownSeconds: 60,            // 1-minute cooldown for demo
-      confidenceThresholdBps: 5000,   // 50% AI confidence min
-      maxActionsPerDay: 20,
-      autoExecution: true,
-      paused: false,
-      // Phase 1 fees
-      performanceFeeBps: 1500,        // 15%
-      managementFeeBps: 200,          // 2%/year
-      entryFeeBps: 0,
-      exitFeeBps: 50,                 // 0.5%
-      feeRecipient: deployer.address, // operator fee recipient
-      // Track 2: Sealed mode off by default for the demo vault — owner can enable later
-      sealedMode: false,
-      attestedSigner: ethers.ZeroAddress,
-    };
-
-    console.log("  [+] Creating demo vault via factory...");
-    const tx = await factory.createVault(
-      oUSDT_ADDRESS,                  // base asset (real oUSDT)
-      deployer.address,               // executor (deployer wallet acts as orchestrator)
-      deployments.mockDEX,            // venue (MockDEX since Jaine pools empty)
-      demoPolicy,
-      allowedAssets
-    );
-    await tx.wait();
-
-    // Find the demo vault address
-    const demoVaults = await factory.getOwnerVaults(deployer.address);
-    deployments.demoVault = demoVaults[demoVaults.length - 1];
-    console.log("        →", deployments.demoVault);
-
-    // Wire the demo vault to the NAV calculator
-    console.log("        Setting NAV calculator on demo vault...");
-    const demoVault = await ethers.getContractAt("AegisVault", deployments.demoVault);
-    await (await demoVault.setNavCalculator(deployments.vaultNAVCalculator)).wait();
-    console.log("        ✓");
-
-    // Wire reputation recorder so executions get logged on-chain
-    console.log("        Setting reputation recorder on demo vault...");
-    await (await demoVault.setReputationRecorder(deployments.operatorReputation)).wait();
-    console.log("        ✓");
-
-    // Authorize demo vault as a recorder on the reputation contract
-    console.log("        Authorizing demo vault as reputation recorder...");
-    await (await reputation.setRecorder(deployments.demoVault, true)).wait();
-    console.log("        ✓");
-  }
 
   // ═══════════════════════════════════════════════
   // Optional: rotate admin roles to governor
@@ -473,10 +395,23 @@ async function main() {
     feedETH: PYTH_FEED_ETH,
     feedUSDC: PYTH_FEED_USDC,
   };
+  // Real Jaine-pair tokens live on 0G mainnet — derived from Jaine pool
+  // swap events. These are the addresses the frontend chain profile maps
+  // USDC / WETH / WBTC to for chain 16661 (real liquidity mode).
   deployments.realTokens = {
-    oUSDT: oUSDT_ADDRESS,
-    W0G: W0G_ADDRESS,
+    USDCe: USDCE_ADDRESS,
+    WETH:  WETH_ADDRESS,
+    WBTC:  WBTC_ADDRESS,
+    W0G:   W0G_ADDRESS,
   };
+  deployments.jainePools = [
+    { pair: "USDC.e/W0G",  fee: 3000,  tvl: "~$360K" },
+    { pair: "USDC.e/W0G",  fee: 10000, tvl: "~$360K" },
+    { pair: "WETH/W0G",    fee: 3000,  tvl: "~$278K" },
+    { pair: "WBTC/W0G",    fee: 3000,  tvl: "~$189K" },
+    { pair: "USDC.e/WETH", fee: 3000,  tvl: "~$3K"   },
+    { pair: "USDC.e/cbBTC",fee: 3000,  tvl: "~$92K"  },
+  ];
   deployments.governorOwners = owners;
   deployments.governorThreshold = threshold;
   deployments.timestamp = new Date().toISOString();
@@ -502,7 +437,7 @@ async function main() {
   console.log("\nNext steps:");
   console.log("  1. node scripts/sync-frontend.js deployments-mainnet.json");
   console.log("  2. Configure orchestrator .env with mainnet addresses");
-  console.log("  3. Operators: register at /operator/register, stake oUSDT");
+  console.log("  3. Operators: register at /operator/register, stake USDC.e");
   if (deployments.demoVault) {
     console.log("  4. Demo vault ready:", deployments.demoVault);
   } else {

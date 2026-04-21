@@ -1,16 +1,19 @@
 # Aegis Vault — Demo Walkthrough
 
-A 10-15 minute guided tour through the full Phase 1-5 production stack. Use this as a script for hackathon demos, judge walkthroughs, or screen recordings.
+A 10-15 minute guided tour through the full Phase 1-5 production stack with dual-chain real execution (Jaine on 0G + Uniswap V3 on Arbitrum). Use this as a script for hackathon demos, judge walkthroughs, or screen recordings.
 
 **Prerequisites:**
-- Contracts deployed via `scripts/deploy-all.js`
-- Orchestrator running on `localhost:4002`
-- Frontend running on `localhost:5173`
-- Connected to **0G mainnet (chain 16661)** or **0G testnet (chain 16602)**
-- Two MetaMask accounts with 0G tokens:
-  - **Account A** — User (depositor / vault owner)
-  - **Account B** — Operator (runs the AI bot + stakes)
-- Test USDC minted to both accounts (via `MockERC20.mint()` on testnet; use bridged USDC on mainnet)
+- Contracts deployed:
+  - 0G Aristotle Mainnet (chain 16661) — via `scripts/deploy-mainnet.js`. See [HACKATHON_SUBMISSION.md](HACKATHON_SUBMISSION.md) for the full 0G address table.
+  - Arbitrum One (chain 42161) — via `scripts/deploy-arbitrum-execution.js` (optional, for dual-chain demo).
+- Orchestrator running on `localhost:4002` with fresh `.env` pointing at the new 0G factory (`0x7D0D6c77...`).
+- Frontend running on `localhost:5173`.
+- Connected to **0G Aristotle Mainnet (chain 16661)** — the demo focus. Arbitrum is the sibling execution layer.
+- Two MetaMask accounts with native 0G + USDC.e:
+  - **Account A** — User (depositor / vault owner).
+  - **Account B** — Operator (runs the AI bot + stakes USDC.e).
+- USDC.e on 0G is the real Jaine-pair token (`0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E`, 6 decimals). Acquire via `jaine.app/swap` (native 0G → USDC.e) or CEX withdraw if supported.
+- On testnet/local, the old MockDEX + mock-USDC flow still works — use Faucet nav (auto-hidden on mainnet).
 
 ---
 
