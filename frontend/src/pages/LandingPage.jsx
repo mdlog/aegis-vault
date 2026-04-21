@@ -66,7 +66,14 @@ function LandingNav() {
         </div>
         <div className="flex-1" />
         <LiveBadge label="Live" subLabel="0G Mainnet" />
-        <a className="ed-btn ed-btn-ghost ed-btn-sm cursor-pointer">Read whitepaper</a>
+        <a
+          href="https://github.com/mdlog/aegis-vault/blob/main/WHITEPAPER.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ed-btn ed-btn-ghost ed-btn-sm cursor-pointer"
+        >
+          Read whitepaper
+        </a>
         <Link to="/app" className="ed-btn ed-btn-gold ed-btn-sm">
           Launch app <ArrowRight size={14} />
         </Link>
