@@ -9,9 +9,15 @@ dist/
 .codex
 demo.js
 
-# Hackathon submission docs (kept local only)
+# Hackathon submission docs + internal working drafts (kept local only)
 HACKATHON_SUBMISSION.md
 HACKATHON_DESCRIPTION.txt
+Aegis_Vault_0G_Architecture.md
+Aegis_Vault_Decision_Matrix_v1.md
+CHECKPOINT_DRAFT.md
+DEMO_SCRIPT.md
+PITCH_SCRIPT.md
+PRE_DEPLOY_CHECKLIST.md
 
 # Hardhat build artifacts only — DO NOT ignore the entire contracts/ folder
 contracts/cache/
