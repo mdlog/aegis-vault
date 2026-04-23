@@ -142,6 +142,19 @@ const DEPLOYMENT_SCHEMA = {
   mockDEX: '',
   demoVault: '',
   orchestratorWallet: '',
+  // Real 0G-mainnet tokens (populated only on chain 16661; empty on other chains)
+  W0G: '',
+  USDCe: '',
+  WETH: '',
+  WBTC: '',
+  // v2 stack — populated on 0G mainnet (chain 16661) only. Other chains get ''
+  // so access like deployments.aegisVaultFactoryV2 is always safe.
+  aegisVaultImplementationV2: '',
+  aegisVaultFactoryV2: '',
+  executionRegistryV2: '',
+  insurancePoolV2: '',
+  operatorStakingV2: '',
+  operatorRegistryV2: '',
 };
 
 function normalizeDeploymentMap(source = {}) {

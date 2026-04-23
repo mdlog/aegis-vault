@@ -33,7 +33,13 @@ function formatUsdSigned(v) {
 }
 
 function formatPct(v) {
-  return `${v}%`;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '0%';
+  // Clamp to bounded drawdown range and round to 1 decimal so degenerate data
+  // (single point, dust-sized NAV, divide-by-near-zero) can't render axis
+  // labels like "595898922%".
+  const clamped = Math.max(-100, Math.min(0.5, n));
+  return `${clamped.toFixed(1)}%`;
 }
 
 function PerformanceTooltip({ active, payload, activeMetric }) {
@@ -43,8 +49,10 @@ function PerformanceTooltip({ active, payload, activeMetric }) {
   const value = payload[0].value;
   const meta = METRICS.find((m) => m.key === activeMetric) || METRICS[0];
   let display;
-  if (meta.axis === 'pct') display = `${value.toFixed(2)}%`;
-  else if (meta.axis === 'usd-signed') display = formatUsdSigned(value);
+  if (meta.axis === 'pct') {
+    const safe = Math.max(-100, Math.min(0.5, Number(value) || 0));
+    display = `${safe.toFixed(2)}%`;
+  } else if (meta.axis === 'usd-signed') display = formatUsdSigned(value);
   else display = `$${value.toLocaleString()}`;
   const tone =
     meta.key === 'pnl'
@@ -87,7 +95,14 @@ export default function PerformanceChart({
   const yFormatter = metric.axis === 'pct' ? formatPct : metric.axis === 'usd-signed' ? formatUsdSigned : formatUsd;
   const yDomain =
     metric.axis === 'pct'
-      ? ([min, max]) => [Math.min(-1, min - 1), Math.max(0.5, max + 0.5)]
+      ? ([min, max]) => {
+          // Drawdown is bounded: -100% to 0%. Clamp bad data (e.g. divide by
+          // near-zero peak on a fresh vault) so recharts doesn't emit huge
+          // percentages on the axis.
+          const safeMin = Math.max(-100, Math.min(0, Number.isFinite(min) ? min : 0));
+          const safeMax = Math.max(0, Math.min(0.5, Number.isFinite(max) ? max : 0));
+          return [Math.min(-1, safeMin - 1), Math.max(0.5, safeMax + 0.5)];
+        }
       : metric.axis === 'usd-signed'
         ? ([min, max]) => {
             const pad = Math.max(Math.abs(max), Math.abs(min)) * 0.15 || 1;

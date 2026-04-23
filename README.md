@@ -147,10 +147,10 @@ Slashing: up to 50% of stake per governance action. Slashed funds flow to the in
 
 | Layer | What It Does |
 |---|---|
-| **0G Chain — Aristotle mainnet (16661)** | Full Track 2 stack live + real execution via Jaine. 3 external libraries (SealedLib/ExecLib/IOLib) + slim vault + EIP-1167 factory + OperatorRegistry v2 + Staking + Reputation + Governor + Treasury + Insurance + JaineVenueAdapter + Pyth NAV. Factory: `0x7D0D6c77e2C3476Aa310DE192A774164c3f55151` |
+| **0G Chain — Aristotle mainnet (16661)** | Full Track 2 stack live + real execution via Jaine. 3 external libraries (SealedLib/ExecLib/IOLib) + slim vault + EIP-1167 factory + OperatorRegistry v2 + Staking + Reputation + Governor + Treasury + Insurance + JaineVenueAdapter + Pyth NAV. Factory: `0x9450ac911D06c81a54007a768d4278929d87A17e` |
 | **0G Compute** | Real AI inference via `GLM-5-FP8` — decentralized verifiable reasoning + structured JSON output; response hashed as `attestationReportHash`. 6 chatbot services live, provider `0xd9966e13a6026Fcca4b13E7ff95c94DE268C471C` selected |
 | **0G Storage** | KV state snapshots + blob upload — decision journal, execution reports, strategy memory; falls back to local JSON during hackathon window per [honest disclosure](HACKATHON_SUBMISSION.md#honest-disclosures) |
-| **Jaine DEX** | Uniswap V3 fork on 0G mainnet — **ACTIVE real liquidity**. USDC.e/W0G ~$360K TVL, WETH/W0G ~$278K, WBTC/W0G ~$189K plus cbBTC + st0G pairs. `JaineVenueAdapter`: `0x3d5fe23DE2F0B1aCBde70395C7787DEC79413D92` |
+| **Jaine DEX** | Uniswap V3 fork on 0G mainnet — **ACTIVE real liquidity**. USDC.e/W0G ~$360K TVL, WETH/W0G ~$278K, WBTC/W0G ~$189K plus cbBTC + st0G pairs. `JaineVenueAdapter`: `0x0F8B269368925Fd55C62560B6f818173A8cB25eD` |
 | **Pyth Network** | Multi-asset NAV oracle for BTC/ETH/USDC; live on both chains. 0G: `0x2880ab155794e7179c9ee2e38200202908c17b43`, Arbitrum: `0xff1a0f4744e8582DF1aE09D5611b887B6a12925C` |
 | **Arbitrum One (42161)** | Execution-layer sibling deployment for deeper DeFi liquidity. Uniswap V3 via UniswapV3VenueAdapter (canonical USDC/WETH/WBTC). Factory: `0x49354460eAdE1C2E786E36B3B3e7A18Fb4283C45`. Cross-chain safe via EIP-712 `block.chainid` domain separator |
 
@@ -262,24 +262,24 @@ Steps 1-4 same, steps 6-7 skipped, `executeIntent()` skips attestation branch.
 | `VaultNAVCalculator` | — | Pyth-backed multi-asset NAV pricing |
 | `JaineVenueAdapter` | — | Uniswap V3 fork router (Jaine mainnet DEX) |
 
-**Deployed on 0G Aristotle mainnet (chain 16661) — fresh deploy 2026-04-21, real Jaine venue:**
+**Deployed on 0G Aristotle mainnet (chain 16661) — v2 stack deployed 2026-04-23 (asset-rescue hardened), v1 initial 2026-04-21 kept on-chain, real Jaine venue:**
 
 | Contract | Address |
 |---|---|
-| AegisVaultFactory | `0x7D0D6c77e2C3476Aa310DE192A774164c3f55151` |
-| AegisVault impl | `0xF7A9f61eF536C4B21e3336e2178A817D06CE1A91` |
-| ExecutionRegistry | `0x8489306Bdf106cb0e5485486C30EF223D9888c74` |
-| SealedLib | `0x2732878473489f427B795ba7C38B6B9491049b7e` |
-| ExecLib | `0x64729eB3De843d62e6850fCc0d457b34366CcF7f` |
-| IOLib | `0x6350dF660C66a861Fa5dE897e9933c3868e0Bd7a` |
-| OperatorRegistry v2 | `0x4C6e88812101C346974c7E48c1587D6Cd3B2C2A9` |
-| OperatorStaking (USDC.e stake) | `0xbb73584d07dBFcA69FB2d3032F28d7E059D3E2E7` |
-| OperatorReputation | `0xa55c04E1688fFbea734044775834C2F66a2EE8F2` |
-| AegisGovernor | `0xf3Ffa341950d807bF2177D1dD7C76db993b12a89` |
-| InsurancePool | `0xdEA7542458b229aD35CC1F06746824fd31bcB4e2` |
-| ProtocolTreasury | `0xb71d34Bc3DE959f5681d28c2496f754664b925c5` |
-| **JaineVenueAdapter (ACTIVE)** | `0x3d5fe23DE2F0B1aCBde70395C7787DEC79413D92` |
-| VaultNAVCalculator | `0xFC7b533b3Aa3f4AecFB8aec49cB816E6095cD97A` |
+| AegisVaultFactory | `0x9450ac911D06c81a54007a768d4278929d87A17e` |
+| AegisVault impl | `0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181` |
+| ExecutionRegistry | `0x3a8a59865546e99c8377aFd2d02736e25Ac5d04E` |
+| SealedLib | `0x9dD28eE7d9B7D3e913D23dD1Fc3f4FB36b0F9063` |
+| ExecLib | `0x1F2110aE2E7280455Da63517942cBee7ecdB3045` |
+| IOLib | `0x0e60443Ee2c939f8cE19Fa5909c063B35a3baF7a` |
+| OperatorRegistry v2 | `0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5` |
+| OperatorStaking (USDC.e stake) | `0xAABC708aA3d5e9a37A90ff675EdBD681C204a376` |
+| OperatorReputation | `0xc270c579400a45975B2EBff05A2fF80f620080CA` |
+| AegisGovernor | `0x023EC4a54435f94E9395460e4835e75E429D5A2e` |
+| InsurancePool | `0x0CaCfc2a5a47C315343f20A8841EE29133AD1598` |
+| ProtocolTreasury | `0xCDc5D994590D0BF407E5be390A62A8d1eBbf0dF4` |
+| **JaineVenueAdapter (ACTIVE)** | `0x0F8B269368925Fd55C62560B6f818173A8cB25eD` |
+| VaultNAVCalculator | `0xBd21bfd62a11e1F8d04e7bE42D2cbDB6C51C4Ae1` |
 | USDC.e (Jaine canonical) | `0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E` |
 | WETH (Jaine canonical) | `0x564770837Ef8bbF077cFe54E5f6106538c815B22` |
 | WBTC (Jaine canonical) | `0x0555E30da8f98308EdB960aa94C0Db47230d2B9c` |
@@ -304,7 +304,7 @@ Steps 1-4 same, steps 6-7 skipped, `executeIntent()` skips attestation branch.
 | Sealed reveal (historical) | 0G | [`0x039242e7...`](https://chainscan.0g.ai/tx/0x039242e7a5595fb8b715946804e8ca6a53eeb29731a7661e6437a94b34e44365) | `executeIntent(intent, sig)` — commit-reveal + ECDSA verify |
 | Organic AI SELL (historical) | 0G | [`0x96b3e454...`](https://chainscan.0g.ai/tx/0x96b3e45435156849ee38c8a94c72ab3582a1abba1fa7cbf5d06374777e102a26) | Orchestrator cycle #848 — GLM-5-FP8 inference, confidence 62%, regime RANGE_NOISY |
 | Operator register (current) | 0G | [`0x28766ddc...`](https://chainscan.0g.ai/tx/0x28766ddce2d1e1f47d9094010d64eb78cc8631e9e0158d5369daa0ac591d5c4b) | `OperatorRegistry.register()` — Aegis Alpha bot (fresh deploy) |
-| First vault on Jaine real venue | 0G | Vault `0xAEDAc17B531d55b8Ac587691922DEAec6C273181` | Sealed-mode vault, 1 USDC.e deposit, allowed assets [USDC.e/WETH/WBTC], attested signer = operator |
+| First vault on Jaine real venue (legacy v1, historical) | 0G | Vault `0xAEDAc17B531d55b8Ac587691922DEAec6C273181` | Sealed-mode vault, 1 USDC.e deposit, allowed assets [USDC.e/WETH/WBTC], attested signer = operator. Kept on-chain; new vaults deploy through `AegisVaultFactory V2`. |
 
 **First real Jaine swap via vault** — populated here after the orchestrator cycle completes against the new vault.
 

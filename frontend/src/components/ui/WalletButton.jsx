@@ -27,6 +27,7 @@ export default function WalletButton() {
     { symbol: 'USDC', address: deployments.mockUSDC, decimals: 6 },
     { symbol: 'WBTC', address: deployments.mockWBTC, decimals: 8 },
     { symbol: 'WETH', address: deployments.mockWETH, decimals: 18 },
+    { symbol: 'W0G',  address: deployments.W0G,      decimals: 18 },
   ].filter(t => !!t.address);
 
   const balanceContracts = tokenList.map(t => ({

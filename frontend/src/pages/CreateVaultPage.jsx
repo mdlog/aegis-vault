@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { isAddress } from 'viem';
 import { toast } from 'sonner';
@@ -19,6 +19,7 @@ import {
 import { demoOperatorTiers, demoOperators } from '../data/demoContent';
 import { ENABLE_DEMO_FALLBACKS, getDeployments } from '../lib/contracts';
 import { resolveVenueAddress, getChainProfile, requiresDemoDisclaimer } from '../lib/chainConfig';
+import { getPrimaryOrchestratorExecutor } from '../lib/orchestratorStatus';
 import { parseTxError } from '../lib/txErrors';
 import { useDraftState } from '../lib/useDraftState';
 import TokenIcon from '../components/ui/TokenIcon';
@@ -70,6 +71,7 @@ const baseAssetOptions = [
   { symbol: 'USDC', name: 'USD Coin', depKey: 'mockUSDC', decimals: 6, color: 'text-cyan', border: 'border-cyan/30' },
   { symbol: 'WBTC', name: 'Wrapped BTC', depKey: 'mockWBTC', decimals: 8, color: 'text-gold', border: 'border-gold/30' },
   { symbol: 'WETH', name: 'Wrapped ETH', depKey: 'mockWETH', decimals: 18, color: 'text-emerald-soft', border: 'border-emerald-soft/30' },
+  { symbol: '0G', name: 'Wrapped 0G', depKey: 'W0G', decimals: 18, color: 'text-cyan', border: 'border-cyan/30' },
 ];
 
 const riskScoreByProfile = {
@@ -135,6 +137,10 @@ export default function CreateVaultPage() {
   const insufficientBalance = isConnected && walletBalanceNum <= 0;
   const [executorMode, setExecutorMode] = useState(ENABLE_DEMO_FALLBACKS ? 'marketplace' : '');
   const [customExecutor, setCustomExecutor] = useState('');
+  // Tracks which policy fields were pre-filled from the selected operator's
+  // recommendedXxx values. Used to render a "suggested by operator" badge on
+  // each slider and auto-clear the badge when the user edits that field.
+  const [operatorSuggestions, setOperatorSuggestions] = useState(null);
   // Optional manual attestation-signer override for sealed mode.
   // Operators who run their orchestrator with TEE_SIGNER_PRIVATE_KEY set to a
   // separate key can paste the corresponding address here; otherwise we default
@@ -144,10 +150,17 @@ export default function CreateVaultPage() {
     ENABLE_DEMO_FALLBACKS ? demoOperators[0]?.wallet || '' : ''
   );
 
-  const { operators: marketplaceOperators, isLoading: operatorsLoading } = useOperatorList(deployments.operatorRegistry);
+  const { operators: marketplaceOperators, isLoading: operatorsLoading } = useOperatorList(deployments.operatorRegistryV2 || deployments.operatorRegistry);
   const liveMarketplaceOperators = marketplaceOperators.filter((op) => op.loaded && op.active);
   const useDemoMarketplace = ENABLE_DEMO_FALLBACKS && liveMarketplaceOperators.length === 0;
   const activeMarketplaceOperators = useDemoMarketplace ? demoOperators : liveMarketplaceOperators;
+
+  // Query-param + auto-select effects live after pickMarketplaceOperator
+  // declaration (below) to avoid a temporal-dead-zone crash when Vite's
+  // production bundler evaluates dependency arrays eagerly.
+  const [searchParams] = useSearchParams();
+  const operatorFromQuery = searchParams.get('operator');
+  const [prefillHandled, setPrefillHandled] = useState(false);
 
   // Phase 2: tier data for all marketplace operators
   const allOperatorAddrs = activeMarketplaceOperators.map((op) => op.wallet);
@@ -156,7 +169,7 @@ export default function CreateVaultPage() {
 
   const currentStep = steps[step];
   const selectedProfile = riskProfiles.find((p) => p.id === config.riskProfile);
-  const detectedExecutor = orchStatus?.executorAddress || '';
+  const detectedExecutor = getPrimaryOrchestratorExecutor(orchStatus);
   const canUseDetectedExecutor = Boolean(detectedExecutor);
   const isExecutorAutoResolved = !executorMode;
   const activeExecutorMode =
@@ -194,11 +207,11 @@ export default function CreateVaultPage() {
   // the orchestrator network won't pick up the vault and funds get stranded.
   const customExecutorIsAddr = customExecutor.length === 0 || isAddress(customExecutor);
   const { data: customExecRegistered } = useIsRegistered(
-    deployments.operatorRegistry,
+    (deployments.operatorRegistryV2 || deployments.operatorRegistry),
     activeExecutorMode === 'custom' && customExecutor && isAddress(customExecutor) ? customExecutor : undefined,
   );
   const { data: customExecData } = useOperator(
-    deployments.operatorRegistry,
+    (deployments.operatorRegistryV2 || deployments.operatorRegistry),
     activeExecutorMode === 'custom' && customExecRegistered ? customExecutor : undefined,
   );
   const customExecutorWarning =
@@ -266,24 +279,64 @@ export default function CreateVaultPage() {
       op.recommendedStopLossBps ||
       op.recommendedCooldownSeconds ||
       op.recommendedMaxActionsPerDay;
-    if (!hasRecommendation) return;
-    setConfig((prev) => ({
-      ...prev,
+    if (!hasRecommendation) {
+      setOperatorSuggestions(null);
+      return;
+    }
+    const suggestions = {
+      operatorName: op.name || 'operator',
       maxPosition: op.recommendedMaxPositionBps
         ? Math.round(op.recommendedMaxPositionBps / 100)
-        : prev.maxPosition,
+        : null,
       confidenceThreshold: op.recommendedConfidenceMinBps
         ? Math.round(op.recommendedConfidenceMinBps / 100)
-        : prev.confidenceThreshold,
+        : null,
       stopLoss: op.recommendedStopLossBps
         ? Math.round(op.recommendedStopLossBps / 100)
-        : prev.stopLoss,
+        : null,
       cooldown: op.recommendedCooldownSeconds
         ? Math.round(op.recommendedCooldownSeconds / 60)
-        : prev.cooldown,
-      maxActionsPerDay: op.recommendedMaxActionsPerDay || prev.maxActionsPerDay,
+        : null,
+      maxActionsPerDay: op.recommendedMaxActionsPerDay || null,
+    };
+    setOperatorSuggestions(suggestions);
+    setConfig((prev) => ({
+      ...prev,
+      maxPosition: suggestions.maxPosition ?? prev.maxPosition,
+      confidenceThreshold: suggestions.confidenceThreshold ?? prev.confidenceThreshold,
+      stopLoss: suggestions.stopLoss ?? prev.stopLoss,
+      cooldown: suggestions.cooldown ?? prev.cooldown,
+      maxActionsPerDay: suggestions.maxActionsPerDay ?? prev.maxActionsPerDay,
     }));
   };
+
+  // Pre-select an operator when landing here from "Assign to vault" button.
+  // Reads ?operator=0x... from URL, auto-selects the matching operator and
+  // forces executor mode to 'marketplace' so user skips Step-Executor manually.
+  // Runs once when operators list loads — subsequent user clicks override.
+  useEffect(() => {
+    if (prefillHandled) return;
+    if (!operatorFromQuery || !isAddress(operatorFromQuery)) return;
+    if (activeMarketplaceOperators.length === 0) return;
+    const match = activeMarketplaceOperators.find(
+      (op) => op.wallet?.toLowerCase() === operatorFromQuery.toLowerCase()
+    );
+    if (match) {
+      pickMarketplaceOperator(match);
+      setExecutorMode('marketplace');
+    }
+    setPrefillHandled(true);
+  }, [operatorFromQuery, activeMarketplaceOperators, prefillHandled]);
+
+  // Auto-select first operator when user switches to marketplace mode and
+  // there's no selection yet. Saves a click when the list is small. User
+  // can still click any other operator to override.
+  useEffect(() => {
+    if (activeExecutorMode !== 'marketplace') return;
+    if (selectedMarketplaceOperator) return;
+    if (activeMarketplaceOperators.length === 0) return;
+    pickMarketplaceOperator(activeMarketplaceOperators[0]);
+  }, [activeExecutorMode, selectedMarketplaceOperator, activeMarketplaceOperators]);
 
   // Auto-deposit flow: createVault → approve → deposit → navigate
   // Each phase reads from deploySnapshotRef (frozen at executeDeploy) so user
@@ -432,6 +485,7 @@ export default function CreateVaultPage() {
       if (s === 'BTC') return deployments.mockWBTC;
       if (s === 'ETH') return deployments.mockWETH;
       if (s === 'USDC') return deployments.mockUSDC;
+      if (s === '0G') return deployments.W0G;
       return deployments.mockUSDC;
     }).filter(Boolean);
     const baseAssetAddr = deployments[selectedBaseAsset.depKey];
@@ -663,20 +717,20 @@ export default function CreateVaultPage() {
           {/* Step 1: Deposit */}
           {currentStep.key === 'deposit' && (
             <div>
-              <div className="mb-6 pb-5 border-b border-white/[0.04]">
-                <div className="flex items-baseline gap-3.5 mb-2">
+              <div className="mb-5 pb-4 border-b border-white/[0.04]">
+                <div className="flex items-baseline gap-3.5 flex-wrap">
                   <span className="ed-eyebrow">§ C.01</span>
                   <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
                     Deposit
                   </span>
+                  <h2
+                    className="ed-display"
+                    style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+                  >
+                    Fund your <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>vault.</span>
+                  </h2>
                 </div>
-                <h2
-                  className="ed-display"
-                  style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
-                >
-                  Fund your <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>vault.</span>
-                </h2>
-                <p className="text-[13px] mt-3 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
+                <p className="text-[13px] mt-2 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
                   Specify the initial deposit amount. Your capital remains under smart contract custody.
                 </p>
               </div>
@@ -685,17 +739,23 @@ export default function CreateVaultPage() {
                   <label className="text-[10px] font-mono tracking-[0.15em] uppercase text-steel/40 block mb-3">
                     Base Asset
                   </label>
-                  <div className="grid grid-cols-3 gap-2 mb-5">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
                     {baseAssetOptions.map((asset) => {
                       const selected = config.baseAsset === asset.symbol;
+                      const tokenAddr = deployments[asset.depKey];
+                      const unavailable = !tokenAddr || tokenAddr === '';
                       return (
                         <button
                           key={asset.symbol}
-                          onClick={() => updateConfig('baseAsset', asset.symbol)}
+                          onClick={() => !unavailable && updateConfig('baseAsset', asset.symbol)}
+                          disabled={unavailable}
+                          title={unavailable ? `${asset.symbol} not deployed on this network` : ''}
                           className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border transition-all
-                            ${selected
-                              ? `bg-white/[0.04] ${asset.border} shadow-[0_0_0_3px_rgba(255,255,255,0.03)]`
-                              : 'border-white/[0.06] hover:border-white/[0.12] bg-white/[0.01]'
+                            ${unavailable
+                              ? 'border-white/[0.04] bg-white/[0.01] opacity-40 cursor-not-allowed'
+                              : selected
+                                ? `bg-white/[0.04] ${asset.border} shadow-[0_0_0_3px_rgba(255,255,255,0.03)]`
+                                : 'border-white/[0.06] hover:border-white/[0.12] bg-white/[0.01]'
                             }`}
                         >
                           <TokenIcon symbol={asset.symbol} size={22} />
@@ -830,20 +890,20 @@ export default function CreateVaultPage() {
           {/* Step 2: Risk Profile */}
           {currentStep.key === 'risk' && (
             <div>
-              <div className="mb-6 pb-5 border-b border-white/[0.04]">
-                <div className="flex items-baseline gap-3.5 mb-2">
+              <div className="mb-5 pb-4 border-b border-white/[0.04]">
+                <div className="flex items-baseline gap-3.5 flex-wrap">
                   <span className="ed-eyebrow">§ C.02</span>
                   <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
                     Risk profile
                   </span>
+                  <h2
+                    className="ed-display"
+                    style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+                  >
+                    Choose your risk <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>mandate.</span>
+                  </h2>
                 </div>
-                <h2
-                  className="ed-display"
-                  style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
-                >
-                  Choose your risk <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>mandate.</span>
-                </h2>
-                <p className="text-[13px] mt-3 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
+                <p className="text-[13px] mt-2 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
                   This sets the baseline risk posture for your vault. You can fine-tune parameters in the next step.
                 </p>
               </div>
@@ -878,24 +938,32 @@ export default function CreateVaultPage() {
           {/* Step 3: Policy Fine-tune */}
           {currentStep.key === 'policy' && (
             <div>
-              <div className="mb-6 pb-5 border-b border-white/[0.04]">
-                <div className="flex items-baseline gap-3.5 mb-2">
+              <div className="mb-5 pb-4 border-b border-white/[0.04]">
+                <div className="flex items-baseline gap-3.5 flex-wrap">
                   <span className="ed-eyebrow">§ C.03</span>
                   <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
-                    Policy
+                    Policy · hard gates
                   </span>
+                  <h2
+                    className="ed-display"
+                    style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+                  >
+                    Fine-tune <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>guardrails.</span>
+                  </h2>
                 </div>
-                <h2
-                  className="ed-display"
-                  style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
-                >
-                  Fine-tune <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>guardrails.</span>
-                </h2>
-                <p className="text-[13px] mt-3 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
-                  Adjust the on-chain policy parameters. These constraints are enforced at the contract level.
+                <p className="text-[13px] mt-2 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
+                  These are <strong className="text-white/80">hard gates enforced on-chain</strong>. The vault contract reverts any trade that would breach these limits — the operator cannot override them. You can change the policy later via <code className="text-cyan/60 font-mono text-[11px]">setPolicy()</code>.
                 </p>
               </div>
               <GlassPanel className="p-6">
+                {operatorSuggestions && (
+                  <div className="mb-5 p-3 rounded-md border border-gold/20 bg-gold/[0.04] flex items-start gap-2.5">
+                    <Cpu className="w-3.5 h-3.5 text-gold/80 mt-0.5 flex-shrink-0" />
+                    <div className="text-[11.5px] text-steel/65 leading-relaxed">
+                      Some values below are <strong className="text-gold/90">pre-filled from {operatorSuggestions.operatorName}</strong>'s suggested defaults. These are recommendations — you can override any of them, and the vault will enforce whatever you set.
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-5">
                   {[
                     { label: 'Max Drawdown', key: 'maxDrawdown', min: 1, max: 30, suffix: '%', icon: <TrendingDown className="w-3.5 h-3.5" />, desc: 'Maximum allowed daily loss' },
@@ -905,34 +973,47 @@ export default function CreateVaultPage() {
                     { label: 'Confidence Threshold', key: 'confidenceThreshold', min: 30, max: 95, suffix: '%', icon: <Zap className="w-3.5 h-3.5" />, desc: 'AI must be at least this confident to trade' },
                     { label: 'Global Stop-Loss', key: 'stopLoss', min: 5, max: 30, suffix: '%', icon: <Shield className="w-3.5 h-3.5" />, desc: 'Halt all trading if total loss exceeds this' },
                     { label: 'Max Trades Per Day', key: 'maxActionsPerDay', min: 1, max: 50, suffix: '', icon: <Layers className="w-3.5 h-3.5" />, desc: 'Maximum number of trades per day' },
-                  ].map((param) => (
-                    <div key={param.key}>
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2 text-xs text-steel/70">
-                          <span className="text-steel/40">{param.icon}</span>
-                          {param.label}
+                  ].map((param) => {
+                    const suggestedValue = operatorSuggestions?.[param.key];
+                    const isSuggested =
+                      suggestedValue != null && suggestedValue === config[param.key];
+                    return (
+                      <div key={param.key}>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2 text-xs text-steel/70">
+                            <span className="text-steel/40">{param.icon}</span>
+                            {param.label}
+                            {isSuggested && (
+                              <span
+                                className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-gold/25 text-gold/80 bg-gold/[0.04]"
+                                title={`${operatorSuggestions.operatorName} suggested ${suggestedValue}${param.suffix}. Move the slider to override.`}
+                              >
+                                Suggested
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-sm font-mono font-medium text-white">
+                            {config[param.key]}{param.suffix}
+                          </span>
                         </div>
-                        <span className="text-sm font-mono font-medium text-white">
-                          {config[param.key]}{param.suffix}
-                        </span>
+                        {param.desc && (
+                          <p className="text-[9px] text-steel/35 mb-2">{param.desc}</p>
+                        )}
+                        <input
+                          type="range"
+                          min={param.min}
+                          max={param.max}
+                          value={config[param.key]}
+                          onChange={(e) => updateConfig(param.key, Number(e.target.value))}
+                          className="w-full h-1 rounded-full appearance-none cursor-pointer
+                            bg-white/[0.06] accent-gold [&::-webkit-slider-thumb]:appearance-none
+                            [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
+                            [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gold
+                            [&::-webkit-slider-thumb]:shadow-[0_0_10px_rgba(201,168,76,0.3)]"
+                        />
                       </div>
-                      {param.desc && (
-                        <p className="text-[9px] text-steel/35 mb-2">{param.desc}</p>
-                      )}
-                      <input
-                        type="range"
-                        min={param.min}
-                        max={param.max}
-                        value={config[param.key]}
-                        onChange={(e) => updateConfig(param.key, Number(e.target.value))}
-                        className="w-full h-1 rounded-full appearance-none cursor-pointer
-                          bg-white/[0.06] accent-gold [&::-webkit-slider-thumb]:appearance-none
-                          [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
-                          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-gold
-                          [&::-webkit-slider-thumb]:shadow-[0_0_10px_rgba(201,168,76,0.3)]"
-                      />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </GlassPanel>
             </div>
@@ -941,20 +1022,20 @@ export default function CreateVaultPage() {
           {/* Step 4: Assets */}
           {currentStep.key === 'assets' && (
             <div>
-              <div className="mb-6 pb-5 border-b border-white/[0.04]">
-                <div className="flex items-baseline gap-3.5 mb-2">
+              <div className="mb-5 pb-4 border-b border-white/[0.04]">
+                <div className="flex items-baseline gap-3.5 flex-wrap">
                   <span className="ed-eyebrow">§ C.04</span>
                   <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
                     Assets
                   </span>
+                  <h2
+                    className="ed-display"
+                    style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+                  >
+                    Select <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>allowed</span> assets.
+                  </h2>
                 </div>
-                <h2
-                  className="ed-display"
-                  style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
-                >
-                  Select <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>allowed</span> assets.
-                </h2>
-                <p className="text-[13px] mt-3 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
+                <p className="text-[13px] mt-2 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
                   The AI can only trade assets you explicitly authorize. This is enforced on-chain. At least one is required.
                 </p>
               </div>
@@ -1002,20 +1083,20 @@ export default function CreateVaultPage() {
           {/* Step 5: Sealed Mode */}
           {currentStep.key === 'sealed' && (
             <div>
-              <div className="mb-6 pb-5 border-b border-white/[0.04]">
-                <div className="flex items-baseline gap-3.5 mb-2">
+              <div className="mb-5 pb-4 border-b border-white/[0.04]">
+                <div className="flex items-baseline gap-3.5 flex-wrap">
                   <span className="ed-eyebrow">§ C.05</span>
                   <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
                     Privacy
                   </span>
+                  <h2
+                    className="ed-display"
+                    style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+                  >
+                    Privacy & <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>execution</span> mode.
+                  </h2>
                 </div>
-                <h2
-                  className="ed-display"
-                  style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
-                >
-                  Privacy & <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>execution</span> mode.
-                </h2>
-                <p className="text-[13px] mt-3 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
+                <p className="text-[13px] mt-2 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
                   Choose whether to run in sealed strategy mode and enable autonomous execution.
                 </p>
               </div>
@@ -1132,20 +1213,20 @@ export default function CreateVaultPage() {
           {/* Step 6: Review */}
           {currentStep.key === 'review' && (
             <div>
-              <div className="mb-6 pb-5 border-b border-white/[0.04]">
-                <div className="flex items-baseline gap-3.5 mb-2">
+              <div className="mb-5 pb-4 border-b border-white/[0.04]">
+                <div className="flex items-baseline gap-3.5 flex-wrap">
                   <span className="ed-eyebrow">§ C.06</span>
                   <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
                     Review & seal
                   </span>
+                  <h2
+                    className="ed-display"
+                    style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
+                  >
+                    Review, <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>then seal.</span>
+                  </h2>
                 </div>
-                <h2
-                  className="ed-display"
-                  style={{ fontSize: 32, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
-                >
-                  Review, <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>then seal.</span>
-                </h2>
-                <p className="text-[13px] mt-3 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
+                <p className="text-[13px] mt-2 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
                   Confirm your vault parameters before deployment. All policies will be enforced on-chain.
                 </p>
               </div>
@@ -1399,9 +1480,17 @@ export default function CreateVaultPage() {
 
                     {activeExecutorMode === 'marketplace' && (
                       <div>
-                        <label className="text-[10px] font-mono tracking-[0.12em] uppercase text-steel/40 block mb-2">
-                          Choose an Operator
-                        </label>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-[10px] font-mono tracking-[0.12em] uppercase text-gold/80 inline-flex items-center gap-1.5">
+                            <ArrowRight className="w-3 h-3" />
+                            Click an operator below to select
+                          </label>
+                          {selectedOperatorData && (
+                            <span className="text-[9px] font-mono text-emerald-soft/70 uppercase tracking-wider">
+                              ✓ {selectedOperatorData.name} selected
+                            </span>
+                          )}
+                        </div>
                         {useDemoMarketplace && (
                           <div className="mb-2 rounded-md bg-amber-warn/5 border border-amber-warn/25 px-3 py-2 flex items-start gap-2">
                             <AlertTriangle className="w-3.5 h-3.5 text-amber-warn/80 flex-shrink-0 mt-0.5" />
@@ -1443,14 +1532,20 @@ export default function CreateVaultPage() {
                                   key={op.wallet}
                                   type="button"
                                   onClick={() => pickMarketplaceOperator(op)}
-                                  className={`w-full text-left px-3 py-2.5 rounded-md border transition-all ${
+                                  className={`w-full text-left px-3 py-2.5 rounded-md border-2 transition-all cursor-pointer ${
                                     selected
-                                      ? 'border-gold/30 bg-gold/5'
-                                      : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]'
+                                      ? 'border-gold bg-gold/10 shadow-[0_0_0_3px_rgba(201,168,76,0.08)]'
+                                      : 'border-white/[0.08] bg-white/[0.02] hover:border-gold/40 hover:bg-gold/[0.03]'
                                   }`}
                                 >
                                   <div className="flex items-center justify-between gap-2 mb-0.5">
                                     <div className="flex items-center gap-2">
+                                      {/* Radio-style selection indicator — makes it obvious each card is clickable */}
+                                      <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                                        selected ? 'border-gold bg-gold' : 'border-white/30'
+                                      }`}>
+                                        {selected && <Check className="w-2 h-2 text-obsidian" strokeWidth={4} />}
+                                      </div>
                                       <Cpu className="w-3.5 h-3.5 text-gold/60" />
                                       <span className="text-xs font-display font-medium text-white">{op.name}</span>
                                       {tier > 0 && (
@@ -1619,7 +1714,7 @@ export default function CreateVaultPage() {
           </div>
         </div>
 
-          <aside className="space-y-4 lg:sticky lg:top-24">
+          <aside className="space-y-4 lg:mt-28 lg:sticky lg:top-24">
             <GlassPanel className="p-4">
               <div className="flex items-start justify-between gap-3 mb-4">
                 <div>

@@ -16,6 +16,7 @@ const FEED_IDS = {
   BTC: '0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43',
   ETH: '0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace',
   USDC: '0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a',
+  '0G': '0xfa9e8d4591613476ad0961732475dc08969d248faca270cc6c47efe009ea3070',
 };
 
 // ── Hermes Client ──
@@ -37,11 +38,11 @@ export async function fetchPythPrices() {
   }
 
   try {
-    const feedIds = [FEED_IDS.BTC, FEED_IDS.ETH, FEED_IDS.USDC];
+    const feedIds = [FEED_IDS.BTC, FEED_IDS.ETH, FEED_IDS.USDC, FEED_IDS['0G']];
     const updates = await hermes.getLatestPriceUpdates(feedIds);
 
     const prices = {};
-    const symbols = ['BTC', 'ETH', 'USDC'];
+    const symbols = ['BTC', 'ETH', 'USDC', '0G'];
 
     for (let i = 0; i < updates.parsed.length; i++) {
       const feed = updates.parsed[i];
@@ -58,7 +59,7 @@ export async function fetchPythPrices() {
 
     priceCache = prices;
     lastFetch = now;
-    logger.info(`Pyth prices: BTC=$${prices.BTC?.price.toLocaleString()} ETH=$${prices.ETH?.price.toLocaleString()}`);
+    logger.info(`Pyth prices: BTC=$${prices.BTC?.price.toLocaleString()} ETH=$${prices.ETH?.price.toLocaleString()} 0G=$${prices['0G']?.price.toFixed(4)}`);
     return prices;
 
   } catch (err) {
@@ -150,6 +151,7 @@ export async function calculateMultiAssetNAV(vaultAddress, tokenAddresses = null
       BTC: prices.BTC?.price || 0,
       ETH: prices.ETH?.price || 0,
       USDC: prices.USDC?.price || 1.0,
+      '0G': prices['0G']?.price || 0,
     },
     source: 'pyth-hermes',
     timestamp: new Date().toISOString(),
@@ -182,6 +184,7 @@ function getFallbackPrices() {
     BTC: { price: 70000, confidence: 50, publishTime: Math.floor(Date.now() / 1000), feedId: FEED_IDS.BTC },
     ETH: { price: 2200, confidence: 10, publishTime: Math.floor(Date.now() / 1000), feedId: FEED_IDS.ETH },
     USDC: { price: 1.0, confidence: 0.001, publishTime: Math.floor(Date.now() / 1000), feedId: FEED_IDS.USDC },
+    '0G': { price: 0.58, confidence: 0.001, publishTime: Math.floor(Date.now() / 1000), feedId: FEED_IDS['0G'] },
   };
 }
 

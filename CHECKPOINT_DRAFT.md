@@ -23,7 +23,7 @@ Dual-chain real venue: Jaine (0G) + Arbitrum V3
 ## Description (199 / 200)
 
 ```
-Fresh 0G redeploy (14 contracts, real Jaine venue — USDC.e/W0G/WETH/WBTC pools ~$1M TVL). Arbitrum UniV3 execution (8 contracts). Post-audit both-sides whitelist fix. Dead hook cleanup. Docs refreshed.
+0G v2 stack live (20 contracts, asset-rescue on vault + staking + insurance pool, real Jaine venue ~$1M TVL). Arbitrum UniV3 execution (8 contracts, v1). Post-audit both-sides whitelist fix. Dead hook cleanup. Docs refreshed.
 ```
 
 ---
@@ -57,18 +57,18 @@ Prior deploy ditargetkan ke MockDEX karena asumsi awal "Jaine pools empty". Post
 
 | Contract | Address |
 |---|---|
-| AegisVaultFactory | `0x7D0D6c77e2C3476Aa310DE192A774164c3f55151` |
-| AegisVault impl | `0xF7A9f61eF536C4B21e3336e2178A817D06CE1A91` |
-| ExecutionRegistry | `0x8489306Bdf106cb0e5485486C30EF223D9888c74` |
+| AegisVaultFactory | `0x9450ac911D06c81a54007a768d4278929d87A17e` |
+| AegisVault impl | `0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181` |
+| ExecutionRegistry | `0x3a8a59865546e99c8377aFd2d02736e25Ac5d04E` |
 | SealedLib / ExecLib / IOLib | 3 DELEGATECALL'd libraries (slim architecture) |
-| OperatorRegistry v2 | `0x4C6e88812101C346974c7E48c1587D6Cd3B2C2A9` |
-| OperatorStaking (USDC.e) | `0xbb73584d07dBFcA69FB2d3032F28d7E059D3E2E7` |
-| OperatorReputation | `0xa55c04E1688fFbea734044775834C2F66a2EE8F2` |
-| AegisGovernor (M-of-N) | `0xf3Ffa341950d807bF2177D1dD7C76db993b12a89` |
-| InsurancePool | `0xdEA7542458b229aD35CC1F06746824fd31bcB4e2` |
-| ProtocolTreasury | `0xb71d34Bc3DE959f5681d28c2496f754664b925c5` |
-| **JaineVenueAdapter (ACTIVE)** | `0x3d5fe23DE2F0B1aCBde70395C7787DEC79413D92` |
-| VaultNAVCalculator (Pyth) | `0xFC7b533b3Aa3f4AecFB8aec49cB816E6095cD97A` |
+| OperatorRegistry v2 | `0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5` |
+| OperatorStaking (USDC.e) | `0xAABC708aA3d5e9a37A90ff675EdBD681C204a376` |
+| OperatorReputation | `0xc270c579400a45975B2EBff05A2fF80f620080CA` |
+| AegisGovernor (M-of-N) | `0x023EC4a54435f94E9395460e4835e75E429D5A2e` |
+| InsurancePool | `0x0CaCfc2a5a47C315343f20A8841EE29133AD1598` |
+| ProtocolTreasury | `0xCDc5D994590D0BF407E5be390A62A8d1eBbf0dF4` |
+| **JaineVenueAdapter (ACTIVE)** | `0x0F8B269368925Fd55C62560B6f818173A8cB25eD` |
+| VaultNAVCalculator (Pyth) | `0xBd21bfd62a11e1F8d04e7bE42D2cbDB6C51C4Ae1` |
 
 Real Jaine-pair tokens (verified via on-chain swap events):
 - USDC.e: `0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E` (6 decimals)
@@ -97,10 +97,11 @@ Real Jaine-pair tokens (verified via on-chain swap events):
   - AI model declared: `zai-org/GLM-5-FP8`
   - Bonded manifest hash: `0xef462f339acbb414...ba21c79e` (slashable)
   - Stake: scalable via OperatorStaking (Tier None → $5K vault cap)
-- Vault `0xAEDAc17B531d55b8Ac587691922DEAec6C273181`:
+- Vault (legacy v1, historical) `0xAEDAc17B531d55b8Ac587691922DEAec6C273181`:
   - Sealed mode ENABLED · attestedSigner = operator
   - 0.999 USDC.e deposited (1.0 USDC.e minus 0.1% entry fee)
   - Allowed assets: real WBTC / WETH / USDC.e (Jaine canonical)
+  - Post-v2 cutover: new vaults route through `AegisVaultFactory V2` (`0x9450ac91…A17e`) with asset-rescue paths. This v1 vault kept on-chain as reference.
 
 ### Frontend upgrades
 

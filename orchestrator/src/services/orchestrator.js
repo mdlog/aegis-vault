@@ -101,6 +101,53 @@ function syncPositionStateFromHoldings(positionState, vaultState) {
   return positionState;
 }
 
+export function resolveExecutorAddresses() {
+  try {
+    const poolAddresses = getPoolAddresses().filter(Boolean);
+    if (poolAddresses.length > 0) {
+      return poolAddresses;
+    }
+  } catch {
+    // Fall through to the legacy single-wallet signer path.
+  }
+
+  try {
+    const signerAddress = getSigner().address;
+    return signerAddress ? [signerAddress] : [];
+  } catch {
+    return [];
+  }
+}
+
+export function collectManagedVaultAddresses(executorAddresses = resolveExecutorAddresses()) {
+  const seen = new Set();
+  const vaults = [];
+
+  for (const executorAddress of executorAddresses) {
+    const rows = getVaultsByExecutor(executorAddress);
+    for (const row of rows) {
+      if (!row?.address) continue;
+      const key = row.address.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      vaults.push(row.address);
+    }
+  }
+
+  // Keep the explicitly configured vault visible even while the indexer is
+  // still backfilling after a restart.
+  if (config.contracts.vault) {
+    const envVault = config.contracts.vault;
+    const envKey = envVault.toLowerCase();
+    if (!seen.has(envKey)) {
+      seen.add(envKey);
+      vaults.push(envVault);
+    }
+  }
+
+  return vaults;
+}
+
 function updatePendingApproval(vaultAddress, approvalRequest = null) {
   const currentState = readKVState();
   const pendingApprovals = { ...(currentState.pendingApprovals || {}) };
@@ -196,28 +243,8 @@ export async function initialize() {
  * This scales to 100k+ vaults without per-cycle factory scans.
  */
 async function discoverManagedVaults() {
-  // Pool addresses (single-wallet orchestrator returns 1 entry, sharded returns N)
-  const executorAddrs = getPoolAddresses();
-  const seen = new Set();
-  const vaults = [];
-
-  for (const addr of executorAddrs) {
-    const rows = getVaultsByExecutor(addr);
-    for (const row of rows) {
-      if (seen.has(row.address)) continue;
-      seen.add(row.address);
-      vaults.push(row.address);
-    }
-  }
-
-  // Always include .env vault as a backstop (helpful while indexer backfills)
-  if (config.contracts.vault) {
-    const envVault = config.contracts.vault;
-    if (!seen.has(envVault)) {
-      vaults.push(envVault);
-      seen.add(envVault);
-    }
-  }
+  const executorAddrs = resolveExecutorAddresses();
+  const vaults = collectManagedVaultAddresses(executorAddrs);
 
   logger.info(`Indexer: ${vaults.length} vault(s) assigned to ${executorAddrs.length} executor wallet(s)`);
   return vaults;
@@ -607,19 +634,17 @@ export async function runCycle() {
  */
 export function getStatus() {
   const kvState = readKVState();
-  let executorAddress = null;
-
-  try {
-    executorAddress = getSigner().address;
-  } catch {
-    executorAddress = null;
-  }
+  const executorAddresses = resolveExecutorAddresses();
+  const executorAddress = executorAddresses[0] || null;
+  const managedVaults = collectManagedVaultAddresses(executorAddresses);
+  const trackedVaults = Object.keys(vaultPositions);
 
   return {
     running,
     cycleCount,
     executorAddress,
-    signerConfigured: Boolean(executorAddress),
+    executorAddresses,
+    signerConfigured: executorAddresses.length > 0,
     mutationAuthMode: config.apiKey ? 'api-key' : 'localhost-only',
     strictMode: config.strictMode,
     configuredVault: config.contracts.vault || null,
@@ -632,8 +657,10 @@ export function getStatus() {
     pendingApprovals: kvState.pendingApprovals || {},
     pendingApprovalCount: Object.keys(kvState.pendingApprovals || {}).length,
     ogCompute: getOGComputeStatus(),
-    managedVaults: Object.keys(vaultPositions),
-    managedVaultCount: Object.keys(vaultPositions).length,
+    managedVaults,
+    managedVaultCount: managedVaults.length,
+    trackedVaults,
+    trackedVaultCount: trackedVaults.length,
     // Production-grade metadata
     poolSize: getPoolSize(),
     poolStats: getPoolStats(

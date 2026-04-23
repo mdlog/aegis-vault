@@ -77,12 +77,19 @@ contract AegisVault {
         require(msg.sender == executor && !policy.paused && policy.autoExecution, "x");
         require(intent.vault == address(this), "v");
 
-        if (policy.sealedMode) {
+        // Verify AI attestation signature whenever a signer is configured — not
+        // only in sealed mode. Without this, a compromised executor key could
+        // replay-unrelated intents in open mode with no cryptographic backstop.
+        if (policy.attestedSigner != address(0)) {
             bytes32 commitHash = SealedLib.verifyAttestation(intent.intentHash, intent.attestationReportHash, policy.attestedSigner, sig);
-            uint256 cb = intentCommits[commitHash];
-            require(cb != 0 && block.number >= cb + 1, "cr");
-            delete intentCommits[commitHash];
-            emit VaultEvents.SealedIntentExecuted(address(this), intent.intentHash, policy.attestedSigner, intent.attestationReportHash);
+            if (policy.sealedMode) {
+                uint256 cb = intentCommits[commitHash];
+                require(cb != 0 && block.number >= cb + 1, "cr");
+                delete intentCommits[commitHash];
+                emit VaultEvents.SealedIntentExecuted(address(this), intent.intentHash, policy.attestedSigner, intent.attestationReportHash);
+            }
+        } else {
+            require(!policy.sealedMode, "sealed needs signer");
         }
 
         if (block.timestamp >= dailyActionResetTime) {

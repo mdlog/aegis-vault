@@ -25,10 +25,15 @@ export default function ProtocolHealthPanel({ displayStatus }) {
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
 
+  // Full-v2 policy: prefer v2 staking / insurance pool where deployed, fall
+  // back to v1 on chains without v2 (Arbitrum, local, etc).
+  const activeStaking = deployments.operatorStakingV2 || deployments.operatorStaking;
+  const activeInsurance = deployments.insurancePoolV2 || deployments.insurancePool;
+
   const { balance: treasuryUsdc } = useTokenBalance(deployments.mockUSDC, deployments.protocolTreasury, 6);
-  const { totalStakers, totalStakedUsd } = useStakingStats(deployments.operatorStaking);
+  const { totalStakers, totalStakedUsd } = useStakingStats(activeStaking);
   const { balance: insuranceBalance, claimCount } = useInsurancePoolStats(
-    deployments.insurancePool,
+    activeInsurance,
     deployments.mockUSDC
   );
   const { totalProposals, threshold, owners } = useGovernorConfig(deployments.aegisGovernor);
@@ -39,9 +44,9 @@ export default function ProtocolHealthPanel({ displayStatus }) {
 
   // Any of the phase 2-4 contracts deployed?
   const anyDeployed = !!(
-    deployments.operatorStaking ||
+    activeStaking ||
     deployments.protocolTreasury ||
-    deployments.insurancePool ||
+    activeInsurance ||
     deployments.aegisGovernor
   );
   if (!anyDeployed) return null;
@@ -67,7 +72,7 @@ export default function ProtocolHealthPanel({ displayStatus }) {
             value={`$${(totalStakedUsd || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
             subValue={`${totalStakers || 0} operator${totalStakers === 1 ? '' : 's'} staked`}
             accent="text-gold"
-            enabled={!!deployments.operatorStaking}
+            enabled={!!activeStaking}
           />
 
           {/* Treasury */}
@@ -93,7 +98,7 @@ export default function ProtocolHealthPanel({ displayStatus }) {
             value={`$${(insuranceBalance || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
             subValue={`${claimCount || 0} claim${claimCount === 1 ? '' : 's'} submitted`}
             accent="text-cyan"
-            enabled={!!deployments.insurancePool}
+            enabled={!!activeInsurance}
           />
 
           {/* Governance */}

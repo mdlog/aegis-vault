@@ -180,6 +180,16 @@ async function main() {
   deployments.uniswapV3VenueAdapter = await adapter.getAddress();
   console.log("      →", deployments.uniswapV3VenueAdapter);
 
+  // Oracle guard — reject AI-supplied minAmountOut that deviates > maxSlippageBps
+  // from Pyth fair price. Registered here for the same asset set that NAV tracks.
+  console.log("      Wiring oracle guard (Pyth at", ARB_PYTH + ")...");
+  await (await adapter.setPyth(ARB_PYTH)).wait();
+  await (await adapter.setMaxSlippageBps(500)).wait(); // 5% allowance for Pyth update lag
+  await (await adapter.registerAsset(ARB_USDC, PYTH_FEED_USDC, 6)).wait();
+  await (await adapter.registerAsset(ARB_WETH, PYTH_FEED_ETH,  18)).wait();
+  await (await adapter.registerAsset(ARB_WBTC, PYTH_FEED_BTC,  8)).wait();
+  console.log("      ✓ guard armed for USDC / WETH / WBTC (maxSlippage 5%)");
+
   // ─── 4: VaultNAVCalculator ───
   console.log("[4/4] VaultNAVCalculator (Pyth)...");
   const NAV = await ethers.getContractFactory("VaultNAVCalculator");

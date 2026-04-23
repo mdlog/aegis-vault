@@ -201,14 +201,13 @@ if (strictMode && (!operatorState.stake || operatorState.stake.amountUsd === 0))
 
 > "Seven technical commitments, each with ten lines of code or less, each with on-chain or in-repo proof:
 >
-> - Fourteen contracts live on 0G Aristotle mainnet — real Jaine venue.
-> - Eight contracts live on Arbitrum One — real Uniswap V3 venue.
-> - One operator, bonded manifest, stake-denominated in USDC.e, same chain as the vault base asset.
-> - One vault with sealed mode and real USDC.e deposit, both sides of the swap whitelisted on-chain.
-> - Orchestrator running with STRICT_MODE, six live 0G Compute services, GLM-5-FP8 selected.
-> - One hundred forty-five out of one hundred fifty-two contract tests passing; failures are legacy full-vault suites tracked in the submission doc.
+> - Twenty contracts live on 0G Aristotle mainnet — full v2 stack with asset-rescue hardening (`withdrawToken` + `withdrawAllNonBase`, `rescueToken` on staking and insurance pool), real Jaine venue.
+> - Bonded manifest + stake denominated in USDC.e — same chain as the vault base asset, no token-price shell game.
+> - Vault v2 with sealed mode, multi-asset withdraw for non-base holdings, both sides of every swap whitelisted on-chain.
+> - Orchestrator running with STRICT_MODE, 0G Compute inference (GLM-5-FP8), TEE-attested signature bound into every intent via EIP-712.
+> - One hundred seventy-four contract tests passing — including the fourteen-test v2 rescue suite (`withdrawToken` / `withdrawAllNonBase` / `rescueToken` guards).
 >
-> **This isn't a copy of a vault protocol with AI buzzwords bolted on. It's seven specific engineering choices about cryptographic binding, gas economy, and cross-chain safety.**"
+> **This isn't a copy of a vault protocol with AI buzzwords bolted on. It's seven specific engineering choices about cryptographic binding, gas economy, and cross-chain safety — plus a v2 upgrade that closes the "non-base assets stuck in the vault" class of bug by design.**"
 
 ---
 
@@ -231,11 +230,14 @@ if (strictMode && (!operatorState.stake || operatorState.stake.amountUsd === 0))
 - [ ] Browser tabs ordered in the sequence the script uses:
   1. Black-type hook screen (a blank text editor in presentation mode works)
   2. `architecture-multichain.png`
-  3. `https://chainscan.0g.ai/address/0x7D0D6c77e2C3476Aa310DE192A774164c3f55151` (factory)
-  4. `https://chainscan.0g.ai/address/0xAEDAc17B531d55b8Ac587691922DEAec6C273181` (vault)
-  5. `https://chainscan.0g.ai/address/0x4C6e88812101C346974c7E48c1587D6Cd3B2C2A9` (registry)
-  6. `OperatorRegistry.publishManifest` documentation / `HACKATHON_SUBMISSION.md` manifest section
-- [ ] `operator/0x4E08B728087158a02aB458f03d833137b282eC5d` frontend page open to show bonded manifest badge
+  3. `https://chainscan.0g.ai/address/0x9450ac911D06c81a54007a768d4278929d87A17e` (AegisVaultFactory v2)
+  4. `https://chainscan.0g.ai/address/0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181` (AegisVault v2 implementation — `withdrawToken`, `withdrawAllNonBase`)
+  5. `https://chainscan.0g.ai/address/0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5` (OperatorRegistry v2 — fresh, clean marketplace)
+  6. `https://chainscan.0g.ai/address/0xAABC708aA3d5e9a37A90ff675EdBD681C204a376` (OperatorStaking v2 — `rescueToken` hardened)
+  7. `https://chainscan.0g.ai/address/0x0CaCfc2a5a47C315343f20A8841EE29133AD1598` (InsurancePool v2 — `rescueToken` hardened)
+  8. `OperatorRegistry.publishManifest` documentation / `HACKATHON_SUBMISSION.md` manifest section
+- [ ] **Before recording**: re-register your demo operator in the v2 registry (`/operator/register`) — the fresh registry starts empty by design. Create one v2 vault via `/create` pointing to that operator so the frontend has live state to showcase.
+- [ ] Frontend `operator/<your-operator-address>` page open to show bonded manifest badge on the re-registered operator
 - [ ] Screen recorder at 1080p, audio levels confirmed, notifications silenced
 - [ ] Rehearse twice — target 5:45 ± 10s
 

@@ -4,7 +4,11 @@ import { dirname, resolve } from 'path';
 import { existsSync, readFileSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: resolve(__dirname, '../../.env') });
+// `override: true` makes .env win over already-exported shell env vars. Without
+// this, a stale `export ORCHESTRATOR_API_KEY=...` from .bashrc silently hides
+// whatever the user set in .env, leading to mismatched-key auth failures that
+// look like "but the file says X!" — because file says X but process.env is Y.
+dotenv.config({ path: resolve(__dirname, '../../.env'), override: true });
 
 function readDeploymentsFile() {
   const candidatePath = process.env.DEPLOYMENTS_FILE
@@ -52,19 +56,24 @@ const config = {
   privateKey: process.env.PRIVATE_KEY || '',
   deploymentsFile: deploymentFile.path,
 
-  // Contract addresses
+  // Contract addresses — v2 stack (AegisVaultFactoryV2 / OperatorRegistryV2 /
+  // OperatorStakingV2 / InsurancePoolV2 / ExecutionRegistryV2) is preferred
+  // when present in the deployments file. v1 fields are kept as a fallback
+  // for chains/envs that haven't migrated yet. Env vars always win if set,
+  // so an operator can pin a specific version without editing config.
   contracts: {
-    vaultFactory: firstNonEmpty(process.env.VAULT_FACTORY_ADDRESS, deploymentDefaults.aegisVaultFactory),
-    executionRegistry: firstNonEmpty(process.env.EXECUTION_REGISTRY_ADDRESS, deploymentDefaults.executionRegistry),
+    vaultFactory: firstNonEmpty(process.env.VAULT_FACTORY_ADDRESS, deploymentDefaults.aegisVaultFactoryV2, deploymentDefaults.aegisVaultFactory),
+    executionRegistry: firstNonEmpty(process.env.EXECUTION_REGISTRY_ADDRESS, deploymentDefaults.executionRegistryV2, deploymentDefaults.executionRegistry),
     vault: firstNonEmpty(process.env.VAULT_ADDRESS, deploymentDefaults.demoVault),
-    usdc: firstNonEmpty(process.env.USDC_ADDRESS, deploymentDefaults.mockUSDC, deploymentDefaults.realTokens?.oUSDT, deploymentDefaults.canonical?.USDC),
-    wbtc: firstNonEmpty(process.env.WBTC_ADDRESS, deploymentDefaults.mockWBTC, deploymentDefaults.canonical?.WBTC),
-    weth: firstNonEmpty(process.env.WETH_ADDRESS, deploymentDefaults.mockWETH, deploymentDefaults.canonical?.WETH),
-    // Phase 1-5 production stack
+    usdc: firstNonEmpty(process.env.USDC_ADDRESS, deploymentDefaults.mockUSDC, deploymentDefaults.realTokens?.USDCe, deploymentDefaults.realTokens?.oUSDT, deploymentDefaults.canonical?.USDC),
+    wbtc: firstNonEmpty(process.env.WBTC_ADDRESS, deploymentDefaults.mockWBTC, deploymentDefaults.realTokens?.WBTC, deploymentDefaults.canonical?.WBTC),
+    weth: firstNonEmpty(process.env.WETH_ADDRESS, deploymentDefaults.mockWETH, deploymentDefaults.realTokens?.WETH, deploymentDefaults.canonical?.WETH),
+    w0g: firstNonEmpty(process.env.W0G_ADDRESS, deploymentDefaults.realTokens?.W0G, deploymentDefaults.jaine?.w0g),
+    // Phase 1-5 production stack — v2 preferred, v1 fallback
     protocolTreasury: firstNonEmpty(process.env.PROTOCOL_TREASURY_ADDRESS, deploymentDefaults.protocolTreasury),
-    operatorRegistry: firstNonEmpty(process.env.OPERATOR_REGISTRY_ADDRESS, deploymentDefaults.operatorRegistry),
-    operatorStaking: firstNonEmpty(process.env.OPERATOR_STAKING_ADDRESS, deploymentDefaults.operatorStaking),
-    insurancePool: firstNonEmpty(process.env.INSURANCE_POOL_ADDRESS, deploymentDefaults.insurancePool),
+    operatorRegistry: firstNonEmpty(process.env.OPERATOR_REGISTRY_ADDRESS, deploymentDefaults.operatorRegistryV2, deploymentDefaults.operatorRegistry),
+    operatorStaking: firstNonEmpty(process.env.OPERATOR_STAKING_ADDRESS, deploymentDefaults.operatorStakingV2, deploymentDefaults.operatorStaking),
+    insurancePool: firstNonEmpty(process.env.INSURANCE_POOL_ADDRESS, deploymentDefaults.insurancePoolV2, deploymentDefaults.insurancePool),
     operatorReputation: firstNonEmpty(process.env.OPERATOR_REPUTATION_ADDRESS, deploymentDefaults.operatorReputation),
     aegisGovernor: firstNonEmpty(process.env.AEGIS_GOVERNOR_ADDRESS, deploymentDefaults.aegisGovernor),
   },
@@ -136,6 +145,7 @@ const config = {
     BTC: { coingeckoId: 'bitcoin', symbol: 'BTC', decimals: 8 },
     ETH: { coingeckoId: 'ethereum', symbol: 'ETH', decimals: 18 },
     USDC: { coingeckoId: 'usd-coin', symbol: 'USDC', decimals: 6 },
+    '0G': { coingeckoId: '0g', symbol: '0G', decimals: 18 },
   },
 };
 

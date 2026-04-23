@@ -616,6 +616,122 @@ describe("AegisVault (slim build)", function () {
     });
   });
 
+  // ── executeIntent (open mode w/ attested signer — defense-in-depth) ───────
+
+  describe("executeIntent — open mode with attested signer", function () {
+    let openAttestedVault;
+    let attestedWallet;
+
+    beforeEach(async function () {
+      attestedWallet = ethers.Wallet.createRandom().connect(ethers.provider);
+
+      const openAttestedPol = defaultPolicy({
+        sealedMode: false,
+        attestedSigner: attestedWallet.address,
+        cooldownSeconds: 0,
+      });
+
+      const tx = await factory.createVault(
+        await usdc.getAddress(),
+        executor.address,
+        await dex.getAddress(),
+        openAttestedPol,
+        [await usdc.getAddress(), await btc.getAddress()]
+      );
+      await tx.wait();
+
+      const idx = (await factory.totalVaults()) - 1n;
+      const addr = await factory.getVaultAt(idx);
+      const { AegisVaultFactory: AegisVaultLinked } = await deployLibrariesAndVaultFactory();
+      openAttestedVault = AegisVaultLinked.attach(addr);
+
+      await usdc.mint(owner.address, ethers.parseUnits("50000", 6));
+      await usdc.approve(addr, ethers.parseUnits("50000", 6));
+      await openAttestedVault.deposit(ethers.parseUnits("50000", 6));
+    });
+
+    it("executes with valid sig and no commit-reveal required", async function () {
+      const reportHash = ethers.keccak256(ethers.toUtf8Bytes("open-mode-report"));
+      const intent = await buildIntent({
+        vault: await openAttestedVault.getAddress(),
+        assetIn: await usdc.getAddress(),
+        assetOut: await btc.getAddress(),
+        amountIn: ethers.parseUnits("1000", 6),
+        minAmountOut: ethers.parseUnits("0.01", 8),
+        attestationReportHash: reportHash,
+      });
+
+      const rawSig = attestedWallet.signingKey.sign(ethers.getBytes(intent.intentHash));
+      const sig = ethers.Signature.from(rawSig).serialized;
+
+      await openAttestedVault.connect(executor).executeIntent(intent, sig);
+      expect(await registry.isFinalized(intent.intentHash)).to.be.true;
+    });
+
+    it("rejects empty sig when attestedSigner is set", async function () {
+      const reportHash = ethers.keccak256(ethers.toUtf8Bytes("nosig-report"));
+      const intent = await buildIntent({
+        vault: await openAttestedVault.getAddress(),
+        assetIn: await usdc.getAddress(),
+        assetOut: await btc.getAddress(),
+        amountIn: ethers.parseUnits("1000", 6),
+        minAmountOut: ethers.parseUnits("0.01", 8),
+        attestationReportHash: reportHash,
+      });
+
+      await expect(
+        openAttestedVault.connect(executor).executeIntent(intent, "0x")
+      ).to.be.revertedWithCustomError(
+        { interface: new ethers.Interface(["error InvalidAttestationSignature()"]) },
+        "InvalidAttestationSignature"
+      );
+    });
+
+    it("rejects sig from wrong signer", async function () {
+      const reportHash = ethers.keccak256(ethers.toUtf8Bytes("wrongsig-report"));
+      const intent = await buildIntent({
+        vault: await openAttestedVault.getAddress(),
+        assetIn: await usdc.getAddress(),
+        assetOut: await btc.getAddress(),
+        amountIn: ethers.parseUnits("1000", 6),
+        minAmountOut: ethers.parseUnits("0.01", 8),
+        attestationReportHash: reportHash,
+      });
+
+      const wrong = ethers.Wallet.createRandom();
+      const wrongRawSig = wrong.signingKey.sign(ethers.getBytes(intent.intentHash));
+      const wrongSig = ethers.Signature.from(wrongRawSig).serialized;
+
+      await expect(
+        openAttestedVault.connect(executor).executeIntent(intent, wrongSig)
+      ).to.be.revertedWithCustomError(
+        { interface: new ethers.Interface(["error InvalidAttestationSignature()"]) },
+        "InvalidAttestationSignature"
+      );
+    });
+
+    it("rejects intent with zero attestationReportHash", async function () {
+      const intent = await buildIntent({
+        vault: await openAttestedVault.getAddress(),
+        assetIn: await usdc.getAddress(),
+        assetOut: await btc.getAddress(),
+        amountIn: ethers.parseUnits("1000", 6),
+        minAmountOut: ethers.parseUnits("0.01", 8),
+        attestationReportHash: ethers.ZeroHash,
+      });
+
+      const rawSig = attestedWallet.signingKey.sign(ethers.getBytes(intent.intentHash));
+      const sig = ethers.Signature.from(rawSig).serialized;
+
+      await expect(
+        openAttestedVault.connect(executor).executeIntent(intent, sig)
+      ).to.be.revertedWithCustomError(
+        { interface: new ethers.Interface(["error MissingAttestationReport()"]) },
+        "MissingAttestationReport"
+      );
+    });
+  });
+
   // ── ExecutionRegistry ─────────────────────────────────────────────────────
 
   describe("ExecutionRegistry", function () {

@@ -17,6 +17,7 @@ import AppShell from './components/dashboard/AppShell';
 // the main bundle. Visitors hitting /whitepaper see a brief loading state
 // while the chunk fetches, which is acceptable for a document page.
 const WhitepaperPage = lazy(() => import('./pages/WhitepaperPage'));
+const DocsPage = lazy(() => import('./pages/DocsPage'));
 
 function AppLayout({ children }) {
   return <AppShell>{children}</AppShell>;
@@ -58,6 +59,16 @@ function App() {
           element={
             <Suspense fallback={<div className="min-h-screen bg-obsidian flex items-center justify-center text-steel-400 text-sm">Loading whitepaper…</div>}>
               <WhitepaperPage />
+            </Suspense>
+          }
+        />
+
+        {/* Docs — developer & operator documentation, standalone page */}
+        <Route
+          path="/docs"
+          element={
+            <Suspense fallback={<div className="min-h-screen bg-obsidian flex items-center justify-center text-steel-400 text-sm">Loading docs…</div>}>
+              <DocsPage />
             </Suspense>
           }
         />

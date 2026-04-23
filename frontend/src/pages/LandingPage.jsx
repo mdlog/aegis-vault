@@ -18,6 +18,7 @@ import {
   LiveBadge,
   MonoKV,
 } from '../components/editorial';
+import Logo from '../components/ui/Logo';
 
 export default function LandingPage() {
   return (
@@ -47,22 +48,32 @@ function LandingNav() {
         borderBottom: '1px solid rgba(255,255,255,0.04)',
       }}
     >
-      <div className="max-w-[1320px] mx-auto flex items-center gap-6 px-10 py-4">
-        <AegisLogo size={26} />
+      <div className="max-w-[1320px] mx-auto flex items-center gap-6 px-10 h-24">
+        <Link to="/" className="flex items-center group">
+          <Logo height={88} />
+        </Link>
         <div className="ed-vhairline h-5 mx-1.5" />
         <div className="flex gap-0.5">
-          {['Thesis', 'Mechanism', 'Architecture', 'Security', 'Docs'].map((x) => (
-            <a
-              key={x}
-              href={`#${x.toLowerCase()}`}
-              className="px-3 py-2 text-[13px] rounded cursor-pointer transition-colors"
-              style={{ color: 'var(--ed-steel-300)' }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')}
-              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-300)')}
-            >
-              {x}
-            </a>
-          ))}
+          {[
+            { label: 'Thesis', href: '#thesis' },
+            { label: 'Mechanism', href: '#mechanism' },
+            { label: 'Architecture', href: '#architecture' },
+            { label: 'Security', href: '#security' },
+            { label: 'Docs', to: '/docs' },
+          ].map((item) => {
+            const shared = {
+              key: item.label,
+              className: 'px-3 py-2 text-[13px] rounded cursor-pointer transition-colors',
+              style: { color: 'var(--ed-steel-300)' },
+              onMouseEnter: (e) => (e.currentTarget.style.color = 'var(--ed-steel-50)'),
+              onMouseLeave: (e) => (e.currentTarget.style.color = 'var(--ed-steel-300)'),
+            };
+            return item.to ? (
+              <Link {...shared} to={item.to}>{item.label}</Link>
+            ) : (
+              <a {...shared} href={item.href}>{item.label}</a>
+            );
+          })}
         </div>
         <div className="flex-1" />
         <LiveBadge label="Live" subLabel="0G Mainnet" />
@@ -1044,10 +1055,40 @@ function LandingFooter() {
           </div>
         </div>
         {[
-          { t: 'Product', l: ['Overview', 'Vaults', 'Operators', 'Governance', 'Faucet'] },
-          { t: 'Developers', l: ['Docs', 'Contracts', 'SDK', 'Subgraph', 'Changelog'] },
-          { t: 'Security', l: ['Audits', 'Bug bounty', 'Attestations', 'Disclosures'] },
-          { t: 'Protocol', l: ['About', 'Foundation', 'Research', 'Press'] },
+          {
+            t: 'Product',
+            l: [
+              { label: 'Overview', to: '/app' },
+              { label: 'Vaults', to: '/app' },
+              { label: 'Operators', to: '/marketplace' },
+              { label: 'Governance', to: '/governance' },
+              { label: 'Faucet', to: '/faucet' },
+            ],
+          },
+          {
+            t: 'Developers',
+            l: [
+              { label: 'Docs', to: '/docs' },
+              { label: 'Contracts', to: '/docs#contracts' },
+              { label: 'API', to: '/docs#api' },
+              { label: 'Whitepaper', to: '/whitepaper' },
+              { label: 'GitHub', href: 'https://github.com/mdlog/aegis-vault' },
+            ],
+          },
+          {
+            t: 'Security',
+            l: [
+              { label: 'Trust model', to: '/docs#trust-model' },
+              { label: 'Architecture', to: '/docs#architecture' },
+            ],
+          },
+          {
+            t: 'Protocol',
+            l: [
+              { label: 'Whitepaper', to: '/whitepaper' },
+              { label: 'GitHub', href: 'https://github.com/mdlog/aegis-vault' },
+            ],
+          },
         ].map((c, i) => (
           <div key={i}>
             <div
@@ -1057,15 +1098,18 @@ function LandingFooter() {
               {c.t.toUpperCase()}
             </div>
             <div className="flex flex-col gap-2.5">
-              {c.l.map((x) => (
-                <a
-                  key={x}
-                  className="cursor-pointer"
-                  style={{ fontSize: 13, color: 'var(--ed-steel-300)' }}
-                >
-                  {x}
-                </a>
-              ))}
+              {c.l.map((x) => {
+                const base = {
+                  key: x.label,
+                  className: 'cursor-pointer hover:text-white transition-colors',
+                  style: { fontSize: 13, color: 'var(--ed-steel-300)' },
+                };
+                return x.to ? (
+                  <Link {...base} to={x.to}>{x.label}</Link>
+                ) : (
+                  <a {...base} href={x.href} target="_blank" rel="noopener noreferrer">{x.label}</a>
+                );
+              })}
             </div>
           </div>
         ))}

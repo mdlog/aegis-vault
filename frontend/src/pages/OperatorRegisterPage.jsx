@@ -34,6 +34,44 @@ import {
   Tag,
 } from 'lucide-react';
 
+// Fallback model roster — known-good services on 0G Compute mainnet. Used when
+// the orchestrator API is unreachable so operators can still pick from a real
+// list. Provider is only populated for services we have a verified address for;
+// the rest require the operator to paste their provider manually (or start the
+// orchestrator so the full list gets auto-filled from listAvailableModels).
+const FALLBACK_OG_COMPUTE_MODELS = [
+  {
+    model: 'zai-org/GLM-5-FP8',
+    provider: '0xd9966e13a6026Fcca4b13E7ff95c94DE268C471C',
+    url: 'https://compute-network-1.integratenetwork.work',
+  },
+  {
+    model: 'openai/gpt-oss-120b',
+    provider: '',
+    url: 'https://compute-network-2.integratenetwork.work',
+  },
+  {
+    model: 'qwen/qwen3-vl-30b-a3b-instruct',
+    provider: '',
+    url: 'https://compute-network-3.integratenetwork.work',
+  },
+  {
+    model: 'deepseek/deepseek-chat-v3-0324',
+    provider: '',
+    url: 'https://compute-network-4.integratenetwork.work',
+  },
+  {
+    model: 'openai/gpt-5.4-mini',
+    provider: '',
+    url: 'https://5259ae0f38365b27c0bab6301b73691206e32dce-80.dstack-pha-prod5.phala.network',
+  },
+  {
+    model: 'qwen3.6-plus',
+    provider: '',
+    url: 'https://compute-network-18.integratenetwork.work',
+  },
+];
+
 const DEFAULT_OPERATOR_FORM = {
   name: '',
   description: '',
@@ -100,7 +138,7 @@ export default function OperatorRegisterPage() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
-  const registryAddress = deployments.operatorRegistry;
+  const registryAddress = deployments.operatorRegistryV2 || deployments.operatorRegistry;
 
   const { data: isRegistered } = useIsRegistered(registryAddress, address);
   const { data: existingOp } = useOperator(registryAddress, isRegistered ? address : undefined);
@@ -591,8 +629,16 @@ export default function OperatorRegisterPage() {
           <StepSection
             step="3"
             title="Suggested Vault Defaults"
-            description="Pre-filled in Create Vault. Users can still change them."
+            description="Recommendations only — vault owners see these pre-filled but can override. These are NOT enforced on-chain."
           >
+            <div className="mb-4 p-3.5 rounded-md border border-cyan/15 bg-cyan/[0.04]">
+              <div className="flex items-start gap-2.5">
+                <Circle className="w-3.5 h-3.5 text-cyan mt-0.5 flex-shrink-0" fill="currentColor" />
+                <div className="text-[11.5px] text-steel/65 leading-relaxed">
+                  <strong className="text-cyan/90">Soft recommendation.</strong> These values are stored in your operator profile as pre-fills for the Create Vault flow. The vault's actual <em>hard</em> guardrails are set separately by each vault owner and enforced on-chain — your recommendations are not.
+                </div>
+              </div>
+            </div>
             <div className="grid sm:grid-cols-2 gap-5">
               <SliderField
                 label="Max Position Size"
@@ -682,35 +728,60 @@ export default function OperatorRegisterPage() {
                       <label className="text-[10px] font-mono uppercase tracking-wider text-steel/40 block mb-1.5">
                         Model
                       </label>
-                      <input
-                        type="text"
-                        list="ai-model-suggestions"
-                        value={aiModel}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          setAIModel(value);
-                          // If the typed/picked value matches a known model, auto-fill provider + endpoint
-                          const match = availableModels?.models?.find((item) => item.model === value);
-                          if (match) {
-                            setAIProvider(match.provider);
-                            setAIEndpoint(match.url);
-                          }
-                        }}
-                        placeholder="zai-org/GLM-5-FP8"
-                        className="w-full px-3 py-2 rounded-md bg-obsidian/60 border border-white/[0.08] text-xs font-mono text-white"
-                      />
-                      <datalist id="ai-model-suggestions">
-                        {availableModels?.models?.map((model) => (
-                          <option key={`${model.model}-${model.provider}`} value={model.model}>
-                            {model.provider.slice(0, 10)}…
-                          </option>
-                        ))}
-                      </datalist>
-                      {!availableModels?.models?.length && (
-                        <p className="mt-1.5 text-[10px] text-amber-warn/60">
-                          Live model list unavailable (orchestrator offline). Type the model name manually — any string is accepted on-chain.
-                        </p>
-                      )}
+                      {(() => {
+                        const liveModels = availableModels?.models || [];
+                        const isLive = liveModels.length > 0;
+                        const modelList = isLive ? liveModels : FALLBACK_OG_COMPUTE_MODELS;
+                        const isCustom =
+                          aiModel && !modelList.some((m) => m.model === aiModel);
+                        return (
+                          <>
+                            <select
+                              value={isCustom ? '__custom__' : aiModel}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                if (value === '__custom__') {
+                                  setAIModel('');
+                                  setAIProvider('');
+                                  setAIEndpoint('');
+                                  return;
+                                }
+                                setAIModel(value);
+                                const match = modelList.find((m) => m.model === value);
+                                if (match) {
+                                  setAIProvider(match.provider || '');
+                                  setAIEndpoint(match.url || '');
+                                }
+                              }}
+                              className="w-full px-3 py-2 rounded-md bg-obsidian/60 border border-white/[0.08] text-xs font-mono text-white cursor-pointer"
+                            >
+                              <option value="">— Select a 0G Compute model —</option>
+                              {modelList.map((m) => (
+                                <option key={`${m.model}-${m.provider || 'no-prov'}`} value={m.model}>
+                                  {m.model}{m.provider ? '' : ' (manual provider)'}
+                                </option>
+                              ))}
+                              <option value="__custom__">✎ Custom model…</option>
+                            </select>
+
+                            {isCustom && (
+                              <input
+                                type="text"
+                                value={aiModel}
+                                onChange={(event) => setAIModel(event.target.value)}
+                                placeholder="org/model-name"
+                                className="mt-2 w-full px-3 py-2 rounded-md bg-obsidian/60 border border-white/[0.08] text-xs font-mono text-white"
+                              />
+                            )}
+
+                            <p className="mt-1.5 text-[10px] text-steel/50">
+                              {isLive
+                                ? `${liveModels.length} live model${liveModels.length === 1 ? '' : 's'} from 0G Compute mainnet.`
+                                : 'Showing known 0G Compute mainnet roster (orchestrator offline — provider addresses may need manual entry).'}
+                            </p>
+                          </>
+                        );
+                      })()}
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">

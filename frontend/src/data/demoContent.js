@@ -90,6 +90,7 @@ export const demoPythPrices = {
   BTC: { price: 74697.32 },
   ETH: { price: 2381.52 },
   USDC: { price: 1.0 },
+  '0G': { price: 0.58 },
 };
 
 export const demoVaults = [

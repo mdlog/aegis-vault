@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { useAccount, useChainId } from 'wagmi';
-import { isAddress } from 'viem';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useAccount, useBalance, useChainId } from 'wagmi';
+import { formatUnits, isAddress } from 'viem';
 import {
   ENABLE_DEMO_FALLBACKS,
   getDefaultVaultAddress,
@@ -12,10 +12,22 @@ import {
   ORCHESTRATOR_URL,
   shortHexLabel,
 } from '../lib/contracts';
-import { Link } from 'react-router-dom';
-import { useVaultSummary, useVaultPolicy, usePause, useUnpause, useWithdraw, useApprove, useDeposit, useUpdatePolicy, useTokenBalance, useVaultList, useTransferToken, useSetExecutor, useTokenDecimals } from '../hooks/useVault';
+import {
+  doesExecutorMatchOrchestrator,
+  formatOrchestratorExecutorSummary,
+  getOrchestratorExecutorAddresses,
+  getPrimaryOrchestratorExecutor,
+} from '../lib/orchestratorStatus';
+import {
+  useVaultSummary, useVaultPolicy, usePause, useUnpause, useWithdraw, useApprove,
+  useDeposit, useUpdatePolicy, useTokenBalance, useVaultList, useTransferToken,
+  useSetExecutor, useTokenDecimals, useWrapNative,
+  useVaultVersion, useWithdrawToken, useWithdrawAllNonBase, useVaultAssetBalances,
+} from '../hooks/useVault';
 import { useOperatorList, useOperator, useIsRegistered } from '../hooks/useOperatorRegistry';
-import { useMultiAssetNAV, useOrchestratorStatus, useDecisions, useJournal, useExecutions } from '../hooks/useOrchestrator';
+import {
+  useMultiAssetNAV, useOrchestratorStatus, useDecisions, useJournal, useExecutions,
+} from '../hooks/useOrchestrator';
 import { drawdownHistory as demoDrawdownHistory, navHistory as demoNavHistory } from '../data/mockData';
 import {
   demoRiskTimelineEntries,
@@ -26,46 +38,59 @@ import {
   getDemoVaultByAddress,
 } from '../data/demoContent';
 import {
-  useVaultFeeState, useVaultNav, useClaimFees, useAccrueFees,
-  formatBps,
+  useVaultFeeState, useVaultNav, useClaimFees, useAccrueFees, formatBps,
 } from '../hooks/useVaultFees';
-import GlassPanel from '../components/ui/GlassPanel';
-import StatusPill from '../components/ui/StatusPill';
-import SectionLabel from '../components/ui/SectionLabel';
-import MetricCard from '../components/ui/MetricCard';
-import { BigNumeric } from '../components/editorial';
-import PolicyChip from '../components/ui/PolicyChip';
 import ControlButton from '../components/ui/ControlButton';
-import ExplorerAnchor from '../components/ui/ExplorerAnchor';
-import PerformanceChart from '../components/charts/PerformanceChart';
-import TEEAttestationPanel from '../components/vault/TEEAttestationPanel';
-import DashboardShield from '../components/dashboard/DashboardShield';
 import TokenIcon from '../components/ui/TokenIcon';
+import PerformanceChart from '../components/charts/PerformanceChart';
 import {
-  Shield, TrendingUp, TrendingDown, Activity, Clock, Target,
-  AlertTriangle, Lock, Zap, Layers, Eye, Cpu,
-  PauseCircle, PlayCircle, Settings, ArrowDownToLine, ArrowUpToLine, Download,
-  CheckCircle, XCircle, Info, DollarSign, Percent, Wallet, Hourglass, ExternalLink
+  EyebrowMono as Eyebrow,
+  StatusDot,
+  ToneChip as Chip,
+  TokenAvatar,
+  GhostNumeral,
+  RiskGauge,
+  SectionHead,
+} from '../components/editorial/atoms';
+import { cx, ACCENTS } from '../components/editorial/tokens';
+import {
+  Shield, AlertTriangle, ArrowLeft, Check, CheckCircle, Copy,
+  Cpu, Download, ExternalLink, Hourglass, Layers, PauseCircle, PlayCircle, Plus,
+  RefreshCw, Settings, Sparkles, TrendingUp, Wallet, X, Zap,
 } from 'lucide-react';
 
 function formatTime(ts) {
   if (!ts) return '';
   const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' · ' +
     d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
-const typeIcons = {
-  execution: <CheckCircle className="w-3.5 h-3.5 text-emerald-soft/60" />,
-  blocked: <XCircle className="w-3.5 h-3.5 text-red-warn/60" />,
-  skip: <Info className="w-3.5 h-3.5 text-steel/60" />,
-  warning: <AlertTriangle className="w-3.5 h-3.5 text-amber-warn/60" />,
-  policy_update: <Settings className="w-3.5 h-3.5 text-cyan/60" />,
-  policy_check: <Shield className="w-3.5 h-3.5 text-gold/60" />,
-  decision: <Zap className="w-3.5 h-3.5 text-cyan/60" />,
-  cycle: <Activity className="w-3.5 h-3.5 text-steel/40" />,
-  system: <Settings className="w-3.5 h-3.5 text-steel/40" />,
-};
+// Parse journal timestamp (accepts ISO string, ms, or seconds-since-epoch).
+function parseTs(ts) {
+  if (!ts) return null;
+  const d = new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+// Hour:minute in the viewer's local timezone with short tz abbreviation
+// (e.g. "09:50 WIB"). We only ever display local time in the feed so users
+// don't have to reconcile two clocks against the orchestrator log.
+function formatLocalTime(ts) {
+  const d = parseTs(ts);
+  if (!d) return '—';
+  const hhmm = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+  const abbr = (() => {
+    try {
+      const parts = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(d);
+      return parts.find((p) => p.type === 'timeZoneName')?.value || '';
+    } catch {
+      return '';
+    }
+  })();
+  return abbr ? `${hhmm} ${abbr}` : hhmm;
+}
 
 const ASSET_COLORS = { USDC: '#2775ca', WBTC: '#f7931a', WETH: '#627eea', BTC: '#f7931a', ETH: '#627eea' };
 
@@ -74,33 +99,48 @@ export default function VaultDetailPage() {
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
   const { vaultAddress: routeVaultAddress } = useParams();
+  const navigate = useNavigate();
 
-  const { vaults: myVaults } = useVaultList(deployments.aegisVaultFactory, address);
+  const { vaults: myVaults, isLoading: myVaultsLoading } = useVaultList(deployments.aegisVaultFactory, address);
+
+  // Guard: a connected wallet must not view a vault it does not own. If the
+  // URL was carried over from a previous wallet session, redirect to this
+  // wallet's first vault (or back to the dashboard if it owns none).
+  useEffect(() => {
+    if (!isConnected || myVaultsLoading || !routeVaultAddress) return;
+    const owned = myVaults.some(
+      (v) => v.address?.toLowerCase() === routeVaultAddress.toLowerCase()
+    );
+    if (owned) return;
+    const first = myVaults[0]?.address;
+    navigate(first ? `/app/vault/${first}` : '/app', { replace: true });
+  }, [isConnected, myVaultsLoading, routeVaultAddress, myVaults, navigate]);
+
   const vaultAddr = routeVaultAddress || myVaults[0]?.address || getDefaultVaultAddress(chainId);
-  const { operators: marketplaceOps } = useOperatorList(deployments.operatorRegistry);
+  const { operators: marketplaceOps } = useOperatorList(deployments.operatorRegistryV2 || deployments.operatorRegistry);
   const activeMarketplaceOps = marketplaceOps.filter((op) => op.loaded && op.active);
 
-  // ── Live data ──
-  // Two-step read: first get the vault's baseAsset, then resolve its decimals,
-  // then re-read summary with the right decimals so balance/totalDeposited
-  // are formatted correctly for non-USDC assets (WETH 18, WBTC 8).
+  // Two-step decimals resolution so balance/totalDeposited format correctly for non-USDC assets.
   const { data: vaultProbe } = useVaultSummary(vaultAddr, 6);
   const { decimals: baseDecimals } = useTokenDecimals(vaultProbe?.baseAsset);
   const resolvedDecimals = baseDecimals ?? 6;
   const { data: liveVault, refetch } = useVaultSummary(vaultAddr, resolvedDecimals);
   const { data: livePolicy } = useVaultPolicy(vaultAddr);
+  // v2 detection + per-asset balances inside the vault (used by the multi-
+  // asset withdraw UI on v2 vaults; no-op on v1 vaults since the rescue
+  // functions don't exist there).
+  const { version: vaultVersion } = useVaultVersion(vaultAddr);
+  const { assets: vaultAssetRows } = useVaultAssetBalances(vaultAddr);
 
-  // Defense-in-depth: contracts don't currently re-check operator status at
-  // executeIntent time, so surface a clear warning if the vault's executor has
-  // since deactivated or unregistered. Owner can rotate via setExecutor below.
   const executorAddr = liveVault?.executor;
-  const { data: executorRegistered } = useIsRegistered(deployments.operatorRegistry, executorAddr);
-  const { data: executorOpData } = useOperator(deployments.operatorRegistry, executorRegistered ? executorAddr : undefined);
+  const { data: executorRegistered } = useIsRegistered((deployments.operatorRegistryV2 || deployments.operatorRegistry), executorAddr);
+  const { data: executorOpData } = useOperator((deployments.operatorRegistryV2 || deployments.operatorRegistry), executorRegistered ? executorAddr : undefined);
   const executorIsInactive = executorAddr && executorRegistered === false
     ? { reason: 'unregistered', label: 'Vault executor is not (or no longer) registered as an operator.' }
     : executorAddr && executorOpData && executorOpData.active === false
       ? { reason: 'inactive', label: `Operator "${executorOpData.name}" is currently INACTIVE — trades will not execute until reactivated.` }
       : null;
+
   const { data: navData } = useMultiAssetNAV(vaultAddr);
   const { data: orchStatus } = useOrchestratorStatus();
   const { data: liveDecisions } = useDecisions(10, { vaultAddress: vaultAddr });
@@ -109,45 +149,98 @@ export default function VaultDetailPage() {
   const demoVault = ENABLE_DEMO_FALLBACKS ? getDemoVaultByAddress(vaultAddr) : null;
   const showDemoVault = ENABLE_DEMO_FALLBACKS && !liveVault && !!demoVault;
 
-  // ── Contract write hooks ──
+  // Contract write hooks
   const { pause, hash: pauseHash, isPending: pausePending } = usePause();
   const { unpause, hash: unpauseHash, isPending: unpausePending } = useUnpause();
   const { withdraw, hash: withdrawHash, isPending: withdrawPending, isSuccess: withdrawSuccess } = useWithdraw();
+  // v2 rescue paths — only wired up in the modal when vault.version === 'v2'
+  const { withdrawToken, isPending: withdrawTokenPending, isSuccess: withdrawTokenSuccess } = useWithdrawToken();
+  const { withdrawAllNonBase, isPending: withdrawAllPending, isSuccess: withdrawAllSuccess } = useWithdrawAllNonBase();
   const { approve, hash: approveHash, isPending: approvePending, isSuccess: approveSuccess } = useApprove();
   const { deposit, hash: depositHash, isPending: depositPending, isSuccess: depositSuccess } = useDeposit();
   const { transfer: transferToken, hash: transferHash, isPending: transferPending, isSuccess: transferSuccess } = useTransferToken();
+  const { wrap: wrapNative, hash: wrapHash, isPending: wrapPending, isSuccess: wrapSuccess, reset: resetWrap } = useWrapNative();
   const { updatePolicy, hash: policyHash, isPending: policyPending, isSuccess: policySuccess } = useUpdatePolicy();
   const { setExecutor, hash: executorHash, isPending: executorPending, isSuccess: executorSuccess } = useSetExecutor();
 
-  // ── Fee state + write hooks ──
+  // Fees
   const { state: feeState, refetch: refetchFees } = useVaultFeeState(vaultAddr, 6);
   const { navUsd: liveNavUsd, refetch: refetchNav } = useVaultNav(vaultAddr, 6);
   const { claim: claimFees, hash: claimHash, isPending: claimPending, isSuccess: claimSuccess } = useClaimFees();
   const { accrue: accrueFees, hash: accrueHash, isPending: accruePending, isSuccess: accrueSuccess } = useAccrueFees();
 
-  // Wallet token balances
-  const { address: walletAddress } = useAccount();
+  // Wallet balances — reuse the `address` already destructured above from
+  // useAccount (line 97) instead of re-calling the hook, so both the UI
+  // guards and the balance queries see the same reference.
+  const walletAddress = address;
   const { balance: walletUsdcBalance } = useTokenBalance(deployments.mockUSDC, walletAddress, 6);
   const { balance: walletWbtcBalance } = useTokenBalance(deployments.mockWBTC, walletAddress, 8);
   const { balance: walletWethBalance } = useTokenBalance(deployments.mockWETH, walletAddress, 18);
+  const { balance: walletW0gBalance, refetch: refetchW0g } = useTokenBalance(deployments.W0G, walletAddress, 18);
+  // Native 0G (non-ERC20). W0G.deposit() wraps native → W0G 1:1 so we surface
+  // both balances for the 0G tab and auto-wrap when the user's W0G is short.
+  // Pass chainId explicitly so wagmi doesn't silently bind the query to the
+  // wrong chain right after a network switch (which caused stale/zero reads
+  // even though the native balance was visible in the wallet dropdown).
+  const { data: nativeBalance, refetch: refetchNative } = useBalance({
+    address: walletAddress,
+    chainId,
+    query: { enabled: !!walletAddress, refetchInterval: 10000 },
+  });
+  // Prefer .formatted; fall back to formatting the raw value ourselves if
+  // wagmi hasn't populated formatted yet (seen during the first render after
+  // the query resolves on slower RPCs).
+  const walletNativeFormatted = nativeBalance?.formatted
+    ?? (nativeBalance?.value != null
+        ? formatUnits(nativeBalance.value, nativeBalance.decimals ?? 18)
+        : '0');
 
+  // 0G is only on chain 16661 (0G mainnet). On other chains (hardhat, Arbitrum)
+  // `deployments.W0G` is empty, so filter it out to avoid a non-functional tab.
+  //
+  // `isBase` is derived dynamically by comparing each token's address to the
+  // vault's actual baseAsset. This lets non-USDC vaults (W0G-base, WBTC-base,
+  // etc.) route through the proper approve → deposit flow instead of falling
+  // back to bare transfer (which skips totalDeposited / entry fee accounting).
+  const baseAssetAddrLc = liveVault?.baseAsset?.toLowerCase();
+  const isBaseToken = (addr) => !!addr && !!baseAssetAddrLc && addr.toLowerCase() === baseAssetAddrLc;
   const depositTokens = [
-    { symbol: 'USDC', address: deployments.mockUSDC, decimals: 6, balance: walletUsdcBalance, isBase: true },
-    { symbol: 'WBTC', address: deployments.mockWBTC, decimals: 8, balance: walletWbtcBalance, isBase: false },
-    { symbol: 'WETH', address: deployments.mockWETH, decimals: 18, balance: walletWethBalance, isBase: false },
+    { symbol: 'USDC', address: deployments.mockUSDC, decimals: 6, balance: walletUsdcBalance, isBase: isBaseToken(deployments.mockUSDC) },
+    { symbol: 'WBTC', address: deployments.mockWBTC, decimals: 8, balance: walletWbtcBalance, isBase: isBaseToken(deployments.mockWBTC) },
+    { symbol: 'WETH', address: deployments.mockWETH, decimals: 18, balance: walletWethBalance, isBase: isBaseToken(deployments.mockWETH) },
+    ...(deployments.W0G
+      ? [{
+          symbol: '0G',
+          address: deployments.W0G,
+          decimals: 18,
+          // Effective spendable balance = W0G + native (auto-wrap covers the gap).
+          balance: String(parseFloat(walletW0gBalance || '0') + parseFloat(walletNativeFormatted || '0')),
+          wrappedBalance: walletW0gBalance,
+          nativeBalance: walletNativeFormatted,
+          isBase: isBaseToken(deployments.W0G),
+          needsWrap: true,
+        }]
+      : []),
   ];
 
-  // ── UI state ──
+  // UI state (preserved 1:1 with prior behaviour)
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [depositAmount, setDepositAmount] = useState('');
   const [selectedDepositToken, setSelectedDepositToken] = useState(depositTokens[0]);
-  const [depositStep, setDepositStep] = useState('input'); // 'input' | 'approve' | 'deposit' | 'done'
+  const [depositStep, setDepositStep] = useState('input');
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [showExecutorModal, setShowExecutorModal] = useState(false);
   const [executorForm, setExecutorForm] = useState('');
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [policyForm, setPolicyForm] = useState(null);
+
+  // Inline rail ticket
+  const [ticketTab, setTicketTab] = useState('deposit');
+  const [ticketAmount, setTicketAmount] = useState('');
+  const [ticketTokenSymbol, setTicketTokenSymbol] = useState('USDC');
+  const [addressCopied, setAddressCopied] = useState(null);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
   const hasLive = !!liveVault;
   const effectivePolicy = livePolicy || (showDemoVault ? demoVault.policy : null);
@@ -162,26 +255,24 @@ export default function VaultDetailPage() {
   const executions = executionData.length;
   const dailyActions = hasLive ? liveVault.dailyActions : showDemoVault ? demoVault.dailyActions : 0;
   const lastExecTs = hasLive ? liveVault.lastExecution : showDemoVault ? Math.floor(new Date(demoVault.lastExecution).getTime() / 1000) : 0;
+  const cycleCount = orchStatus?.cycleCount || 0;
 
-  // ── All-Time Return ──
   const hasRealReturn = (hasLive || showDemoVault) && totalDeposited > 0;
   const allTimeReturnPct = hasRealReturn ? ((nav - totalDeposited) / totalDeposited) * 100 : 0;
   const allTimeReturnUsd = hasRealReturn ? nav - totalDeposited : 0;
   const returnIsPositive = allTimeReturnPct >= 0;
 
-  // ── PnL ──
   const realizedPnl = executionData.length > 0
     ? executionData.reduce((sum, ex) => sum + (ex.pnl || 0), 0)
     : 0;
   const pnlRealized = realizedPnl;
   const pnlUnrealized = hasRealReturn ? nav - totalDeposited - realizedPnl : 0;
 
-  // Risk score (real calc only when navData available)
   let riskScore = 0;
   let riskLevel = 'Unknown';
   if (navSnapshot?.breakdown) {
     let score = 0;
-    const maxPct = Math.max(...navSnapshot.breakdown.map(a => a.pct || 0));
+    const maxPct = Math.max(...navSnapshot.breakdown.map((a) => a.pct || 0));
     score += maxPct > 80 ? 30 : maxPct > 60 ? 20 : maxPct > 40 ? 10 : 5;
     if (totalDeposited > 0 && nav < totalDeposited) {
       const ddPct = ((totalDeposited - nav) / totalDeposited) * 100;
@@ -192,21 +283,11 @@ export default function VaultDetailPage() {
     riskScore = Math.min(100, Math.max(0, score));
     riskLevel = riskScore < 30 ? 'Low' : riskScore < 60 ? 'Moderate' : riskScore < 80 ? 'Elevated' : 'Critical';
   }
+  const riskTone = riskScore === 0 ? 'cyan' : riskScore < 30 ? 'emerald' : riskScore < 60 ? 'amber' : 'rose';
 
-  // ── Sharpe ──
-  // Requires historical NAV time-series. Display "—" until 0G Storage backend lands.
-  const sharpeRatio = null;
-
-  // Policy — must be live; show neutral defaults that render as "—" if missing
   const pol = effectivePolicy || {
-    maxPositionPct: 0,
-    maxDailyLossPct: 0,
-    stopLossPct: 0,
-    cooldownSeconds: 0,
-    confidenceThresholdPct: 0,
-    maxActionsPerDay: 0,
-    autoExecution: false,
-    paused: false,
+    maxPositionPct: 0, maxDailyLossPct: 0, stopLossPct: 0, cooldownSeconds: 0,
+    confidenceThresholdPct: 0, maxActionsPerDay: 0, autoExecution: false, paused: false,
   };
   const mandateType = showDemoVault
     ? demoVault.mandate
@@ -215,63 +296,50 @@ export default function VaultDetailPage() {
       : pol.maxPositionPct <= 30 ? 'Defensive'
       : pol.maxPositionPct <= 50 ? 'Balanced'
       : 'Tactical';
-  // Derive NAV history from cycle journal entries (each cycle records vault NAV).
-  // For each point we emit a compact `date` string for the x-axis tick and a
-  // `fullLabel` for the tooltip — so the axis stays readable even with many
-  // points, and the tooltip still shows precise date + time.
+  const mandateChipTone =
+    mandateType === 'Defensive' ? 'cyan' :
+    mandateType === 'Tactical'  ? 'rose' :
+    mandateType === 'Balanced'  ? 'emerald' :
+                                  'steel';
+
+  // NAV history (journal-derived)
   const derivedNavHistory = (journalData || [])
-    .filter(e => e.type === 'cycle' && Array.isArray(e.vaultResults))
-    .flatMap(e => {
-      const r = e.vaultResults.find(v => v.vault?.toLowerCase() === vaultAddr?.toLowerCase());
+    .filter((e) => e.type === 'cycle' && Array.isArray(e.vaultResults))
+    .flatMap((e) => {
+      const r = e.vaultResults.find((v) => v.vault?.toLowerCase() === vaultAddr?.toLowerCase());
       if (!r || !r.vaultState?.nav) return [];
       const t = new Date(e.timestamp);
-      let date;
-      let fullLabel;
-      if (Number.isNaN(t.getTime())) {
-        date = String(e.timestamp);
-        fullLabel = String(e.timestamp);
-      } else {
+      let date; let fullLabel;
+      if (Number.isNaN(t.getTime())) { date = String(e.timestamp); fullLabel = String(e.timestamp); }
+      else {
         date = t.toLocaleString(undefined, { month: 'short', day: 'numeric' });
-        fullLabel = t.toLocaleString(undefined, {
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-        });
+        fullLabel = t.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       }
-      return [{
-        date,
-        fullLabel,
-        timestamp: e.timestamp,
-        nav: parseFloat(r.vaultState.nav) || 0,
-      }];
+      return [{ date, fullLabel, timestamp: e.timestamp, nav: parseFloat(r.vaultState.nav) || 0 }];
     })
-    .reverse(); // journal is newest-first; chart wants oldest-first
+    .reverse();
   const navHistoryData = showDemoVault ? demoNavHistory : derivedNavHistory;
 
-  // Derive drawdown from NAV history: dd% = (peak - current) / peak * 100, capped at 0
   const derivedDrawdownHistory = (() => {
     if (!derivedNavHistory.length) return [];
-    let peak = derivedNavHistory[0].nav;
+    const MIN_MEANINGFUL_NAV = 0.01;
+    let peak = Number.isFinite(derivedNavHistory[0].nav) ? derivedNavHistory[0].nav : 0;
     return derivedNavHistory.map((p) => {
-      if (p.nav > peak) peak = p.nav;
-      const dd = peak > 0 ? ((p.nav - peak) / peak) * 100 : 0;
-      return { date: p.date, fullLabel: p.fullLabel, dd: Math.min(0, dd) };
+      const n = Number.isFinite(p.nav) ? p.nav : 0;
+      if (n > peak) peak = n;
+      let dd = 0;
+      if (peak > MIN_MEANINGFUL_NAV) dd = ((n - peak) / peak) * 100;
+      dd = Math.max(-100, Math.min(0, dd));
+      return { date: p.date, fullLabel: p.fullLabel, dd };
     });
   })();
   const drawdownHistoryData = showDemoVault ? demoDrawdownHistory : derivedDrawdownHistory;
 
-  // Derive PnL time-series: nav - totalDeposited at each snapshot.
-  // totalDeposited is only available currently, so we approximate: assume constant deposit baseline
-  // (acceptable because on-chain totalDeposited changes only on deposits/withdrawals, not trades).
   const derivedPnLHistory = derivedNavHistory.map((p) => {
     const pnl = p.nav - totalDeposited;
     return {
-      date: p.date,
-      fullLabel: p.fullLabel,
-      pnl,
-      pnlPos: pnl >= 0 ? pnl : 0,
-      pnlNeg: pnl < 0 ? pnl : 0,
+      date: p.date, fullLabel: p.fullLabel, pnl,
+      pnlPos: pnl >= 0 ? pnl : 0, pnlNeg: pnl < 0 ? pnl : 0,
     };
   });
   const demoPnLHistory = showDemoVault
@@ -282,1825 +350,2661 @@ export default function VaultDetailPage() {
     : [];
   const pnlHistoryData = showDemoVault ? demoPnLHistory : derivedPnLHistory;
 
-  // Allocation — empty array when no NAV data
   const allocationData = navSnapshot?.breakdown
-    ? navSnapshot.breakdown.map(a => ({
+    ? navSnapshot.breakdown.map((a) => ({
         asset: a.symbol, symbol: a.symbol, amount: a.balance,
         value: a.valueUsd, pct: a.pct,
         color: ASSET_COLORS[a.symbol] || '#8a8a9a',
       }))
     : [];
 
+  // Decisions feed
   const journalEntries = decisionData.length > 0
     ? decisionData.map((d, i) => ({
-        id: d.id || `live-${i}`, action: `${(d.action || '').toUpperCase()} ${d.asset || ''}`,
+        id: d.id || `live-${i}`,
+        action: `${(d.action || '').toUpperCase()} ${d.asset || ''}`,
+        rawAction: (d.action || '').toLowerCase(),
+        asset: d.asset,
         outcome: d.action === 'hold' ? 'skipped' : 'executed',
-        reason: d.reason || '', timestamp: d.timestamp,
-        asset: d.asset, confidence: d.confidence || 0, riskScore: d.risk_score || 0,
-        txHash: null, source: d.source || 'orchestrator',
-        // v1 fields
-        regime: d.regime, v1Action: d.v1_action,
-        finalEdgeScore: d.final_edge_score, tradeQualityScore: d.trade_quality_score,
-        hardVeto: d.hard_veto, hardVetoReasons: d.hard_veto_reasons,
+        reason: d.reason || '',
+        timestamp: d.timestamp,
+        confidence: d.confidence || 0,
+        riskScore: d.risk_score || 0,
+        txHash: null,
+        source: d.source || 'orchestrator',
+        regime: d.regime,
+        v1Action: d.v1_action,
+        finalEdgeScore: d.final_edge_score,
+        tradeQualityScore: d.trade_quality_score,
+        hardVeto: d.hard_veto,
+        hardVetoReasons: d.hard_veto_reasons,
         entryTrigger: d.entry_trigger,
+        fill: d.fill || null,
+        pnl: d.pnl ?? null,
       }))
     : [];
 
-  // ── Risk Timeline (REAL from journal or mock fallback) ──
+  const decisionCounts = journalEntries.reduce(
+    (acc, e) => {
+      const a = e.rawAction;
+      if (a === 'hold') acc.hold += 1;
+      else if (a === 'buy') acc.buy += 1;
+      else if (a === 'sell') acc.sell += 1;
+      else acc.other += 1;
+      return acc;
+    },
+    { hold: 0, buy: 0, sell: 0, other: 0 },
+  );
+
+  // Recent actions journal
   const hasRealTimeline = journalData && journalData.length > 0;
-  const riskTimelineEntries = hasRealTimeline
-    ? journalData.slice(0, 10).map((entry, i) => {
-        let severity = 'normal';
-        if (entry.type === 'policy_check' && !entry.valid) severity = 'warning';
-        else if (entry.type === 'execution' && !entry.success) severity = 'elevated';
-        else if (entry.type === 'decision' && entry.action === 'hold') severity = 'info';
-
-        let message = '';
-        if (entry.type === 'decision') {
-          message = `AI decided: ${(entry.action || 'hold').toUpperCase()} ${entry.asset || ''}`;
-        } else if (entry.type === 'execution') {
-          message = entry.success
-            ? `Execution success: ${(entry.action || '').toUpperCase()} ${entry.asset || ''}`
-            : `Execution failed: ${entry.error || 'unknown error'}`;
-        } else if (entry.type === 'policy_check') {
-          message = entry.valid
-            ? `Policy check passed for ${(entry.action || '').toUpperCase()} ${entry.asset || ''}`
-            : `Policy blocked: ${entry.reason || 'constraint violated'}`;
-        } else if (entry.type === 'cycle') {
-          message = `AI cycle completed`;
-        } else {
-          message = entry.reason || entry.type || 'System event';
-        }
-
-        const details = [
-          entry.confidence !== undefined ? `Conf: ${(entry.confidence * 100).toFixed(0)}%` : '',
-          entry.risk_score !== undefined ? `Risk: ${(entry.risk_score * 100).toFixed(0)}%` : '',
-          entry.duration_ms ? `${entry.duration_ms}ms` : '',
-          entry.txHash || '',
-        ].filter(Boolean).join(' · ') || 'Logged by orchestrator';
-
+  const recentActions = hasRealTimeline
+    ? journalData.slice(0, 8).map((entry, i) => {
+        const kind = entry.type === 'policy_check'
+          ? (entry.valid ? 'SIGNED' : 'CHECKED')
+          : entry.type === 'execution'
+            ? (entry.success ? 'SIGNED' : 'ROTATED')
+            : entry.type === 'decision'
+              ? (entry.action === 'hold' ? 'CHECKED' : 'SIGNED')
+              : entry.type === 'cycle' ? 'SIGNED' : 'CHECKED';
         return {
-          id: entry.id || `rt-${i}`,
+          id: entry.id || `act-${i}`,
+          kind,
           timestamp: entry.timestamp,
-          type: entry.type === 'policy_check' ? (entry.valid ? 'execution' : 'blocked')
-              : entry.type === 'decision' ? (entry.action === 'hold' ? 'skip' : 'execution')
-              : entry.type === 'execution' ? (entry.success ? 'execution' : 'blocked')
-              : entry.type || 'execution',
-          severity,
-          message,
-          details,
           txHash: entry.txHash || null,
-          isLive: true,
         };
       })
-    : showDemoVault ? demoRiskTimelineEntries : [];
+    : showDemoVault ? demoRiskTimelineEntries.slice(0, 8).map((entry, i) => ({
+        id: entry.id || `demo-${i}`,
+        kind: entry.type === 'blocked' ? 'ROTATED' : entry.type === 'skip' ? 'CHECKED' : 'SIGNED',
+        timestamp: entry.timestamp,
+        txHash: entry.txHash || null,
+      })) : [];
 
   const vaultAddress = hasLive ? vaultAddr : showDemoVault ? demoVault.address : (vaultAddr || '');
   const executorAddress = hasLive ? liveVault.executor : showDemoVault ? demoVault.executor : '';
-  const activeOrchestratorExecutor = orchStatus?.executorAddress || '';
-  const executorMatchesActiveOrchestrator = Boolean(activeOrchestratorExecutor) &&
-    Boolean(executorAddress) &&
-    activeOrchestratorExecutor.toLowerCase() === executorAddress.toLowerCase();
+  const activeOrchestratorExecutors = getOrchestratorExecutorAddresses(orchStatus);
+  const activeOrchestratorExecutor = getPrimaryOrchestratorExecutor(orchStatus);
+  const activeOrchestratorExecutorSummary = formatOrchestratorExecutorSummary(orchStatus);
+  const executorMatchesActiveOrchestrator = doesExecutorMatchOrchestrator(orchStatus, executorAddress);
+  const executorSyncLabel = executorMatchesActiveOrchestrator
+    ? 'Matched'
+    : activeOrchestratorExecutors.length > 0 ? 'Different' : 'Offline';
+  const executorSyncTone = executorMatchesActiveOrchestrator
+    ? 'emerald' : activeOrchestratorExecutors.length > 0 ? 'amber' : 'steel';
+
   const networkName = showDemoVault
     ? demoVault.network
-    : chainId === 16661 ? '0G Aristotle Mainnet'
-    : getNetworkLabel(chainId);
-  const vaultTitle = showDemoVault
-    ? demoVault.name
-    : vaultAddress
-    ? `Vault ${vaultAddress.slice(0, 6)}...${vaultAddress.slice(-4)}`
-    : 'No Vault Selected';
-  const showLiveTelemetryGuide = !showDemoVault && !latestSignal && !hasRealTimeline;
+    : chainId === 16661 ? '0G Aristotle Mainnet' : getNetworkLabel(chainId);
   const vaultExplorerHref = getExplorerAddressHref(chainId, vaultAddress);
   const executorExplorerHref = getExplorerAddressHref(chainId, executorAddress);
   const feeRecipientExplorerHref = getExplorerAddressHref(chainId, effectivePolicy?.feeRecipient);
+  const showLiveTelemetryGuide = !showDemoVault && !latestSignal && !hasRealTimeline;
+
+  const vaultTitle = showDemoVault
+    ? demoVault.name
+    : vaultAddress
+    ? `${vaultAddress.slice(0, 6)}…${vaultAddress.slice(-4)}`
+    : 'No Vault Selected';
+  const vaultAvatarSymbol = vaultAddress ? vaultAddress.slice(2, 4).toUpperCase() : 'VT';
+
   const recentVaultTxs = [
     { label: isPaused ? 'Resume vault' : 'Pause vault', hash: pauseHash || unpauseHash },
     { label: 'Approve deposit', hash: approveHash },
     { label: 'Deposit base asset', hash: depositHash },
+    { label: 'Wrap native 0G', hash: wrapHash },
     { label: 'Transfer vault asset', hash: transferHash },
     { label: 'Withdraw', hash: withdrawHash },
     { label: 'Update policy', hash: policyHash },
     { label: 'Set executor', hash: executorHash },
     { label: 'Accrue fees', hash: accrueHash },
     { label: 'Claim fees', hash: claimHash },
-  ].map((item) => ({
-    ...item,
-    href: getExplorerTxHref(chainId, item.hash),
-  })).filter((item) => item.href);
+  ].map((item) => ({ ...item, href: getExplorerTxHref(chainId, item.hash) }))
+   .filter((item) => item.href);
 
   if (!vaultAddr) {
     return (
-      <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-12">
-        <GlassPanel className="p-8 text-center">
-          <Shield className="w-8 h-8 text-steel/20 mx-auto mb-3" />
-          <h1 className="text-xl font-display font-semibold text-white mb-2">No Vault Selected</h1>
-          <p className="text-sm text-steel/50 max-w-md mx-auto">
+      <div className="max-w-3xl mx-auto px-4 lg:px-6 py-12">
+        <div className="rounded-2xl p-8 text-center" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
+          <Shield className="w-8 h-8 mx-auto mb-3" style={{ color: 'var(--ed-steel-500)' }} />
+          <h1 className="ed-display text-[22px] mb-2" style={{ color: 'var(--ed-steel-50)' }}>No Vault Selected</h1>
+          <p className="text-sm" style={{ color: 'var(--ed-steel-400)' }}>
             Create a vault first or open one from the dashboard. This page no longer falls back to demo data.
           </p>
           <Link to="/create" className="inline-block mt-4">
             <ControlButton variant="gold">
-              <ArrowUpToLine className="w-3.5 h-3.5" /> Create Vault
+              <Plus className="w-3.5 h-3.5" /> Create Vault
             </ControlButton>
           </Link>
-        </GlassPanel>
+        </div>
       </div>
     );
   }
 
+  // Handlers
   const handlePause = () => {
     if (isPaused) { unpause(vaultAddr); } else { pause(vaultAddr); }
     setTimeout(() => refetch(), 3000);
   };
 
+  const handleCopy = (key, value) => {
+    navigator.clipboard?.writeText?.(value || '');
+    setAddressCopied(key);
+    setTimeout(() => setAddressCopied(null), 1500);
+  };
+
+  const openPolicyModal = () => {
+    if (effectivePolicy) {
+      setPolicyForm({
+        maxPositionBps: effectivePolicy.maxPositionBps,
+        maxDailyLossBps: effectivePolicy.maxDailyLossBps,
+        stopLossBps: effectivePolicy.stopLossBps || 1500,
+        cooldownSeconds: effectivePolicy.cooldownSeconds,
+        confidenceThresholdBps: effectivePolicy.confidenceThresholdBps,
+        maxActionsPerDay: effectivePolicy.maxActionsPerDay,
+        autoExecution: effectivePolicy.autoExecution,
+        paused: effectivePolicy.paused,
+        performanceFeeBps: effectivePolicy.performanceFeeBps || 0,
+        managementFeeBps: effectivePolicy.managementFeeBps || 0,
+        entryFeeBps: effectivePolicy.entryFeeBps || 0,
+        exitFeeBps: effectivePolicy.exitFeeBps || 0,
+        feeRecipient: effectivePolicy.feeRecipient || '0x0000000000000000000000000000000000000000',
+      });
+    }
+    setShowPolicyModal(true);
+  };
+
+  const openDepositModal = () => {
+    setDepositAmount('');
+    setDepositStep('input');
+    setShowDepositModal(true);
+  };
+
+  const openWithdrawModal = () => {
+    setWithdrawAmount('');
+    setShowWithdrawModal(true);
+  };
+
+  const openExecutorModal = () => {
+    setExecutorForm(
+      executorMatchesActiveOrchestrator
+        ? executorAddress
+        : activeOrchestratorExecutor || executorAddress || '',
+    );
+    setShowExecutorModal(true);
+  };
+
+  const ticketToken = depositTokens.find((t) => t.symbol === ticketTokenSymbol) || depositTokens[0];
+
+  const handleTicketSubmit = () => {
+    const amount = ticketAmount.trim();
+    if (!amount || Number(amount) <= 0) return;
+    if (ticketTab === 'deposit') {
+      setDepositAmount(amount);
+      setSelectedDepositToken(ticketToken);
+      setDepositStep('approve');
+      setShowDepositModal(true);
+    } else {
+      setWithdrawAmount(amount);
+      setShowWithdrawModal(true);
+    }
+  };
+
+  const handleExportJournal = () => {
+    const data = journalData || decisionData || [];
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `aegis-vault-journal-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const ticketWalletBalance = ticketTab === 'deposit'
+    ? parseFloat(ticketToken?.balance || '0')
+    : parseFloat(liveVault?.balance || '0');
+  // Resolved base-asset metadata for the withdraw path. Falls back to USDC
+  // when the on-chain baseAsset hasn't loaded yet (first paint).
+  const baseTokenForVault = depositTokens.find((t) => t.isBase);
+  const baseAssetSymbolResolved = baseTokenForVault?.symbol || 'USDC';
+  const baseAssetDecimalsResolved = baseTokenForVault?.decimals ?? resolvedDecimals;
+  const ticketSharePriceLabel = navSnapshot?.sharePrice
+    ? String(navSnapshot.sharePrice)
+    : nav > 0 && totalDeposited > 0
+      ? (nav / Math.max(1, totalDeposited)).toFixed(4)
+      : '1.0000';
+  // Share accounting only applies to base-asset deposits — non-base tokens are
+  // bare `transfer()` calls that don't mint shares.
+  const estShares = ticketTab === 'deposit' && ticketAmount && ticketToken?.isBase
+    ? (Number(ticketAmount) / Math.max(0.0001, Number(ticketSharePriceLabel))).toFixed(2)
+    : null;
+
+  const hasFees = effectivePolicy && (
+    effectivePolicy.performanceFeeBps ||
+    effectivePolicy.managementFeeBps ||
+    effectivePolicy.entryFeeBps ||
+    effectivePolicy.exitFeeBps ||
+    (feeState?.accruedTotal > 0)
+  );
+
   return (
-    <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
-      {/* ── Header ── */}
-      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-8">
-        <div>
-          <div className="flex items-baseline gap-3.5 mb-2">
-            <span className="ed-eyebrow">§ V.01</span>
-            <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
-              Vault file · {networkName}
+    <div className="relative min-h-screen">
+      {/* Ambient backdrop */}
+      <div aria-hidden className="fixed inset-0 pointer-events-none">
+        <div className="absolute inset-0 ed-dotgrid opacity-25" />
+        <div
+          className="absolute -top-[400px] -left-[200px] h-[800px] w-[800px] rounded-full"
+          style={{ background: `radial-gradient(circle, ${ACCENTS.emerald}14 0%, transparent 55%)`, filter: 'blur(40px)' }}
+        />
+        <div
+          className="absolute -bottom-[400px] -right-[200px] h-[800px] w-[800px] rounded-full"
+          style={{ background: `radial-gradient(circle, ${ACCENTS.cyan}10 0%, transparent 55%)`, filter: 'blur(40px)' }}
+        />
+      </div>
+
+      <div className="relative max-w-[1540px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-2 mb-5 flex-wrap">
+          <Link
+            to="/app"
+            className="ed-mono text-[11px] uppercase tracking-[0.18em] inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
+            style={{ color: 'var(--ed-steel-400)' }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-400)')}
+          >
+            <ArrowLeft className="w-3 h-3" /> Back to Dashboard
+          </Link>
+          <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-600)' }}>/</span>
+          <span className="ed-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: 'var(--ed-steel-400)' }}>Vaults</span>
+          <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-600)' }}>/</span>
+          <span className="ed-mono text-[11px] uppercase tracking-[0.18em] whitespace-nowrap" style={{ color: 'var(--ed-steel-50)' }}>
+            {vaultTitle}
+          </span>
+        </div>
+
+        {/* Header */}
+        <div className="ed-rise" style={{ '--ed-rise-d': '0ms' }}>
+          <VaultHero
+            vaultAvatarSymbol={vaultAvatarSymbol}
+            vaultTitle={vaultTitle}
+            vaultExplorerHref={vaultExplorerHref}
+            isPaused={isPaused}
+            showDemoVault={showDemoVault}
+            mandateType={mandateType}
+            mandateChipTone={mandateChipTone}
+            executorIsInactive={executorIsInactive}
+            cycleCount={cycleCount}
+            nav={nav}
+            lastExecTs={lastExecTs}
+            baseAssetSymbol={baseAssetSymbolResolved}
+            executions={executions}
+            decisionCounts={decisionCounts}
+            orchStatus={orchStatus}
+            isConnected={isConnected}
+            onDeposit={openDepositModal}
+            onWithdraw={openWithdrawModal}
+            onEditPolicy={openPolicyModal}
+            onPause={handlePause}
+            pausePending={pausePending}
+            unpausePending={unpausePending}
+          />
+        </div>
+
+        {/* Operator rotation banner */}
+        {executorIsInactive && !bannerDismissed && (
+          <div className="mt-6 ed-rise" style={{ '--ed-rise-d': '80ms' }}>
+            <div
+              className="rounded-2xl p-4 flex items-start gap-3 relative overflow-hidden"
+              style={{
+                background: `linear-gradient(90deg, ${ACCENTS.amber}10, rgba(15,15,19,0.8))`,
+                boxShadow: 'var(--ed-ghost-border)',
+              }}
+            >
+              <div
+                className="h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                style={{ background: `${ACCENTS.amber}26`, color: ACCENTS.amber }}
+              >
+                <AlertTriangle className="w-3.5 h-3.5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="ed-mono text-[11px] uppercase tracking-[0.2em] whitespace-nowrap" style={{ color: 'var(--ed-steel-50)' }}>
+                    Operator status changed
+                  </span>
+                  <Chip tone="amber" dense>{executorIsInactive.reason}</Chip>
+                </div>
+                <p className="text-[12.5px] leading-[1.55]" style={{ color: 'var(--ed-steel-300)' }}>
+                  {executorIsInactive.label} Rotate to a different executor below without moving funds.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBannerDismissed(true)}
+                className="ed-mono text-[10.5px] uppercase tracking-[0.2em] transition-colors px-2 py-1 rounded"
+                style={{ color: 'var(--ed-steel-400)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-400)')}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showLiveTelemetryGuide && (
+          <div className="mt-6 ed-rise" style={{ '--ed-rise-d': '80ms' }}>
+            <div className="rounded-2xl p-4" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
+              <div className="flex items-center gap-2 mb-2">
+                <Cpu className="w-3.5 h-3.5" style={{ color: ACCENTS.cyan }} />
+                <Eyebrow tone="cyan">Telemetry warming up</Eyebrow>
+              </div>
+              <p className="text-[11.5px] leading-[1.55]" style={{ color: 'var(--ed-steel-400)' }}>
+                The vault exists on-chain, but no fresh AI journal or NAV history has arrived yet. Connect the vault to your
+                orchestrator executor and run a cycle to populate the analytics panels below.
+              </p>
+              <div className="mt-2 ed-mono text-[10px]" style={{ color: 'var(--ed-steel-500)' }}>
+                Endpoint: {ORCHESTRATOR_URL || 'VITE_ORCHESTRATOR_URL not set'}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Main two-col grid */}
+        <div className="mt-8 lg:mt-10 grid grid-cols-1 xl:grid-cols-[1.6fr_1fr] gap-8 lg:gap-10">
+          {/* Main */}
+          <div className="flex flex-col gap-10 min-w-0">
+            <div className="ed-rise" style={{ '--ed-rise-d': '120ms' }}>
+              <PerformancePanel
+                nav={nav}
+                totalDeposited={totalDeposited}
+                allTimeReturnPct={allTimeReturnPct}
+                allTimeReturnUsd={allTimeReturnUsd}
+                returnIsPositive={returnIsPositive}
+                pnlRealized={pnlRealized}
+                pnlUnrealized={pnlUnrealized}
+                navHistoryData={navHistoryData}
+                pnlHistoryData={pnlHistoryData}
+                drawdownHistoryData={drawdownHistoryData}
+                showDemoVault={showDemoVault}
+              />
+            </div>
+
+            {allocationData.length > 0 && (
+              <div className="ed-rise" style={{ '--ed-rise-d': '180ms' }}>
+                <AllocationPanel allocations={allocationData} prices={navData?.prices} />
+              </div>
+            )}
+
+            <div className="ed-rise" style={{ '--ed-rise-d': '240ms' }}>
+              <StrategyPanel
+                mandateType={mandateType}
+                mandateChipTone={mandateChipTone}
+                pol={pol}
+                isPaused={isPaused}
+                operator={executorOpData}
+                executorAddress={executorAddress}
+                executorRegistered={executorRegistered}
+                executorSyncLabel={executorSyncLabel}
+                executorSyncTone={executorSyncTone}
+                isConnected={isConnected}
+                onEditPolicy={openPolicyModal}
+                onSetExecutor={openExecutorModal}
+              />
+            </div>
+
+            <div className="ed-rise" style={{ '--ed-rise-d': '300ms' }}>
+              <DecisionsPanel
+                entries={journalEntries}
+                counts={decisionCounts}
+                chainId={chainId}
+                onExport={handleExportJournal}
+              />
+            </div>
+
+            <div className="ed-rise" style={{ '--ed-rise-d': '360ms' }}>
+              <RecentActionsPanel actions={recentActions} chainId={chainId} />
+            </div>
+          </div>
+
+          {/* Rail */}
+          <aside className="flex flex-col gap-8">
+            <div className="ed-rise" style={{ '--ed-rise-d': '120ms' }}>
+              <RiskPanel
+                riskScore={riskScore}
+                riskLevel={riskLevel}
+                riskTone={riskTone}
+                pol={pol}
+                dailyActions={dailyActions}
+              />
+            </div>
+
+            <div className="ed-rise" style={{ '--ed-rise-d': '180ms' }}>
+              <CapitalTicket
+                tab={ticketTab}
+                setTab={setTicketTab}
+                amount={ticketAmount}
+                setAmount={setTicketAmount}
+                walletBalance={ticketWalletBalance}
+                tokens={depositTokens}
+                selectedSymbol={ticketTokenSymbol}
+                onSelectSymbol={(sym) => {
+                  setTicketTokenSymbol(sym);
+                  setTicketAmount('');
+                }}
+                sharePrice={ticketSharePriceLabel}
+                estShares={estShares}
+                entryFeeBps={effectivePolicy?.entryFeeBps || 0}
+                exitFeeBps={effectivePolicy?.exitFeeBps || 0}
+                isConnected={isConnected}
+                onSubmit={handleTicketSubmit}
+              />
+            </div>
+
+            {hasFees && (
+              <div className="ed-rise" style={{ '--ed-rise-d': '240ms' }}>
+                <FeesPanel
+                  policy={effectivePolicy}
+                  feeState={feeState}
+                  liveNavUsd={liveNavUsd}
+                  feeRecipientExplorerHref={feeRecipientExplorerHref}
+                  walletAddress={walletAddress}
+                  isConnected={isConnected}
+                  accruePending={accruePending}
+                  claimPending={claimPending}
+                  claimSuccess={claimSuccess}
+                  accrueSuccess={accrueSuccess}
+                  onAccrue={() => {
+                    accrueFees(vaultAddr);
+                    setTimeout(() => { refetchFees(); refetchNav(); }, 4000);
+                  }}
+                  onClaim={() => {
+                    claimFees(vaultAddr);
+                    setTimeout(() => { refetchFees(); refetch(); }, 4000);
+                  }}
+                />
+              </div>
+            )}
+
+            <div className="ed-rise" style={{ '--ed-rise-d': '300ms' }}>
+              <BriefingPanel
+                vaultAddress={vaultAddress}
+                executorAddress={executorAddress}
+                operator={executorOpData}
+                executorRegistered={executorRegistered}
+                networkName={networkName}
+                mandateType={mandateType}
+                baseAssetSymbol={baseAssetSymbolResolved}
+                resolvedDecimals={resolvedDecimals}
+                lastExecTs={lastExecTs}
+                dailyActions={dailyActions}
+                maxActionsPerDay={pol.maxActionsPerDay}
+                executorSyncLabel={executorSyncLabel}
+                executorSyncTone={executorSyncTone}
+                onCopy={handleCopy}
+                addressCopied={addressCopied}
+                vaultExplorerHref={vaultExplorerHref}
+                executorExplorerHref={executorExplorerHref}
+              />
+            </div>
+
+            <div className="ed-rise" style={{ '--ed-rise-d': '360ms' }}>
+              <SystemControlsPanel
+                isConnected={isConnected}
+                isPaused={isPaused}
+                pausePending={pausePending}
+                unpausePending={unpausePending}
+                onPause={handlePause}
+                onExecutor={openExecutorModal}
+                onEditPolicy={openPolicyModal}
+                onExport={handleExportJournal}
+                executorMatches={executorMatchesActiveOrchestrator}
+                recentTxs={recentVaultTxs}
+                withdrawSuccess={withdrawSuccess}
+                depositSuccess={depositSuccess || transferSuccess}
+                policySuccess={policySuccess}
+                executorSuccess={executorSuccess}
+              />
+            </div>
+          </aside>
+        </div>
+
+        {/* Modals */}
+        {showDepositModal && (
+          <DepositModal
+            onClose={() => {
+              setShowDepositModal(false);
+              resetWrap?.();
+            }}
+            depositStep={depositStep}
+            setDepositStep={setDepositStep}
+            depositTokens={depositTokens}
+            selectedDepositToken={selectedDepositToken}
+            setSelectedDepositToken={setSelectedDepositToken}
+            depositAmount={depositAmount}
+            setDepositAmount={setDepositAmount}
+            approve={approve}
+            approvePending={approvePending}
+            approveSuccess={approveSuccess}
+            transferToken={transferToken}
+            transferPending={transferPending}
+            deposit={deposit}
+            depositPending={depositPending}
+            wrapNative={wrapNative}
+            wrapPending={wrapPending}
+            wrapSuccess={wrapSuccess}
+            refetchW0g={refetchW0g}
+            refetchNative={refetchNative}
+            vaultAddr={vaultAddr}
+            refetch={refetch}
+          />
+        )}
+
+        {showWithdrawModal && (
+          <WithdrawModal
+            onClose={() => setShowWithdrawModal(false)}
+            withdrawAmount={withdrawAmount}
+            setWithdrawAmount={setWithdrawAmount}
+            withdraw={withdraw}
+            withdrawPending={withdrawPending}
+            vaultAddr={vaultAddr}
+            refetch={refetch}
+            liveVault={liveVault}
+            hasLive={hasLive}
+            baseAssetSymbol={baseAssetSymbolResolved}
+            baseAssetDecimals={baseAssetDecimalsResolved}
+            vaultVersion={vaultVersion}
+            vaultAssetRows={vaultAssetRows}
+            depositTokens={depositTokens}
+            withdrawToken={withdrawToken}
+            withdrawTokenPending={withdrawTokenPending}
+            withdrawAllNonBase={withdrawAllNonBase}
+            withdrawAllPending={withdrawAllPending}
+          />
+        )}
+
+        {showExecutorModal && (
+          <ExecutorModal
+            onClose={() => setShowExecutorModal(false)}
+            executorForm={executorForm}
+            setExecutorForm={setExecutorForm}
+            executorAddress={executorAddress}
+            executorSyncLabel={executorSyncLabel}
+            executorSyncTone={executorSyncTone}
+            activeOrchestratorExecutor={activeOrchestratorExecutor}
+            activeOrchestratorExecutors={activeOrchestratorExecutors}
+            activeOrchestratorExecutorSummary={activeOrchestratorExecutorSummary}
+            activeMarketplaceOps={activeMarketplaceOps}
+            setExecutor={setExecutor}
+            executorPending={executorPending}
+            vaultAddr={vaultAddr}
+            refetch={refetch}
+            liveVault={liveVault}
+            hasLive={hasLive}
+          />
+        )}
+
+        {showPolicyModal && policyForm && (
+          <PolicyModal
+            onClose={() => setShowPolicyModal(false)}
+            policyForm={policyForm}
+            setPolicyForm={setPolicyForm}
+            updatePolicy={updatePolicy}
+            policyPending={policyPending}
+            vaultAddr={vaultAddr}
+            refetch={refetch}
+          />
+        )}
+
+        {/* Footer */}
+        <footer
+          className="mt-12 pt-6 flex items-center justify-between flex-wrap gap-4"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
+        >
+          <div className="flex items-center gap-2">
+            <Shield className="w-3.5 h-3.5" style={{ color: ACCENTS.emerald }} />
+            <span className="ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
+              Aegis · Vault
             </span>
           </div>
-          <div className="flex items-center gap-3 mb-2 flex-wrap">
-            <h1
-              className="ed-display"
-              style={{ fontSize: 36, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
-            >
-              {vaultTitle}
-            </h1>
-            <StatusPill label={isPaused ? 'Paused' : 'Active'} variant={isPaused ? 'paused' : 'active'} pulse={!isPaused} />
-            {navData && <StatusPill label="Pyth NAV" variant="gold" />}
-            {showDemoVault && <StatusPill label="Demo Data" variant="gold" />}
+          <div className="flex items-center gap-6 ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
+            <Link to="/whitepaper" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
+              Whitepaper
+            </Link>
+            <Link to="/docs" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
+              Docs
+            </Link>
+            <Link to="/marketplace" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
+              Marketplace
+            </Link>
           </div>
-          <div className="flex items-center gap-4 text-[11px] font-mono text-steel/40">
-            <span>{vaultAddress}</span>
+          <span className="ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
+            Built on 0G · 2026
+          </span>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────── Hero ─────────────────── */
+
+function VaultHero({
+  vaultAvatarSymbol, vaultTitle, vaultExplorerHref,
+  isPaused, showDemoVault, mandateType, mandateChipTone, executorIsInactive,
+  cycleCount, nav, lastExecTs, baseAssetSymbol, executions, decisionCounts,
+  orchStatus, isConnected, onDeposit, onWithdraw, onEditPolicy, onPause, pausePending, unpausePending,
+}) {
+  const kpis = [
+    {
+      icon: Layers, label: 'NAV · TVL',
+      value: `$${nav.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+      sub: nav > 0 ? `${nav.toFixed(4)} ${baseAssetSymbol}` : 'Awaiting deposits',
+      tone: 'cyan',
+    },
+    {
+      icon: Zap, label: 'Actions',
+      value: String(executions),
+      sub: 'All cycles',
+      tone: 'emerald',
+    },
+    {
+      icon: CheckCircle, label: 'Filled',
+      value: String(decisionCounts.buy + decisionCounts.sell),
+      sub: `${decisionCounts.hold} hold · ${decisionCounts.buy + decisionCounts.sell} filled`,
+      tone: 'cyan',
+    },
+    {
+      icon: Sparkles, label: 'Signals',
+      value: String(decisionCounts.hold + decisionCounts.buy + decisionCounts.sell + decisionCounts.other),
+      sub: decisionCounts.hold > 0 ? `${decisionCounts.hold} vetoed` : 'Zero veto',
+      tone: 'amber',
+    },
+    {
+      icon: RefreshCw, label: 'Cycle',
+      value: cycleCount > 0 ? `#${cycleCount}` : '—',
+      sub: orchStatus?.running ? 'Orchestrator streaming' : 'Orchestrator idle',
+      tone: 'steel',
+    },
+  ];
+
+  return (
+    <section
+      className="relative overflow-hidden"
+      style={{
+        borderRadius: 28,
+        background: 'linear-gradient(180deg,#0F0F13 0%,#0A0A0C 100%)',
+        boxShadow: 'var(--ed-ghost-border)',
+      }}
+    >
+      <div aria-hidden className="absolute inset-0 ed-dotgrid opacity-40" />
+      <div aria-hidden className="absolute inset-0 pointer-events-none ed-grain-light" />
+      <div
+        aria-hidden
+        className="absolute -right-24 -top-24 h-[380px] w-[380px] rounded-full"
+        style={{
+          background: `radial-gradient(circle, ${ACCENTS.emerald} 0%, transparent 60%)`,
+          opacity: 0.14,
+          filter: 'blur(10px)',
+        }}
+      />
+      <div aria-hidden className="absolute right-10 top-4 pointer-events-none select-none">
+        <GhostNumeral n="01" style={{ fontSize: 160 }} />
+      </div>
+
+      <div className="relative flex flex-col xl:flex-row items-start justify-between gap-8 p-8 lg:p-10">
+        {/* Identity */}
+        <div className="flex flex-col gap-4 min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Chip tone="steel" leading={<Shield className="w-3 h-3" />}>Vault file</Chip>
+            <Chip
+              tone={isPaused ? 'amber' : 'emerald'}
+              dense
+              leading={<StatusDot tone={isPaused ? 'amber' : 'emerald'} size={5} />}
+            >
+              {isPaused ? 'Paused' : 'Active'}
+            </Chip>
+            {mandateType !== 'Unknown' && <Chip tone={mandateChipTone} dense>{mandateType}</Chip>}
+            {executorIsInactive && <Chip tone="rose" dense leading={<AlertTriangle className="w-3 h-3" />}>Operator {executorIsInactive.reason}</Chip>}
+            {showDemoVault && <Chip tone="gold" dense>Demo</Chip>}
+          </div>
+
+          <div className="flex items-center gap-4">
+            <Eyebrow tone="gold">§ V.01 · Vault File</Eyebrow>
+            <div className="flex-1 ed-hairline" />
+          </div>
+
+          <div className="flex items-start gap-5">
+            <TokenAvatar symbol={vaultAvatarSymbol} size={72} />
+            <div className="flex flex-col gap-1 min-w-0">
+              <Eyebrow tone="muted" className="!text-[10.5px] !tracking-[0.24em]">Vault</Eyebrow>
+              <h1
+                className="ed-italic m-0 whitespace-nowrap"
+                style={{ fontSize: 42, fontWeight: 400, letterSpacing: '-0.01em', lineHeight: 1, color: 'var(--ed-steel-50)' }}
+              >
+                {vaultTitle}
+              </h1>
+              <span className="ed-mono text-[12px] mt-2" style={{ color: 'var(--ed-steel-500)' }}>
+                {cycleCount > 0 ? `cycle ${cycleCount}` : 'cycle pending'} · base asset {baseAssetSymbol}
+              </span>
+            </div>
+          </div>
+
+          <p className="max-w-[640px] text-[14px] leading-[1.65] m-0" style={{ color: 'var(--ed-steel-300)' }}>
+            {executorIsInactive ? (
+              <>
+                Operator status <span className="ed-italic" style={{ color: 'var(--ed-steel-50)' }}>changed.</span>{' '}
+                Signatures rotated automatically — vault is safe and continuing to stream policy-checked actions.
+              </>
+            ) : orchStatus?.running ? (
+              <>
+                Operator streaming policy-checked actions —{' '}
+                <span className="ed-italic" style={{ color: 'var(--ed-steel-50)' }}>custody stays in the vault,</span>{' '}
+                receipts anchored on-chain per cycle.
+              </>
+            ) : (
+              <>
+                Deposits only · withdrawals gated by a short cooldown.{' '}
+                <span className="ed-italic" style={{ color: 'var(--ed-steel-50)' }}>Policy caps every trade</span>{' '}
+                before settlement.
+              </>
+            )}
+          </p>
+
+          <div
+            className="flex items-center gap-5 pt-4 mt-2 flex-wrap"
+            style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            <FootStat label="Asset" value={baseAssetSymbol} />
+            <FootStat label="NAV" value={`$${nav.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} mono />
+            <FootStat label="Last action" value={lastExecTs ? formatTime(lastExecTs) : 'Never'} mono />
+            <FootStat label="Policy" value={`${mandateType} · v1`} />
             {vaultExplorerHref && (
-              <ExplorerAnchor
-                href={vaultExplorerHref}
+              <FootStat
                 label="Explorer"
-                className="text-cyan/60 hover:text-cyan transition-colors"
+                value="view ↗"
+                leading={<ExternalLink className="w-3 h-3" style={{ color: ACCENTS.cyan }} />}
+                href={vaultExplorerHref}
               />
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+
+        {/* CTA cluster */}
+        <div className="flex flex-col gap-3 w-full xl:w-[320px] flex-shrink-0">
+          <div className="flex gap-2">
+            <ControlButton variant="primary" className="flex-1" disabled={!isConnected} onClick={onDeposit}>
+              <Plus className="w-3.5 h-3.5" /> Deposit
+            </ControlButton>
+            <ControlButton variant="secondary" className="flex-1" disabled={!isConnected} onClick={onWithdraw}>
+              <RefreshCw className="w-3.5 h-3.5" /> Withdraw
+            </ControlButton>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <ControlButton variant="secondary" size="sm" disabled={!isConnected} onClick={onEditPolicy}>
+              <Shield className="w-3 h-3" /> Set policy
+            </ControlButton>
+            {vaultExplorerHref ? (
+              <a href={vaultExplorerHref} target="_blank" rel="noreferrer">
+                <ControlButton variant="ghost" size="sm" className="w-full">
+                  <ExternalLink className="w-3 h-3" /> Explorer
+                </ControlButton>
+              </a>
+            ) : (
+              <ControlButton variant="ghost" size="sm" disabled>
+                <ExternalLink className="w-3 h-3" /> Explorer
+              </ControlButton>
+            )}
+          </div>
           <ControlButton
-            variant="primary"
+            variant={isPaused ? 'gold' : 'danger'}
             size="sm"
-            disabled={!isConnected}
-            onClick={() => { setDepositAmount(''); setDepositStep('input'); setShowDepositModal(true); }}
+            disabled={!isConnected || pausePending || unpausePending}
+            onClick={onPause}
           >
-            <ArrowUpToLine className="w-3.5 h-3.5" /> Deposit
-          </ControlButton>
-          <ControlButton
-            variant="secondary"
-            size="sm"
-            disabled={!isConnected}
-            onClick={() => { setWithdrawAmount(''); setShowWithdrawModal(true); }}
-          >
-            <ArrowDownToLine className="w-3.5 h-3.5" /> Withdraw
-          </ControlButton>
-          <ControlButton
-            variant="secondary"
-            size="sm"
-            disabled={!isConnected}
-            onClick={() => {
-              setExecutorForm(executorAddress || '');
-              setShowExecutorModal(true);
-            }}
-          >
-            <Shield className="w-3.5 h-3.5" /> Set Executor
-          </ControlButton>
-          <ControlButton
-            variant="secondary"
-            size="sm"
-            disabled={!isConnected}
-            onClick={() => {
-              if (effectivePolicy) {
-                setPolicyForm({
-                  maxPositionBps: effectivePolicy.maxPositionBps,
-                  maxDailyLossBps: effectivePolicy.maxDailyLossBps,
-                  stopLossBps: effectivePolicy.stopLossBps || 1500,
-                  cooldownSeconds: effectivePolicy.cooldownSeconds,
-                  confidenceThresholdBps: effectivePolicy.confidenceThresholdBps,
-                  maxActionsPerDay: effectivePolicy.maxActionsPerDay,
-                  autoExecution: effectivePolicy.autoExecution,
-                  paused: effectivePolicy.paused,
-                  // Phase 1: preserve fees + recipient (use queueFeeChange to modify)
-                  performanceFeeBps: effectivePolicy.performanceFeeBps || 0,
-                  managementFeeBps: effectivePolicy.managementFeeBps || 0,
-                  entryFeeBps: effectivePolicy.entryFeeBps || 0,
-                  exitFeeBps: effectivePolicy.exitFeeBps || 0,
-                  feeRecipient: effectivePolicy.feeRecipient || '0x0000000000000000000000000000000000000000',
-                });
-              }
-              setShowPolicyModal(true);
-            }}
-          >
-            <Settings className="w-3.5 h-3.5" /> Edit Policy
-          </ControlButton>
-          <ControlButton variant="danger" size="sm" disabled={!isConnected || pausePending || unpausePending} onClick={handlePause}>
-            {isPaused
-              ? <><PlayCircle className="w-3.5 h-3.5" /> {unpausePending ? 'Resuming...' : 'Resume'}</>
-              : <><PauseCircle className="w-3.5 h-3.5" /> {pausePending ? 'Pausing...' : 'Pause'}</>
-            }
+            {isPaused ? (
+              <><PlayCircle className="w-3.5 h-3.5" /> {unpausePending ? 'Resuming…' : 'Resume vault'}</>
+            ) : (
+              <><PauseCircle className="w-3.5 h-3.5" /> {pausePending ? 'Pausing…' : 'Emergency pause'}</>
+            )}
           </ControlButton>
         </div>
       </div>
 
-      {executorIsInactive && (
-        <GlassPanel className="p-4 mb-6 border-amber-warn/30 bg-amber-warn/[0.04]">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-warn flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <div className="text-sm font-display font-semibold text-white mb-1">
-                Operator status changed
+      {/* KPI strip */}
+      <div
+        className="relative grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 px-8 lg:px-10 pb-8 lg:pb-10 pt-8"
+        style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
+      >
+        {kpis.map((k) => {
+          const color = ACCENTS[k.tone] || ACCENTS.steel;
+          const Icon = k.icon;
+          return (
+            <div
+              key={k.label}
+              className="rounded-xl p-4"
+              style={{ background: 'rgba(255,255,255,0.03)', boxShadow: 'var(--ed-ghost-border)' }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <span
+                  className="h-6 w-6 rounded-md flex items-center justify-center"
+                  style={{ background: `${color}1F`, color }}
+                >
+                  <Icon className="w-3 h-3" />
+                </span>
+                <Eyebrow tone="muted" className="!text-[9px]">{k.label}</Eyebrow>
               </div>
-              <p className="text-[12px] text-steel/65 leading-relaxed">
-                {executorIsInactive.label} As vault owner you can rotate to a different
-                executor below (Settings → Set Executor) without moving funds.
-              </p>
-            </div>
-          </div>
-        </GlassPanel>
-      )}
-
-      {showLiveTelemetryGuide && (
-        <GlassPanel className="p-4 mb-6">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <div className="max-w-3xl">
-              <div className="flex items-center gap-2 mb-2">
-                <Cpu className="w-4 h-4 text-cyan/50" />
-                <span className="text-sm font-display font-semibold text-white">Live vault detected, telemetry still warming up</span>
+              <div className="ed-italic text-[30px] sm:text-[34px] leading-none" style={{ color: 'var(--ed-steel-50)' }}>
+                {k.value}
               </div>
-              <p className="text-[11px] text-steel/50 leading-relaxed">
-                The vault exists on-chain, but this page has not received fresh AI journal entries or stored NAV history yet.
-                Connect the vault to your orchestrator executor and run a cycle to populate the live analytics panels below.
-              </p>
-              {vaultExplorerHref && (
-                <ExplorerAnchor
-                  href={vaultExplorerHref}
-                  label={`Vault ${shortHexLabel(vaultAddress)}`}
-                  className="mt-2 text-[10px] font-mono text-cyan/60 hover:text-cyan transition-colors"
-                />
-              )}
+              <div className="ed-mono text-[10.5px] mt-2" style={{ color: 'var(--ed-steel-500)' }}>{k.sub}</div>
             </div>
-            <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-3 py-2 text-[10px] font-mono text-steel/40">
-              Endpoint: {ORCHESTRATOR_URL || 'VITE_ORCHESTRATOR_URL not set'}
-            </div>
-          </div>
-        </GlassPanel>
-      )}
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
-      {/* ── Vault Summary Slab (editorial) ── */}
-      <div className="ed-card overflow-hidden mb-8" style={{ borderRadius: 20 }}>
-        <div
-          className="grid"
-          style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', borderTop: 0 }}
-        >
+function FootStat({ label, value, mono, leading, href }) {
+  const valueNode = href ? (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className={cx(mono ? 'ed-mono' : 'ed-italic', 'text-[13px] inline-flex items-center gap-1 transition-colors')}
+      style={{ color: ACCENTS.cyan }}
+    >
+      {value}
+    </a>
+  ) : (
+    <span
+      className={cx(mono ? 'ed-mono' : 'ed-italic', 'text-[13px] whitespace-nowrap')}
+      style={{ color: 'var(--ed-steel-50)' }}
+    >
+      {value}
+    </span>
+  );
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      {leading}
+      <div className="flex flex-col leading-tight min-w-0">
+        <span className="ed-mono text-[9.5px] uppercase tracking-[0.22em] whitespace-nowrap" style={{ color: 'var(--ed-steel-500)' }}>
+          {label}
+        </span>
+        {valueNode}
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────── Performance ─────────────────── */
+
+function PerformancePanel({
+  nav, totalDeposited, allTimeReturnPct, allTimeReturnUsd, returnIsPositive,
+  pnlRealized, pnlUnrealized, navHistoryData, pnlHistoryData, drawdownHistoryData,
+  showDemoVault,
+}) {
+  return (
+    <SectionHead
+      marker="V.02 · Performance"
+      title={<span className="ed-italic text-[22px]">NAV <span className="ed-sans text-[14px] not-italic" style={{ color: 'var(--ed-steel-400)' }}>— policy-checked cycles</span></span>}
+    >
+      <div className="rounded-2xl p-6" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
+        {!showDemoVault && navHistoryData.length === 0 && (
           <div
-            style={{
-              padding: 22,
-              borderRight: '1px solid rgba(255,255,255,0.05)',
-              background: 'linear-gradient(135deg, rgba(201,168,76,0.04), transparent)',
-            }}
+            className="rounded-lg px-4 py-3 mb-4"
+            style={{ background: 'rgba(255,255,255,0.02)', boxShadow: 'var(--ed-ghost-border)' }}
           >
-            <div
-              className="ed-mono mb-2.5"
-              style={{ fontSize: 10, color: 'var(--ed-gold)', letterSpacing: '0.2em' }}
-            >
-              NET ASSET VALUE
-            </div>
-            <BigNumeric
-              value={nav.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-              prefix="$"
-            />
-            <div
-              className="ed-mono mt-2 text-[11px]"
-              style={{ color: returnIsPositive ? 'var(--ed-emerald)' : 'var(--ed-rose)' }}
-            >
-              {returnIsPositive ? '+' : ''}${Math.abs(allTimeReturnUsd).toLocaleString(undefined, { maximumFractionDigits: 0 })} / {returnIsPositive ? '+' : ''}{allTimeReturnPct.toFixed(2)}% · all-time
+            <p className="text-[11.5px] leading-[1.55]" style={{ color: 'var(--ed-steel-400)' }}>
+              Historical snapshots populate as the orchestrator emits cycle updates. Switch between NAV, PnL, and drawdown
+              once data lands.
+            </p>
+          </div>
+        )}
+
+        <div className="flex items-end justify-between mb-5 flex-wrap gap-4">
+          <div>
+            <Eyebrow tone="muted" className="!text-[9px]">NAV · vault share price</Eyebrow>
+            <div className="flex items-baseline gap-3 mt-1.5 flex-wrap">
+              <span className="ed-italic leading-none" style={{ fontSize: 52, color: 'var(--ed-steel-50)' }}>
+                ${nav.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </span>
+              <Chip
+                tone={returnIsPositive ? 'emerald' : 'rose'}
+                dense
+                leading={<TrendingUp className={cx('w-3 h-3', !returnIsPositive && '-scale-y-100')} />}
+              >
+                {returnIsPositive ? '+' : ''}{allTimeReturnPct.toFixed(2)}%
+              </Chip>
+              <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>
+                vs. ${totalDeposited.toLocaleString(undefined, { maximumFractionDigits: 0 })} cost basis
+              </span>
             </div>
           </div>
-          {[
-            {
-              k: 'Risk score',
-              v: String(riskScore),
-              c:
-                riskScore < 30
-                  ? 'var(--ed-emerald)'
-                  : riskScore < 60
-                    ? 'var(--ed-amber)'
-                    : 'var(--ed-rose)',
-            },
-            { k: 'Executions', v: String(executions), c: 'var(--ed-cyan)' },
-            { k: 'Actions · today', v: String(dailyActions), c: 'var(--ed-steel-100)' },
-            {
-              k: 'Sharpe',
-              v: sharpeRatio !== null ? String(sharpeRatio) : '—',
-              c: 'var(--ed-steel-100)',
-            },
-          ].map((x, i) => (
-            <div
-              key={i}
-              style={{
-                padding: 22,
-                borderRight: i < 3 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-              }}
-            >
-              <div
-                className="ed-mono mb-2.5"
-                style={{ fontSize: 10, color: 'var(--ed-steel-500)', letterSpacing: '0.2em' }}
+          <div className="text-right">
+            <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>
+              {navHistoryData.length} snapshots
+            </span>
+            <div className="ed-mono text-[11px] mt-1" style={{ color: ACCENTS.emerald }}>
+              PnL {returnIsPositive ? '+' : ''}${Math.abs(allTimeReturnUsd).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </div>
+          </div>
+        </div>
+
+        <PerformanceChart
+          height={240}
+          navData={navHistoryData}
+          pnlData={pnlHistoryData}
+          drawdownData={drawdownHistoryData}
+          defaultMetric="nav"
+        />
+
+        <div
+          className="mt-5 pt-5 grid grid-cols-2 sm:grid-cols-4 gap-6"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
+        >
+          <MiniStat label="Realized PnL" value={`${pnlRealized >= 0 ? '+' : ''}$${Math.abs(pnlRealized).toLocaleString(undefined, { maximumFractionDigits: 0 })}`} tone={pnlRealized >= 0 ? 'emerald' : 'rose'} />
+          <MiniStat label="Unrealized PnL" value={`${pnlUnrealized >= 0 ? '+' : ''}$${Math.abs(pnlUnrealized).toLocaleString(undefined, { maximumFractionDigits: 0 })}`} tone={pnlUnrealized >= 0 ? 'cyan' : 'rose'} />
+          <MiniStat label="Cumulative" value={`${(pnlRealized + pnlUnrealized) >= 0 ? '+' : ''}$${Math.abs(pnlRealized + pnlUnrealized).toLocaleString(undefined, { maximumFractionDigits: 0 })}`} tone={(pnlRealized + pnlUnrealized) >= 0 ? 'emerald' : 'rose'} />
+          <MiniStat label="Cost basis" value={`$${totalDeposited.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
+        </div>
+      </div>
+    </SectionHead>
+  );
+}
+
+function MiniStat({ label, value, tone = 'default' }) {
+  const color =
+    tone === 'emerald' ? ACCENTS.emerald :
+    tone === 'cyan'    ? ACCENTS.cyan    :
+    tone === 'rose'    ? ACCENTS.rose    :
+                         'var(--ed-steel-50)';
+  return (
+    <div>
+      <Eyebrow tone="muted" className="!text-[9px]">{label}</Eyebrow>
+      <div className="ed-mono text-[14px] mt-1.5" style={{ color }}>{value}</div>
+    </div>
+  );
+}
+
+/* ─────────────────── Strategy (Socket alert) ─────────────────── */
+
+function StrategyPanel({
+  mandateType, mandateChipTone, pol, isPaused, operator, executorAddress, executorRegistered,
+  executorSyncLabel, executorSyncTone, isConnected, onEditPolicy, onSetExecutor,
+}) {
+  const operatorName = operator?.name || (executorRegistered === false ? 'Unregistered wallet' : 'Operator loading…');
+  return (
+    <div
+      className="rounded-2xl p-5 relative overflow-hidden"
+      style={{
+        background: `linear-gradient(135deg, ${ACCENTS.gold}0D 0%, #0F0F13 55%)`,
+        boxShadow: 'var(--ed-ghost-border)',
+      }}
+    >
+      <div aria-hidden className="absolute inset-0 ed-dotgrid opacity-20" />
+      <div className="relative flex items-start gap-4 flex-wrap">
+        <div
+          className="h-11 w-11 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{ background: `${ACCENTS.gold}26`, boxShadow: `inset 0 0 0 1px ${ACCENTS.gold}4A` }}
+        >
+          <Shield className="w-4 h-4" style={{ color: ACCENTS.gold }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+            <span className="ed-mono text-[11px] uppercase tracking-[0.2em]" style={{ color: 'var(--ed-steel-50)' }}>
+              Socket strategy rule
+            </span>
+            <Chip tone={isPaused ? 'amber' : 'emerald'} dense leading={<StatusDot tone={isPaused ? 'amber' : 'emerald'} size={5} />}>
+              {isPaused ? 'Paused' : 'Active'}
+            </Chip>
+            <Chip tone={mandateChipTone} dense>{mandateType} · v1</Chip>
+            {pol.autoExecution && <Chip tone="cyan" dense>Auto-execute</Chip>}
+            <Chip tone={executorSyncTone} dense leading={<StatusDot tone={executorSyncTone} size={5} pulse={executorSyncTone === 'emerald'} />}>
+              Executor · {executorSyncLabel}
+            </Chip>
+          </div>
+          <p className="text-[13.5px] leading-[1.6] max-w-[680px]" style={{ color: 'var(--ed-steel-300)' }}>
+            <span className="ed-italic" style={{ color: 'var(--ed-steel-50)' }}>
+              {mandateType} mandate trading rule
+            </span>{' '}
+            — requires min {(pol.confidenceThresholdPct || 0).toFixed(0)}% AI confidence, capped at{' '}
+            <span className="ed-mono" style={{ color: 'var(--ed-steel-50)' }}>
+              {(pol.maxPositionPct || 0).toFixed(0)}%
+            </span>{' '}
+            single-position exposure. Vault-side stop-loss enforced on-chain at{' '}
+            <span className="ed-mono" style={{ color: 'var(--ed-steel-50)' }}>
+              {(pol.stopLossPct || 0).toFixed(1)}%
+            </span>
+            .
+          </p>
+          <div className="mt-2 flex items-center gap-3 flex-wrap">
+            <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
+              Operator <span style={{ color: 'var(--ed-steel-50)' }}>{operatorName}</span>
+            </span>
+            {executorAddress && (
+              <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
+                {shortHexLabel(executorAddress, 8, 6)}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-2 flex-shrink-0">
+          <ControlButton variant="secondary" size="sm" disabled={!isConnected} onClick={onSetExecutor}>
+            <Cpu className="w-3 h-3" /> Rotate
+          </ControlButton>
+          <ControlButton variant="gold" size="sm" disabled={!isConnected} onClick={onEditPolicy}>
+            <Settings className="w-3 h-3" /> Tune
+          </ControlButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────── Decisions feed ─────────────────── */
+
+function DecisionsPanel({ entries, counts, chainId, onExport }) {
+  return (
+    <SectionHead
+      marker="V.03 · AI Decisions"
+      title={
+        <span className="ed-italic text-[22px]">
+          Decision feed{' '}
+          <span className="ed-sans text-[14px] not-italic" style={{ color: 'var(--ed-steel-400)' }}>— policy-checked</span>
+        </span>
+      }
+      trailing={
+        <>
+          <Chip tone="steel" dense>All · {entries.length}</Chip>
+          <Chip tone="amber" dense>Hold · {counts.hold}</Chip>
+          <Chip tone="emerald" dense>Filled · {counts.buy + counts.sell}</Chip>
+          <button
+            type="button"
+            onClick={onExport}
+            className="ed-mono text-[10.5px] uppercase tracking-[0.18em] transition-colors ml-1"
+            style={{ color: 'var(--ed-steel-400)' }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-400)')}
+          >
+            Export →
+          </button>
+        </>
+      }
+    >
+      <div className="rounded-2xl overflow-hidden" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
+        {entries.length === 0 ? (
+          <div className="text-center py-8 px-5">
+            <div className="ed-italic mb-2" style={{ fontSize: 18, color: 'var(--ed-steel-300)' }}>
+              No AI decisions yet.
+            </div>
+            <p className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>
+              Set the executor, start the orchestrator, and run a cycle to populate the decision feed.
+            </p>
+          </div>
+        ) : (
+          entries.map((e) => <DecisionRow key={e.id} e={e} chainId={chainId} />)
+        )}
+      </div>
+    </SectionHead>
+  );
+}
+
+function DecisionRow({ e, chainId }) {
+  const isBuy = e.rawAction === 'buy';
+  const isSell = e.rawAction === 'sell';
+  const isHold = e.rawAction === 'hold';
+  const accentColor = isBuy ? ACCENTS.emerald : isSell ? ACCENTS.rose : ACCENTS.amber;
+  const chipTone = isBuy ? 'emerald' : isSell ? 'rose' : 'amber';
+  const kind = isHold ? 'Hold' : isBuy ? 'Filled' : 'Exit';
+  const actionLabel = isHold ? 'HOLD' : isBuy ? 'BUY' : isSell ? 'SELL' : (e.rawAction || '').toUpperCase();
+  const confPct = Math.round((e.confidence || 0) * 100);
+  const txHref = e.txHash ? getExplorerTxHref(chainId, e.txHash) : null;
+
+  return (
+    <div
+      className="ed-row-hover grid items-start gap-4 py-4 px-5"
+      style={{
+        gridTemplateColumns: 'minmax(88px,88px) 1fr minmax(180px,200px)',
+        borderBottom: '1px solid rgba(255,255,255,0.04)',
+      }}
+    >
+      <div className="flex flex-col gap-1.5">
+        <span className="ed-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: 'var(--ed-steel-500)' }}>
+          {shortHexLabel(e.id, 5, 3)}
+        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: accentColor }} />
+          <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>{kind}</span>
+        </div>
+      </div>
+
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+          <span className="ed-mono text-[12.5px] whitespace-nowrap" style={{ color: 'var(--ed-steel-50)' }}>
+            {actionLabel} {e.asset || ''}
+          </span>
+          <Chip tone={chipTone} dense>{kind}</Chip>
+          <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
+            Conf <span style={{ color: 'var(--ed-steel-50)' }}>{confPct}%</span>
+          </span>
+          {e.fill && (
+            <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
+              Fill <span style={{ color: 'var(--ed-steel-50)' }}>${e.fill}</span>
+            </span>
+          )}
+          {e.pnl !== null && e.pnl !== undefined && (
+            <span className="ed-mono text-[10.5px]" style={{ color: e.pnl >= 0 ? ACCENTS.emerald : ACCENTS.rose }}>
+              {e.pnl >= 0 ? '+' : ''}${Math.abs(e.pnl).toFixed(2)}
+            </span>
+          )}
+          {e.regime && (
+            <span className="ed-mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.03)', color: 'var(--ed-steel-300)' }}>
+              {e.regime.replace(/_/g, ' ')}
+            </span>
+          )}
+          {e.source?.includes('0g-compute') && (
+            <span className="ed-mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: `${ACCENTS.cyan}12`, color: ACCENTS.cyan }}>
+              0G Compute
+            </span>
+          )}
+        </div>
+        {e.reason && (
+          <p className="text-[12.5px] leading-[1.55]" style={{ color: 'var(--ed-steel-300)' }}>
+            {e.reason}
+          </p>
+        )}
+        {e.hardVeto && e.hardVetoReasons?.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-2">
+            {e.hardVetoReasons.map((r) => (
+              <span
+                key={r}
+                className="ed-mono text-[10px] px-1.5 py-0.5 rounded"
+                style={{ background: `${ACCENTS.amber}14`, color: ACCENTS.amber, boxShadow: 'var(--ed-ghost-border)' }}
               >
-                {x.k.toUpperCase()}
+                {r.replace(/_/g, ' ')}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="text-right flex flex-col items-end justify-between gap-1.5">
+        <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-300)' }}>
+          {formatLocalTime(e.timestamp)}
+        </span>
+        {isHold ? (
+          <span className="ed-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--ed-steel-500)' }}>
+            No execution
+          </span>
+        ) : txHref ? (
+          <a
+            href={txHref}
+            target="_blank"
+            rel="noreferrer"
+            className="ed-mono text-[10px] uppercase tracking-[0.18em] whitespace-nowrap transition-colors"
+            style={{ color: ACCENTS.cyan }}
+          >
+            Details ↗
+          </a>
+        ) : (
+          <span className="ed-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: '#F5C97E' }}>
+            On-chain pending
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────── Recent actions ─────────────────── */
+
+function RecentActionsPanel({ actions, chainId }) {
+  return (
+    <SectionHead
+      marker="V.04 · Recent Actions"
+      title={
+        <span className="ed-italic text-[22px]">
+          Recent actions{' '}
+          <span className="ed-sans text-[14px] not-italic" style={{ color: 'var(--ed-steel-400)' }}>— vault journal</span>
+        </span>
+      }
+    >
+      {actions.length === 0 ? (
+        <div className="rounded-2xl p-5 text-center" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
+          <p className="text-[13px]" style={{ color: 'var(--ed-steel-300)' }}>No actions recorded yet.</p>
+          <p className="ed-mono text-[11px] mt-1" style={{ color: 'var(--ed-steel-500)' }}>
+            Signed intents, rotations, and policy checks appear here once the orchestrator emits them.
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-2xl p-1 divide-y" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)', borderColor: 'rgba(255,255,255,0.04)' }}>
+          {actions.map((a) => {
+            const txHref = a.txHash ? getExplorerTxHref(chainId, a.txHash) : null;
+            const kindTone = a.kind === 'SIGNED' ? 'emerald' : a.kind === 'ROTATED' ? 'amber' : 'steel';
+            return (
+              <div
+                key={a.id}
+                className="grid items-center gap-3 px-4 py-2.5"
+                style={{ gridTemplateColumns: 'auto 1fr auto auto', borderTop: '1px solid rgba(255,255,255,0.04)' }}
+              >
+                <span className="ed-mono text-[9.5px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
+                  {shortHexLabel(a.id, 5, 3)}
+                </span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <Chip tone={kindTone} dense>{a.kind}</Chip>
+                  {a.txHash ? (
+                    <span className="ed-mono text-[11px] truncate" style={{ color: 'var(--ed-steel-500)' }}>
+                      tx <span style={{ color: 'var(--ed-steel-50)' }}>{shortHexLabel(a.txHash, 8, 4)}</span>
+                    </span>
+                  ) : (
+                    <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>off-chain event</span>
+                  )}
+                </div>
+                <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-300)' }}>
+                  {formatLocalTime(a.timestamp)}
+                </span>
+                {txHref ? (
+                  <a
+                    href={txHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ed-mono text-[10px] uppercase tracking-[0.18em] transition-colors"
+                    style={{ color: ACCENTS.cyan }}
+                  >
+                    View ↗
+                  </a>
+                ) : (
+                  <span className="ed-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--ed-steel-600)' }}>
+                    —
+                  </span>
+                )}
               </div>
-              <div
-                className="ed-display"
-                style={{
-                  fontSize: 30,
-                  fontWeight: 600,
-                  color: x.c,
-                  letterSpacing: '-0.03em',
-                  lineHeight: 1,
-                }}
-              >
-                {x.v}
+            );
+          })}
+        </div>
+      )}
+    </SectionHead>
+  );
+}
+
+/* ─────────────────── Allocation ─────────────────── */
+
+function AllocationPanel({ allocations, prices }) {
+  return (
+    <SectionHead
+      marker="V.06 · Allocation"
+      title={<span className="ed-italic text-[22px]">Allocation <span className="ed-sans text-[14px] not-italic" style={{ color: 'var(--ed-steel-400)' }}>— Pyth priced</span></span>}
+    >
+      <div className="rounded-2xl p-5" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
+        <div className="space-y-3">
+          {allocations.filter((a) => a.value > 0 || a.pct > 0).map((a) => (
+            <div key={a.symbol} className="flex items-center gap-3 py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+              <TokenIcon symbol={a.symbol} size={22} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium" style={{ color: 'var(--ed-steel-50)' }}>{a.asset}</span>
+                  <span className="ed-mono text-[12.5px]" style={{ color: 'var(--ed-steel-50)' }}>
+                    ${a.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between mt-0.5">
+                  <span className="ed-mono text-[10px]" style={{ color: 'var(--ed-steel-500)' }}>
+                    {typeof a.amount === 'number' ? a.amount.toFixed(a.symbol === 'USDC' ? 0 : 6) : a.amount} {a.symbol}
+                  </span>
+                  <span className="ed-mono text-[10px]" style={{ color: 'var(--ed-steel-400)' }}>{a.pct.toFixed(1)}%</span>
+                </div>
+                <div className="mt-1 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                  <div className="h-full rounded-full" style={{ width: `${a.pct}%`, backgroundColor: a.color, opacity: 0.7 }} />
+                </div>
               </div>
             </div>
           ))}
         </div>
+        {prices && (
+          <div className="mt-3 pt-2 flex gap-4 ed-mono text-[9.5px]" style={{ borderTop: '1px solid rgba(255,255,255,0.04)', color: 'var(--ed-steel-500)' }}>
+            <span>BTC ${prices.BTC?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            <span>ETH ${prices.ETH?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            <span>Source: Pyth Hermes</span>
+          </div>
+        )}
       </div>
+    </SectionHead>
+  );
+}
 
-      {/* ── Main Grid ── */}
-      <div className="grid lg:grid-cols-3 gap-6 lg:gap-8">
-        {/* Left 2/3 */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Unified performance chart — NAV / PnL / Drawdown behind one toggle */}
-          <div>
-            <SectionLabel color="text-cyan/60">Performance</SectionLabel>
-            <GlassPanel className="p-5">
-              {!showDemoVault && navHistoryData.length === 0 && (
-                <div className="rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] px-4 py-3 mb-4">
-                  <p className="text-[11px] text-steel/50 leading-relaxed">
-                    Historical snapshots populate as the orchestrator emits cycle updates. Switch between NAV, PnL, and
-                    drawdown once data lands.
-                  </p>
-                </div>
-              )}
+/* ─────────────────── Risk (rail) ─────────────────── */
 
-              {/* Compact stats row — 4 always-visible readouts */}
-              <div
-                className="grid gap-3 mb-4"
-                style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}
-              >
-                <div>
-                  <span className="text-[9px] font-mono tracking-[0.1em] uppercase text-steel/40 block">
-                    Realized PnL
-                  </span>
-                  <span
-                    className={`text-sm font-display font-semibold tabular-nums ${
-                      pnlRealized >= 0 ? 'text-emerald-soft' : 'text-red-warn'
-                    }`}
-                  >
-                    {pnlRealized >= 0 ? '+' : ''}$
-                    {Math.abs(pnlRealized).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[9px] font-mono tracking-[0.1em] uppercase text-steel/40 block">
-                    Unrealized PnL
-                  </span>
-                  <span
-                    className={`text-sm font-display font-semibold tabular-nums ${
-                      pnlUnrealized >= 0 ? 'text-cyan' : 'text-red-warn'
-                    }`}
-                  >
-                    {pnlUnrealized >= 0 ? '+' : ''}$
-                    {Math.abs(pnlUnrealized).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[9px] font-mono tracking-[0.1em] uppercase text-steel/40 block">
-                    Cumulative
-                  </span>
-                  <span
-                    className={`text-sm font-display font-semibold tabular-nums ${
-                      pnlRealized + pnlUnrealized >= 0 ? 'text-emerald-soft' : 'text-red-warn'
-                    }`}
-                  >
-                    {pnlRealized + pnlUnrealized >= 0 ? '+' : ''}$
-                    {Math.abs(pnlRealized + pnlUnrealized).toLocaleString(undefined, {
-                      maximumFractionDigits: 0,
-                    })}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[9px] font-mono tracking-[0.1em] uppercase text-steel/40 block">
-                    Cost basis
-                  </span>
-                  <span className="text-sm font-display font-semibold text-white/80 tabular-nums">
-                    $
-                    {totalDeposited.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                  </span>
-                </div>
-              </div>
-
-              <PerformanceChart
-                height={260}
-                navData={navHistoryData}
-                pnlData={pnlHistoryData}
-                drawdownData={drawdownHistoryData}
-                defaultMetric="nav"
-              />
-            </GlassPanel>
-          </div>
-
-          {/* TEE Attestation viewer (sealed mode context) */}
-          <TEEAttestationPanel
-            vaultAddress={vaultAddr}
-            policy={effectivePolicy}
-            explorerHref={getExplorerAddressHref(chainId, vaultAddr)}
-          />
-
-          {/* Allocation detail (REAL from Pyth or mock) */}
-          <div>
-            <SectionLabel color="text-steel/50">Allocation Detail</SectionLabel>
-            <GlassPanel className="p-5">
-              <div className="flex-1">
-                <div className="space-y-3">
-                  {allocationData.filter(a => a.value > 0 || a.pct > 0).map((a) => (
-                    <div key={a.symbol} className="flex items-center gap-3 py-2 border-b border-white/[0.03] last:border-0">
-                      <TokenIcon symbol={a.symbol} size={20} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-display font-medium text-white">{a.asset}</span>
-                          <span className="text-sm font-mono text-white/80">${a.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                        </div>
-                        <div className="flex items-center justify-between mt-0.5">
-                          <span className="text-[10px] font-mono text-steel/40">{typeof a.amount === 'number' ? a.amount.toFixed(a.symbol === 'USDC' ? 0 : 6) : a.amount} {a.symbol}</span>
-                          <span className="text-[10px] font-mono text-steel/50">{a.pct.toFixed(1)}%</span>
-                        </div>
-                        {/* Bar */}
-                        <div className="mt-1 h-1 rounded-full bg-white/[0.04] overflow-hidden">
-                          <div className="h-full rounded-full" style={{ width: `${a.pct}%`, backgroundColor: a.color, opacity: 0.7 }} />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {allocationData.length === 0 && (
-                  <div className="rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] px-4 py-6 text-center text-xs text-steel/40">
-                    Allocation data is not available yet. Start the orchestrator and wait for a fresh NAV snapshot.
-                  </div>
-                )}
-                {navData?.prices && (
-                  <div className="mt-3 pt-2 border-t border-white/[0.04] flex gap-4 text-[9px] font-mono text-steel/30">
-                    <span>BTC ${navData.prices.BTC?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                    <span>ETH ${navData.prices.ETH?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                    <span>Source: Pyth Hermes</span>
-                  </div>
-                )}
-              </div>
-            </GlassPanel>
-          </div>
-
-          {/* Editorial execution log — compact on-chain receipt table */}
-          <ExecutionLogTable rows={executionData} chainId={chainId} />
-
-          {/* AI Reasoning Journal (REAL from orchestrator or mock) */}
-          <div>
-            <SectionLabel color="text-cyan/60">AI Reasoning Journal</SectionLabel>
-            <div className="space-y-2">
-              {journalEntries.map((action) => (
-                <GlassPanel key={action.id} className="p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 mt-1">
-                      <div className={`w-2 h-2 rounded-full ${
-                        action.outcome === 'executed' ? 'bg-emerald-soft' :
-                        action.outcome === 'blocked' ? 'bg-red-warn' : 'bg-steel'
-                      }`} />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-display font-medium text-white">{action.action}</span>
-                        <StatusPill label={action.outcome} variant={action.outcome} />
-                        {action.source?.includes('0g-compute') && (
-                          <span className="text-[8px] font-mono text-cyan/40 px-1 py-0.5 rounded bg-cyan/5 border border-cyan/10">0G Compute</span>
-                        )}
-                        {action.source?.includes('engine-v1') && (
-                          <span className="text-[8px] font-mono text-gold/40 px-1 py-0.5 rounded bg-gold/5 border border-gold/10">Engine v1</span>
-                        )}
-                      </div>
-
-                      {/* v1: Regime + scores */}
-                      {action.regime && (
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded border ${
-                            action.regime?.includes('UP') ? 'text-emerald-soft/70 bg-emerald-soft/5 border-emerald-soft/10' :
-                            action.regime?.includes('DOWN') || action.regime?.includes('PANIC') ? 'text-red-warn/60 bg-red-warn/5 border-red-warn/10' :
-                            'text-steel/40 bg-white/[0.02] border-white/[0.05]'
-                          }`}>{action.regime?.replace(/_/g, ' ')}</span>
-                          {action.finalEdgeScore !== undefined && (
-                            <span className="text-[9px] font-mono text-steel/35">Edge: {action.finalEdgeScore}</span>
-                          )}
-                          {action.tradeQualityScore !== undefined && (
-                            <span className="text-[9px] font-mono text-steel/35">Q: {action.tradeQualityScore}</span>
-                          )}
-                        </div>
-                      )}
-
-                      {/* v1: Veto */}
-                      {action.hardVeto && action.hardVetoReasons?.length > 0 && (
-                        <div className="flex items-center gap-1 mb-1 flex-wrap">
-                          {action.hardVetoReasons.map((r, ri) => (
-                            <span key={ri} className="text-[8px] font-mono text-red-warn/40 px-1 py-0.5 rounded bg-red-warn/5 border border-red-warn/10">
-                              {r.replace(/_/g, ' ')}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                      <p className="text-[11px] text-steel/60 leading-relaxed mb-2">{action.reason}</p>
-                      <div className="flex items-center gap-4 text-[10px] font-mono text-steel/40">
-                        {action.timestamp && <span>{formatTime(action.timestamp)}</span>}
-                        {action.asset && <span>{action.asset}</span>}
-                        <span>Conf: {((action.confidence || 0) * 100).toFixed(0)}%</span>
-                        <span>Risk: {((action.riskScore || 0) * 100).toFixed(0)}%</span>
-                        {action.txHash && (
-                          getExplorerTxHref(chainId, action.txHash) ? (
-                            <ExplorerAnchor
-                              href={getExplorerTxHref(chainId, action.txHash)}
-                              label={shortHexLabel(action.txHash, 10, 6)}
-                              className="text-cyan/50 hover:text-cyan transition-colors"
-                            />
-                          ) : (
-                            <span className="text-cyan/40">{shortHexLabel(action.txHash, 10, 6)}</span>
-                          )
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </GlassPanel>
-              ))}
-              {journalEntries.length === 0 && (
-                <GlassPanel className="p-6 border-dashed">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Cpu className="w-5 h-5 text-steel/25" />
-                    <span className="text-sm font-display font-semibold text-white">No AI journal entries yet</span>
-                  </div>
-                  <p className="text-[11px] text-steel/50 leading-relaxed">
-                    This vault has not emitted a live decision or execution report since the current orchestrator session began.
-                    Set the executor, start the backend, and run a cycle to populate this journal.
-                  </p>
-                </GlassPanel>
-              )}
-            </div>
-          </div>
-
-          {/* Risk Timeline (REAL from journal or mock fallback) */}
-          <div>
-            <SectionLabel color="text-amber-warn/60">
-              Risk Timeline
-              {hasRealTimeline && (
-                <span className="ml-2 text-[8px] font-mono text-cyan/40 px-1 py-0.5 rounded bg-cyan/5 border border-cyan/10">LIVE</span>
-              )}
-            </SectionLabel>
-            <GlassPanel className="p-5">
-              <div className="relative">
-                <div className="absolute left-[7px] top-0 bottom-0 w-px bg-white/[0.04]" />
-                <div className="space-y-0">
-                  {riskTimelineEntries.map((evt) => (
-                    <div key={evt.id} className="flex items-start gap-4 py-3 relative">
-                      <div className="flex-shrink-0 relative z-10 bg-obsidian">
-                        {typeIcons[evt.type] || typeIcons.execution}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-xs text-white/80">{evt.message}</span>
-                          <StatusPill label={evt.severity} variant={evt.severity} />
-                          {evt.isLive && (
-                            <span className="text-[8px] font-mono text-cyan/40 px-1 py-0.5 rounded bg-cyan/5 border border-cyan/10">LIVE</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-mono text-steel/40">{formatTime(evt.timestamp)}</span>
-                          <span className="text-[10px] text-steel/30">{evt.details}</span>
-                          {evt.txHash && getExplorerTxHref(chainId, evt.txHash) && (
-                            <ExplorerAnchor
-                              href={getExplorerTxHref(chainId, evt.txHash)}
-                              label={shortHexLabel(evt.txHash, 10, 6)}
-                              className="text-[10px] font-mono text-cyan/50 hover:text-cyan transition-colors"
-                            />
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {riskTimelineEntries.length === 0 && (
-                    <div className="rounded-lg border border-dashed border-white/[0.08] bg-white/[0.02] px-4 py-5 text-center">
-                      <p className="text-sm text-steel/40">No risk timeline entries yet.</p>
-                      <p className="text-[10px] text-steel/30 mt-1">
-                        This timeline fills automatically once the orchestrator records policy checks, vetoes, and execution outcomes.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </GlassPanel>
-          </div>
+function RiskPanel({ riskScore, riskLevel, riskTone, pol, dailyActions }) {
+  const gaugeTone = riskTone === 'rose' ? 'rose' : riskTone === 'amber' ? 'amber' : riskTone === 'cyan' ? 'cyan' : 'emerald';
+  const rows = [
+    { l: 'Max position',   v: `${(pol.maxPositionPct || 0).toFixed(0)} / 100%`, bar: Math.min(100, pol.maxPositionPct || 0), tone: 'amber' },
+    { l: 'Min confidence', v: `${(pol.confidenceThresholdPct || 0).toFixed(0)}%`, bar: Math.min(100, pol.confidenceThresholdPct || 0), tone: 'cyan' },
+    { l: 'Stop-loss',      v: `${(pol.stopLossPct || 0).toFixed(1)}%`, bar: Math.min(100, (pol.stopLossPct || 0) * 3), tone: 'emerald' },
+    { l: 'Cooldown',       v: `${Math.round((pol.cooldownSeconds || 0) / 60)} min`, bar: Math.min(100, ((pol.cooldownSeconds || 0) / 3600) * 100), tone: 'cyan' },
+    { l: 'Daily trades',   v: `${dailyActions} / ${pol.maxActionsPerDay || 0}`, bar: pol.maxActionsPerDay > 0 ? Math.min(100, (dailyActions / pol.maxActionsPerDay) * 100) : 0, tone: 'emerald' },
+  ];
+  return (
+    <SectionHead marker="Risk · policy breach">
+      <div className="rounded-2xl p-5" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
+        <div className="flex items-center justify-center py-2">
+          <RiskGauge value={riskScore} label={(riskLevel || 'LOW').toUpperCase()} tone={gaugeTone} />
         </div>
-
-        {/* Right 1/3 */}
-        <div className="space-y-6">
-          {/* Mini Shield (REAL risk score) */}
-          <div className="flex justify-center py-4">
-            <DashboardShield size={200} riskScore={riskScore} riskLevel={riskLevel} />
-          </div>
-
-          {/* Current Regime + AI Status (from orchestrator) */}
-          {latestSignal ? (
-            <div>
-              <SectionLabel color="text-cyan/60">AI Agent Status</SectionLabel>
-              <GlassPanel className="p-5">
-                <div className="space-y-3">
-                  {/* Regime */}
-                  {latestSignal.regime && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-steel/50">Regime</span>
-                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
-                        latestSignal.regime?.includes('UP_STRONG') ? 'text-emerald-soft bg-emerald-soft/10 border-emerald-soft/20' :
-                        latestSignal.regime?.includes('UP_WEAK') ? 'text-emerald-soft/70 bg-emerald-soft/5 border-emerald-soft/10' :
-                        latestSignal.regime?.includes('DOWN') ? 'text-red-warn/80 bg-red-warn/10 border-red-warn/20' :
-                        latestSignal.regime?.includes('PANIC') ? 'text-red-warn bg-red-warn/10 border-red-warn/30' :
-                        'text-steel/60 bg-white/[0.03] border-white/[0.06]'
-                      }`}>
-                        {latestSignal.regime?.replace(/_/g, ' ')}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Edge Score */}
-                  {latestSignal.final_edge_score !== undefined && (
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] text-steel/50">Edge Score</span>
-                        <span className={`text-xs font-mono font-semibold ${
-                          latestSignal.final_edge_score >= 72 ? 'text-emerald-soft' :
-                          latestSignal.final_edge_score >= 58 ? 'text-amber-warn' : 'text-steel/60'
-                        }`}>{latestSignal.final_edge_score}/100</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-white/[0.04] overflow-hidden">
-                        <div className={`h-full rounded-full transition-all ${
-                          latestSignal.final_edge_score >= 72 ? 'bg-emerald-soft/60' :
-                          latestSignal.final_edge_score >= 58 ? 'bg-amber-warn/60' : 'bg-steel/30'
-                        }`} style={{ width: `${latestSignal.final_edge_score}%` }} />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Trade Quality */}
-                  {latestSignal.trade_quality_score !== undefined && (
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] text-steel/50">Trade Quality</span>
-                        <span className={`text-xs font-mono font-semibold ${
-                          latestSignal.trade_quality_score >= 78 ? 'text-emerald-soft' :
-                          latestSignal.trade_quality_score >= 60 ? 'text-amber-warn' : 'text-steel/60'
-                        }`}>{latestSignal.trade_quality_score}/100</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-white/[0.04] overflow-hidden">
-                        <div className={`h-full rounded-full transition-all ${
-                          latestSignal.trade_quality_score >= 78 ? 'bg-emerald-soft/60' :
-                          latestSignal.trade_quality_score >= 60 ? 'bg-amber-warn/60' : 'bg-steel/30'
-                        }`} style={{ width: `${latestSignal.trade_quality_score}%` }} />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* V1 Action */}
-                  {latestSignal.v1_action && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-steel/50">Last Action</span>
-                      <span className="text-[10px] font-mono text-white/60">{latestSignal.v1_action}</span>
-                    </div>
-                  )}
-
-                  {latestSignal.approval_tier && latestSignal.approval_tier !== 'not_required' && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-steel/50">Approval Tier</span>
-                      <StatusPill
-                        label={latestSignal.approval_tier.replace(/_/g, ' ')}
-                        variant={latestSignal.approval_tier === 'auto_execute' ? 'active' : 'warning'}
-                      />
-                    </div>
-                  )}
-
-                  {/* Hard Veto */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-steel/50">Hard Veto</span>
-                    <StatusPill
-                      label={latestSignal.hard_veto ? 'Active' : 'Clear'}
-                      variant={latestSignal.hard_veto ? 'blocked' : 'active'}
-                    />
-                  </div>
-
-                  {/* Veto Reasons */}
-                  {latestSignal.hard_veto_reasons?.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {latestSignal.hard_veto_reasons.map((r, i) => (
-                        <span key={i} className="text-[8px] font-mono text-red-warn/40 px-1.5 py-0.5 rounded bg-red-warn/5 border border-red-warn/10">
-                          {r.replace(/_/g, ' ')}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  {latestSignal.approval_reasons?.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {latestSignal.approval_reasons.map((reason, i) => (
-                        <span key={i} className="text-[8px] font-mono text-amber-warn/50 px-1.5 py-0.5 rounded bg-amber-warn/5 border border-amber-warn/10">
-                          {reason.replace(/_/g, ' ')}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Source */}
-                  <div className="flex items-center justify-between pt-2 border-t border-white/[0.04]">
-                    <span className="text-[10px] text-steel/50">Source</span>
-                    <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
-                      latestSignal.source?.includes('0g-compute') ? 'text-cyan/60 bg-cyan/5 border border-cyan/10' : 'text-steel/40'
-                    }`}>{latestSignal.source || 'unknown'}</span>
-                  </div>
-                </div>
-              </GlassPanel>
-            </div>
-          ) : (
-            <div>
-              <SectionLabel color="text-cyan/60">AI Agent Status</SectionLabel>
-              <GlassPanel className="p-5">
-                <div className="flex items-center gap-2 mb-2">
-                  <Cpu className="w-4 h-4 text-steel/30" />
-                  <span className="text-sm font-display font-semibold text-white">No live agent state yet</span>
-                </div>
-                <p className="text-[11px] text-steel/50 leading-relaxed mb-3">
-                  Once the orchestrator completes its first successful cycle for this vault, the current regime, edge score,
-                  veto status, and approval tier will appear here.
-                </p>
-                <div className="grid gap-2 text-[10px] font-mono text-steel/40">
-                  <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-3 py-2">
-                    <span className="mr-1">Executor set:</span>
-                    {executorExplorerHref ? (
-                      <ExplorerAnchor
-                        href={executorExplorerHref}
-                        label={shortHexLabel(executorAddress)}
-                        className="text-cyan/60 hover:text-cyan transition-colors"
-                      />
-                    ) : (
-                      <span>{executorAddress ? shortHexLabel(executorAddress) : 'missing'}</span>
-                    )}
-                  </div>
-                  <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-3 py-2">Orchestrator status: {orchStatus?.running ? 'running' : 'offline or not detected'}</div>
-                </div>
-              </GlassPanel>
-            </div>
-          )}
-
-          {/* Policy bounds — editorial fortress panel with progress bars */}
-          <div>
-            <div className="flex items-baseline gap-3.5 mb-2.5">
-              <span className="ed-eyebrow">§ V.02</span>
-              <span
-                className="ed-mono text-[10.5px] tracking-[0.22em] uppercase"
-                style={{ color: 'var(--ed-steel-400)' }}
-              >
-                Policy contract
-              </span>
-            </div>
-            <h3
-              className="ed-display mb-2"
-              style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}
-            >
-              Policy{' '}
-              <span className="ed-italic" style={{ color: 'var(--ed-gold)', fontWeight: 400 }}>
-                bounds
-              </span>
-            </h3>
-            <div className="ed-card ed-ghost-gold p-6 mt-4">
-              <div className="flex items-center gap-2 mb-4">
-                <Shield className="w-4 h-4 text-gold/60" />
-                <span className="text-xs font-display font-medium text-white/80">
-                  {mandateType} Mandate
-                </span>
-                <StatusPill
-                  label={isPaused ? 'Paused' : 'Active'}
-                  variant={isPaused ? 'paused' : 'active'}
-                  pulse={!isPaused}
-                />
-                {pol.sealedMode && <StatusPill label="Sealed" variant="sealed" />}
-                {pol.autoExecution && <StatusPill label="Auto-execute" variant="active" />}
-              </div>
-              <p className="text-[12px] text-steel/50 mb-5 leading-relaxed">
-                Compiled to Solidity. Breach triggers automatic refusal and logs the reason on-chain.
-              </p>
-
-              <div className="flex flex-col gap-3.5">
-                <PolicyBar
-                  label="Max position size"
-                  cur={pol.maxPositionPct}
-                  max={100}
-                  unit="%"
-                />
-                <PolicyBar
-                  label="Max daily loss"
-                  cur={pol.maxDailyLossPct}
-                  max={15}
-                  unit="%"
-                  inverse
-                />
-                <PolicyBar
-                  label="Stop-loss"
-                  cur={pol.stopLossPct}
-                  max={30}
-                  unit="%"
-                  inverse
-                />
-                <PolicyBar
-                  label="Confidence floor"
-                  cur={pol.confidenceThresholdPct}
-                  max={100}
-                  unit="%"
-                />
-                <PolicyBar
-                  label="Max actions / day"
-                  cur={pol.maxActionsPerDay}
-                  max={50}
-                  unit=""
-                />
-                <PolicyBar
-                  label="Cooldown"
-                  cur={pol.cooldownSeconds}
-                  max={3600}
-                  unit="s"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* ── Operator Fees ── */}
-          {effectivePolicy && (effectivePolicy.performanceFeeBps || effectivePolicy.managementFeeBps || effectivePolicy.entryFeeBps || effectivePolicy.exitFeeBps || feeState?.accruedTotal > 0) && (
-            <div>
-              <SectionLabel color="text-gold/60">Operator Fees</SectionLabel>
-              <GlassPanel className="p-5">
-                {/* Fee schedule (read from policy) */}
-                <div className="grid grid-cols-4 gap-1.5 mb-4">
-                  <div className="rounded-md bg-gold/[0.04] border border-gold/15 px-2 py-1.5">
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <TrendingUp className="w-2.5 h-2.5 text-gold/60" />
-                      <span className="text-[8px] font-mono uppercase text-steel/45">Perf</span>
-                    </div>
-                    <div className="text-[11px] font-mono text-gold tabular-nums">
-                      {formatBps(effectivePolicy.performanceFeeBps)}
-                    </div>
-                  </div>
-                  <div className="rounded-md bg-cyan/[0.04] border border-cyan/15 px-2 py-1.5">
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <Percent className="w-2.5 h-2.5 text-cyan/60" />
-                      <span className="text-[8px] font-mono uppercase text-steel/45">Mgmt</span>
-                    </div>
-                    <div className="text-[11px] font-mono text-cyan tabular-nums">
-                      {formatBps(effectivePolicy.managementFeeBps)}
-                    </div>
-                  </div>
-                  <div className="rounded-md bg-white/[0.02] border border-white/[0.06] px-2 py-1.5">
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <DollarSign className="w-2.5 h-2.5 text-steel/45" />
-                      <span className="text-[8px] font-mono uppercase text-steel/45">Entry</span>
-                    </div>
-                    <div className="text-[11px] font-mono text-white/80 tabular-nums">
-                      {formatBps(effectivePolicy.entryFeeBps)}
-                    </div>
-                  </div>
-                  <div className="rounded-md bg-white/[0.02] border border-white/[0.06] px-2 py-1.5">
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <DollarSign className="w-2.5 h-2.5 text-steel/45" />
-                      <span className="text-[8px] font-mono uppercase text-steel/45">Exit</span>
-                    </div>
-                    <div className="text-[11px] font-mono text-white/80 tabular-nums">
-                      {formatBps(effectivePolicy.exitFeeBps)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Live NAV + High Water Mark */}
-                <div className="grid grid-cols-2 gap-2 mb-4">
-                  <div className="rounded-md bg-white/[0.02] border border-white/[0.05] px-3 py-2">
-                    <div className="text-[9px] font-mono uppercase text-steel/40 mb-0.5">Live NAV</div>
-                    <div className="text-sm font-display font-semibold text-white tabular-nums">
-                      ${liveNavUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                    </div>
-                  </div>
-                  <div className="rounded-md bg-white/[0.02] border border-white/[0.05] px-3 py-2">
-                    <div className="text-[9px] font-mono uppercase text-steel/40 mb-0.5">High Water Mark</div>
-                    <div className="text-sm font-display font-semibold text-emerald-soft tabular-nums">
-                      ${(feeState?.highWaterMark || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Accrued fees */}
-                <div className="rounded-lg bg-gradient-to-br from-gold/[0.06] to-gold/[0.02] border border-gold/15 p-3 mb-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-gold/70">Accrued Fees</span>
-                    {feeState?.lastFeeAccrual ? (
-                      <span className="text-[9px] font-mono text-steel/40">
-                        Last: {new Date(feeState.lastFeeAccrual * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <div className="text-[9px] font-mono uppercase text-steel/40">Mgmt</div>
-                      <div className="text-[13px] font-display font-semibold text-cyan tabular-nums">
-                        ${(feeState?.accruedManagement || 0).toFixed(2)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[9px] font-mono uppercase text-steel/40">Perf</div>
-                      <div className="text-[13px] font-display font-semibold text-gold tabular-nums">
-                        ${(feeState?.accruedPerformance || 0).toFixed(2)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[9px] font-mono uppercase text-steel/40">Total</div>
-                      <div className="text-[13px] font-display font-semibold text-white tabular-nums">
-                        ${(feeState?.accruedTotal || 0).toFixed(2)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Fee recipient */}
-                {effectivePolicy.feeRecipient && effectivePolicy.feeRecipient !== '0x0000000000000000000000000000000000000000' && (
-                  <div className="flex items-center justify-between text-[10px] font-mono mb-3 px-3 py-1.5 rounded bg-white/[0.02] border border-white/[0.04]">
-                    <span className="text-steel/40">Fee Recipient</span>
-                    {feeRecipientExplorerHref ? (
-                      <ExplorerAnchor
-                        href={feeRecipientExplorerHref}
-                        label={shortHexLabel(effectivePolicy.feeRecipient)}
-                        className="text-cyan/60 hover:text-cyan transition-colors"
-                      />
-                    ) : (
-                      <span className="text-white/60">
-                        {effectivePolicy.feeRecipient.slice(0, 8)}...{effectivePolicy.feeRecipient.slice(-6)}
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                {/* Action buttons */}
-                <div className="grid grid-cols-2 gap-2">
-                  <ControlButton
-                    variant="secondary"
-                    size="sm"
-                    disabled={!isConnected || accruePending}
-                    onClick={() => {
-                      accrueFees(vaultAddr);
-                      setTimeout(() => { refetchFees(); refetchNav(); }, 4000);
-                    }}
-                  >
-                    <Hourglass className="w-3 h-3" />
-                    {accruePending ? 'Accruing...' : 'Accrue Fees'}
-                  </ControlButton>
-                  <ControlButton
-                    variant="gold"
-                    size="sm"
-                    disabled={
-                      !isConnected ||
-                      claimPending ||
-                      !(feeState?.accruedTotal > 0) ||
-                      !walletAddress ||
-                      walletAddress.toLowerCase() !== (effectivePolicy.feeRecipient || '').toLowerCase()
-                    }
-                    onClick={() => {
-                      claimFees(vaultAddr);
-                      setTimeout(() => { refetchFees(); refetch(); }, 4000);
-                    }}
-                  >
-                    <Wallet className="w-3 h-3" />
-                    {claimPending ? 'Claiming...' : 'Claim Fees'}
-                  </ControlButton>
-                </div>
-
-                {claimSuccess && (
-                  <p className="text-[10px] text-emerald-soft/70 text-center mt-2">
-                    Fees claimed · 80% to operator · 20% to protocol treasury
-                  </p>
-                )}
-                {accrueSuccess && (
-                  <p className="text-[10px] text-cyan/70 text-center mt-2">Fees accrued on-chain</p>
-                )}
-
-                {/* Pending fee change banner */}
-                {feeState?.pendingFeeChange?.pending && (
-                  <div className="mt-3 rounded-md bg-amber-warn/5 border border-amber-warn/15 px-3 py-2">
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <AlertTriangle className="w-3 h-3 text-amber-warn/70" />
-                      <span className="text-[10px] font-mono text-amber-warn/80">Pending Fee Change</span>
-                    </div>
-                    <div className="text-[10px] text-steel/55 leading-relaxed">
-                      New fees: Perf {formatBps(feeState.pendingFeeChange.newPerformanceFeeBps)} ·
-                      Mgmt {formatBps(feeState.pendingFeeChange.newManagementFeeBps)} ·
-                      Entry {formatBps(feeState.pendingFeeChange.newEntryFeeBps)} ·
-                      Exit {formatBps(feeState.pendingFeeChange.newExitFeeBps)}
-                    </div>
-                    <div className="text-[9px] font-mono text-steel/40 mt-1">
-                      Effective: {new Date(feeState.pendingFeeChange.effectiveAt * 1000).toLocaleString()}
-                    </div>
-                  </div>
-                )}
-
-                <p className="text-[9px] text-steel/35 mt-3 leading-relaxed">
-                  Performance fees only charged on net new profit (above HWM). Management fee streams continuously.
-                  All claimed fees split <strong className="text-white/55">80% operator · 20% treasury</strong>.
-                </p>
-              </GlassPanel>
-            </div>
-          )}
-
-          {/* System Controls (ALL REAL) */}
-          <div>
-            <SectionLabel color="text-steel/50">System Controls</SectionLabel>
-            <GlassPanel className="p-5">
-              <div className="space-y-2">
-                {/* Pause / Resume */}
-                <ControlButton variant={isPaused ? 'gold' : 'danger'} className="w-full" disabled={!isConnected || pausePending || unpausePending} onClick={handlePause}>
-                  {isPaused
-                    ? <><PlayCircle className="w-3.5 h-3.5" /> {unpausePending ? 'Resuming...' : 'Resume Vault'}</>
-                    : <><PauseCircle className="w-3.5 h-3.5" /> {pausePending ? 'Pausing...' : 'Emergency Pause'}</>
-                  }
-                </ControlButton>
-
-                {/* Deposit */}
-                <ControlButton variant="primary" className="w-full" disabled={!isConnected} onClick={() => { setDepositAmount(''); setDepositStep('input'); setShowDepositModal(true); }}>
-                  <ArrowUpToLine className="w-3.5 h-3.5" /> Deposit
-                </ControlButton>
-
-                {/* Withdraw */}
-                <ControlButton variant="secondary" className="w-full" disabled={!isConnected} onClick={() => { setWithdrawAmount(''); setShowWithdrawModal(true); }}>
-                  <ArrowDownToLine className="w-3.5 h-3.5" /> Withdraw
-                </ControlButton>
-
-                {/* Edit Policy */}
-                <ControlButton variant="secondary" className="w-full" disabled={!isConnected} onClick={() => {
-                  if (effectivePolicy) {
-                    setPolicyForm({
-                      maxPositionBps: effectivePolicy.maxPositionBps,
-                      maxDailyLossBps: effectivePolicy.maxDailyLossBps,
-                      stopLossBps: effectivePolicy.stopLossBps || 1500,
-                      cooldownSeconds: effectivePolicy.cooldownSeconds,
-                      confidenceThresholdBps: effectivePolicy.confidenceThresholdBps,
-                      maxActionsPerDay: effectivePolicy.maxActionsPerDay,
-                      autoExecution: effectivePolicy.autoExecution,
-                      paused: effectivePolicy.paused,
-                      // Phase 1: preserve fees + recipient (use queueFeeChange to modify)
-                      performanceFeeBps: effectivePolicy.performanceFeeBps || 0,
-                      managementFeeBps: effectivePolicy.managementFeeBps || 0,
-                      entryFeeBps: effectivePolicy.entryFeeBps || 0,
-                      exitFeeBps: effectivePolicy.exitFeeBps || 0,
-                      feeRecipient: effectivePolicy.feeRecipient || '0x0000000000000000000000000000000000000000',
-                    });
-                  }
-                  setShowPolicyModal(true);
-                }}>
-                  <Settings className="w-3.5 h-3.5" /> Edit Policy
-                </ControlButton>
-
-                {/* Set Executor */}
-                <ControlButton
-                  variant={executorMatchesActiveOrchestrator ? 'secondary' : 'gold'}
-                  className="w-full"
-                  disabled={!isConnected}
-                  onClick={() => {
-                    setExecutorForm(activeOrchestratorExecutor || executorAddress || '');
-                    setShowExecutorModal(true);
+        <div className="mt-2 divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+          {rows.map((r) => (
+            <div key={r.l} className="flex items-center gap-3 py-2.5" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+              <span className="text-[12.5px] w-[120px]" style={{ color: 'var(--ed-steel-300)' }}>{r.l}</span>
+              <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${r.bar}%`,
+                    background: r.tone === 'amber' ? ACCENTS.amber : r.tone === 'emerald' ? ACCENTS.emerald : ACCENTS.cyan,
                   }}
-                >
-                  <Cpu className="w-3.5 h-3.5" />
-                  {executorMatchesActiveOrchestrator ? 'Executor Linked' : 'Set Executor'}
-                </ControlButton>
-
-                {/* Export Journal */}
-                <ControlButton variant="secondary" className="w-full" onClick={() => {
-                  const data = journalData || decisionData || [];
-                  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `aegis-vault-journal-${new Date().toISOString().slice(0, 10)}.json`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}>
-                  <Download className="w-3.5 h-3.5" /> Export Journal
-                </ControlButton>
+                />
               </div>
-
-              {/* Status messages */}
-              {withdrawSuccess && <p className="text-[10px] text-emerald-soft/70 text-center mt-2">Withdrawal submitted successfully</p>}
-              {(depositSuccess || transferSuccess) && <p className="text-[10px] text-emerald-soft/70 text-center mt-2">Deposit submitted successfully</p>}
-              {policySuccess && <p className="text-[10px] text-emerald-soft/70 text-center mt-2">Policy updated on-chain</p>}
-              {executorSuccess && <p className="text-[10px] text-emerald-soft/70 text-center mt-2">Executor updated on-chain</p>}
-              {recentVaultTxs.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-white/[0.05]">
-                  <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-cyan/70 mb-2">
-                    Latest Wallet Transactions
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    {recentVaultTxs.map((tx) => (
-                      <ExplorerAnchor
-                        key={tx.href}
-                        href={tx.href}
-                        label={`${tx.label} · ${shortHexLabel(tx.hash, 10, 6)}`}
-                        className="text-[10px] font-mono text-cyan/60 hover:text-cyan transition-colors"
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </GlassPanel>
-          </div>
-
-          {/* ── Deposit Modal ── */}
-          {showDepositModal && (
-            <GlassPanel gold className="p-5">
-              <h4 className="text-sm font-display font-semibold text-white mb-3">Deposit to Vault</h4>
-              <div className="space-y-3">
-                {depositStep === 'input' && (
-                  <>
-                    {/* Token selector */}
-                    <div>
-                      <label className="text-[10px] font-mono text-steel/40 block mb-1.5">Select Token</label>
-                      <div className="flex gap-2">
-                        {depositTokens.map(t => (
-                          <button
-                            key={t.symbol}
-                            onClick={() => { setSelectedDepositToken(t); setDepositAmount(''); }}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-mono transition-all
-                              ${selectedDepositToken.symbol === t.symbol
-                                ? 'bg-gold/15 text-gold border border-gold/30'
-                                : 'bg-white/[0.03] text-steel/50 border border-white/[0.06] hover:border-white/[0.1]'
-                              }`}
-                          >
-                            <TokenIcon symbol={t.symbol} size={14} />
-                            {t.symbol}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Amount input */}
-                    <div>
-                      <label className="text-[10px] font-mono text-steel/40 block mb-1">
-                        Amount ({selectedDepositToken.symbol})
-                      </label>
-                      <input
-                        type="number"
-                        value={depositAmount}
-                        onChange={(e) => setDepositAmount(e.target.value)}
-                        placeholder="0.00"
-                        className="w-full bg-obsidian/60 border border-white/[0.08] rounded-md px-3 py-2
-                          text-sm font-mono text-white
-                          focus:outline-none focus:border-gold/30 transition-colors"
-                      />
-                      <div className="flex items-center justify-between mt-1.5">
-                        <span className="text-[10px] text-steel/40">
-                          Wallet: {parseFloat(selectedDepositToken.balance).toLocaleString(undefined, {
-                            maximumFractionDigits: selectedDepositToken.symbol === 'USDC' ? 2 : 6
-                          })} {selectedDepositToken.symbol}
-                        </span>
-                        <button
-                          onClick={() => setDepositAmount(selectedDepositToken.balance)}
-                          className="text-[10px] text-gold/60 hover:text-gold transition-colors"
-                        >Max</button>
-                      </div>
-                    </div>
-
-                    {/* Info for non-base tokens */}
-                    {!selectedDepositToken.isBase && (
-                      <div className="text-[10px] text-amber-warn/60 bg-amber-warn/5 border border-amber-warn/10 rounded px-2.5 py-1.5">
-                        {selectedDepositToken.symbol} will be transferred directly to vault. This does not update totalDeposited (base asset tracking).
-                      </div>
-                    )}
-
-                    <div className="flex gap-2">
-                      <ControlButton
-                        variant="primary"
-                        className="flex-1"
-                        disabled={!depositAmount || parseFloat(depositAmount) <= 0}
-                        onClick={() => setDepositStep('approve')}
-                      >
-                        Continue
-                      </ControlButton>
-                      <ControlButton variant="secondary" className="flex-1" onClick={() => setShowDepositModal(false)}>
-                        Cancel
-                      </ControlButton>
-                    </div>
-                  </>
-                )}
-
-                {depositStep === 'approve' && selectedDepositToken.isBase && (
-                  <>
-                    <div className="text-center py-2">
-                      <div className="flex justify-center mb-2"><TokenIcon symbol={selectedDepositToken.symbol} size={24} /></div>
-                      <p className="text-xs text-white/70 mb-1">Step 1/2: Approve {selectedDepositToken.symbol}</p>
-                      <p className="text-[10px] text-steel/40">Allow the vault to use {depositAmount} {selectedDepositToken.symbol}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <ControlButton
-                        variant="gold"
-                        className="flex-1"
-                        disabled={approvePending}
-                        onClick={() => {
-                          approve(selectedDepositToken.address, vaultAddr, depositAmount, selectedDepositToken.decimals);
-                        }}
-                      >
-                        {approvePending ? 'Approving...' : `Approve ${selectedDepositToken.symbol}`}
-                      </ControlButton>
-                      <ControlButton variant="secondary" className="flex-1" onClick={() => setDepositStep('input')}>
-                        Back
-                      </ControlButton>
-                    </div>
-                    {approveSuccess && (
-                      <ControlButton
-                        variant="primary"
-                        className="w-full"
-                        onClick={() => setDepositStep('deposit')}
-                      >
-                        Approved — Continue to Deposit
-                      </ControlButton>
-                    )}
-                  </>
-                )}
-
-                {depositStep === 'approve' && !selectedDepositToken.isBase && (
-                  <>
-                    <div className="text-center py-2">
-                      <div className="flex justify-center mb-2"><TokenIcon symbol={selectedDepositToken.symbol} size={24} /></div>
-                      <p className="text-xs text-white/70 mb-1">Transfer {selectedDepositToken.symbol}</p>
-                      <p className="text-[10px] text-steel/40">
-                        Send {depositAmount} {selectedDepositToken.symbol} directly to vault
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <ControlButton
-                        variant="primary"
-                        className="flex-1"
-                        disabled={transferPending}
-                        onClick={() => {
-                          transferToken(selectedDepositToken.address, vaultAddr, depositAmount, selectedDepositToken.decimals);
-                          setTimeout(() => { setShowDepositModal(false); setDepositStep('input'); refetch(); }, 4000);
-                        }}
-                      >
-                        {transferPending ? 'Sending...' : `Send ${selectedDepositToken.symbol}`}
-                      </ControlButton>
-                      <ControlButton variant="secondary" className="flex-1" onClick={() => setDepositStep('input')}>
-                        Back
-                      </ControlButton>
-                    </div>
-                  </>
-                )}
-
-                {depositStep === 'deposit' && (
-                  <>
-                    <div className="text-center py-2">
-                      <div className="flex justify-center mb-2"><TokenIcon symbol={selectedDepositToken.symbol} size={24} /></div>
-                      <p className="text-xs text-white/70 mb-1">Step 2/2: Deposit to Vault</p>
-                      <p className="text-[10px] text-steel/40">Depositing {depositAmount} {selectedDepositToken.symbol} into vault</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <ControlButton
-                        variant="primary"
-                        className="flex-1"
-                        disabled={depositPending}
-                        onClick={() => {
-                          deposit(vaultAddr, depositAmount, selectedDepositToken.decimals);
-                          setTimeout(() => { setShowDepositModal(false); setDepositStep('input'); refetch(); }, 4000);
-                        }}
-                      >
-                        {depositPending ? 'Depositing...' : 'Confirm Deposit'}
-                      </ControlButton>
-                      <ControlButton variant="secondary" className="flex-1" onClick={() => setDepositStep('approve')}>
-                        Back
-                      </ControlButton>
-                    </div>
-                  </>
-                )}
-              </div>
-            </GlassPanel>
-          )}
-
-          {/* ── Withdraw Modal ── */}
-          {showWithdrawModal && (
-            <GlassPanel className="p-5">
-              <h4 className="text-sm font-display font-semibold text-white mb-3">Withdraw USDC</h4>
-              <div className="space-y-3">
-                <div>
-                  <label className="text-[10px] font-mono text-steel/40 block mb-1">Amount (USDC)</label>
-                  <input
-                    type="number"
-                    value={withdrawAmount}
-                    onChange={(e) => setWithdrawAmount(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full bg-obsidian/60 border border-white/[0.08] rounded-md px-3 py-2
-                      text-sm font-mono text-white
-                      focus:outline-none focus:border-gold/30 transition-colors"
-                  />
-                  {hasLive && (
-                    <div className="flex items-center justify-between mt-1.5">
-                      <span className="text-[10px] text-steel/40">Available: ${parseFloat(liveVault.balance).toLocaleString()} USDC</span>
-                      <button
-                        onClick={() => setWithdrawAmount(liveVault.balance)}
-                        className="text-[10px] text-gold/60 hover:text-gold transition-colors"
-                      >Max</button>
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <ControlButton
-                    variant="primary"
-                    className="flex-1"
-                    disabled={!withdrawAmount || withdrawPending || parseFloat(withdrawAmount) <= 0}
-                    onClick={() => {
-                      withdraw(vaultAddr, withdrawAmount, 6);
-                      setTimeout(() => { setShowWithdrawModal(false); refetch(); }, 3000);
-                    }}
-                  >
-                    {withdrawPending ? 'Withdrawing...' : 'Confirm Withdraw'}
-                  </ControlButton>
-                  <ControlButton variant="secondary" className="flex-1" onClick={() => setShowWithdrawModal(false)}>
-                    Cancel
-                  </ControlButton>
-                </div>
-              </div>
-            </GlassPanel>
-          )}
-
-          {/* ── Set Executor Modal ── */}
-          {showExecutorModal && (
-            <GlassPanel className="p-5">
-              <h4 className="text-sm font-display font-semibold text-white mb-2">Set Vault Executor</h4>
-              <p className="text-[11px] text-steel/45 mb-4">
-                Point this vault to the wallet used by your orchestrator. The owner keeps custody, while the executor only submits intents that still pass on-chain policy checks.
-              </p>
-              <div className="space-y-3">
-                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-3 space-y-2">
-                  <div className="flex justify-between gap-3">
-                    <span className="text-[11px] text-steel/50">Current Executor</span>
-                    <span className="text-[11px] font-mono text-white/70">{executorAddress}</span>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <span className="text-[11px] text-steel/50">Active API Executor</span>
-                    <span className="text-[11px] font-mono text-cyan/60">{activeOrchestratorExecutor || 'Not detected'}</span>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <span className="text-[11px] text-steel/50">Sync Status</span>
-                    <StatusPill
-                      label={executorMatchesActiveOrchestrator ? 'Matched' : activeOrchestratorExecutor ? 'Different' : 'Offline'}
-                      variant={executorMatchesActiveOrchestrator ? 'active' : activeOrchestratorExecutor ? 'warning' : 'paused'}
-                    />
-                  </div>
-                </div>
-
-                {activeOrchestratorExecutor && (
-                  <ControlButton
-                    variant="gold"
-                    className="w-full"
-                    onClick={() => setExecutorForm(activeOrchestratorExecutor)}
-                  >
-                    Use Active Orchestrator Wallet
-                  </ControlButton>
-                )}
-
-                {/* Marketplace operators */}
-                {activeMarketplaceOps.length > 0 && (
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-[10px] font-mono text-steel/40">Pick from Marketplace ({activeMarketplaceOps.length})</label>
-                      <Link to="/marketplace" className="text-[10px] text-cyan/50 hover:text-cyan">Browse all →</Link>
-                    </div>
-                    <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1">
-                      {activeMarketplaceOps.map((op) => {
-                        const selected = executorForm.toLowerCase() === op.wallet.toLowerCase();
-                        return (
-                          <button
-                            key={op.wallet}
-                            type="button"
-                            onClick={() => setExecutorForm(op.wallet)}
-                            className={`w-full text-left px-2.5 py-2 rounded-md border transition-all ${
-                              selected
-                                ? 'border-gold/30 bg-gold/5'
-                                : 'border-white/[0.05] bg-white/[0.02] hover:border-white/[0.1]'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <Cpu className="w-3 h-3 text-gold/50 flex-shrink-0" />
-                                <span className="text-[11px] font-display font-medium text-white truncate">{op.name}</span>
-                                <span className="text-[8px] font-mono text-steel/45 px-1 py-0.5 rounded bg-white/[0.03] border border-white/[0.06]">
-                                  {op.mandateLabel}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="text-[9px] font-mono text-steel/35 mt-0.5 truncate">{op.wallet}</div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <label className="text-[10px] font-mono text-steel/40 block mb-1">Executor Address</label>
-                  <input
-                    type="text"
-                    value={executorForm}
-                    onChange={(e) => setExecutorForm(e.target.value.trim())}
-                    placeholder="0x..."
-                    spellCheck="false"
-                    className="w-full bg-obsidian/60 border border-white/[0.08] rounded-md px-3 py-2
-                      text-sm font-mono text-white
-                      focus:outline-none focus:border-gold/30 transition-colors"
-                  />
-                  <p className="mt-2 text-[11px] text-steel/45">
-                    Run your self-hosted orchestrator with the matching `PRIVATE_KEY`, then update the vault executor to the same public address.
-                  </p>
-                </div>
-
-                {!isAddress(executorForm || '') && executorForm && (
-                  <p className="text-[11px] text-red-warn/70">Enter a valid EVM address.</p>
-                )}
-
-                <div className="flex gap-2 pt-2">
-                  <ControlButton
-                    variant="primary"
-                    className="flex-1"
-                    disabled={!hasLive || !isAddress(executorForm || '') || executorForm.toLowerCase() === liveVault.executor.toLowerCase() || executorPending}
-                    onClick={() => {
-                      setExecutor(vaultAddr, executorForm);
-                      setTimeout(() => { setShowExecutorModal(false); refetch(); }, 3000);
-                    }}
-                  >
-                    {executorPending ? 'Updating...' : 'Update Executor'}
-                  </ControlButton>
-                  <ControlButton variant="secondary" className="flex-1" onClick={() => setShowExecutorModal(false)}>
-                    Cancel
-                  </ControlButton>
-                </div>
-              </div>
-            </GlassPanel>
-          )}
-
-          {/* ── Edit Policy Modal ── */}
-          {showPolicyModal && policyForm && (
-            <GlassPanel gold className="p-5">
-              <h4 className="text-sm font-display font-semibold text-white mb-3">Edit Vault Policy</h4>
-              <div className="space-y-3">
-                {[
-                  { key: 'maxPositionBps', label: 'Max Position (bps)', min: 100, max: 10000 },
-                  { key: 'maxDailyLossBps', label: 'Max Daily Loss (bps)', min: 50, max: 5000 },
-                  { key: 'stopLossBps', label: 'Stop-Loss (bps)', min: 100, max: 5000 },
-                  { key: 'cooldownSeconds', label: 'Cooldown (seconds)', min: 10, max: 3600 },
-                  { key: 'confidenceThresholdBps', label: 'Confidence Min (bps)', min: 1000, max: 9500 },
-                  { key: 'maxActionsPerDay', label: 'Max Actions / Day', min: 1, max: 100 },
-                ].map(param => (
-                  <div key={param.key} className="flex items-center justify-between">
-                    <span className="text-[11px] text-steel/60">{param.label}</span>
-                    <input
-                      type="number"
-                      value={policyForm[param.key]}
-                      onChange={(e) => setPolicyForm(prev => ({ ...prev, [param.key]: Number(e.target.value) }))}
-                      min={param.min}
-                      max={param.max}
-                      className="w-24 bg-obsidian/60 border border-white/[0.08] rounded px-2 py-1
-                        text-xs font-mono text-white text-right
-                        focus:outline-none focus:border-gold/30 transition-colors"
-                    />
-                  </div>
-                ))}
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-steel/60">Auto-Execution</span>
-                  <button
-                    onClick={() => setPolicyForm(prev => ({ ...prev, autoExecution: !prev.autoExecution }))}
-                    className={`px-3 py-1 rounded text-[10px] font-mono transition-all ${
-                      policyForm.autoExecution
-                        ? 'bg-emerald-soft/15 text-emerald-soft border border-emerald-soft/20'
-                        : 'bg-white/[0.04] text-steel/50 border border-white/[0.06]'
-                    }`}
-                  >
-                    {policyForm.autoExecution ? 'Enabled' : 'Disabled'}
-                  </button>
-                </div>
-                <div className="flex gap-2 pt-2">
-                  <ControlButton
-                    variant="primary"
-                    className="flex-1"
-                    disabled={policyPending}
-                    onClick={() => {
-                      // Build full policy struct preserving fee fields (fees changed via queueFeeChange)
-                      const fullPolicy = {
-                        maxPositionBps: BigInt(policyForm.maxPositionBps || 0),
-                        maxDailyLossBps: BigInt(policyForm.maxDailyLossBps || 0),
-                        stopLossBps: BigInt(policyForm.stopLossBps || 0),
-                        cooldownSeconds: BigInt(policyForm.cooldownSeconds || 0),
-                        confidenceThresholdBps: BigInt(policyForm.confidenceThresholdBps || 0),
-                        maxActionsPerDay: BigInt(policyForm.maxActionsPerDay || 0),
-                        autoExecution: !!policyForm.autoExecution,
-                        paused: !!policyForm.paused,
-                        performanceFeeBps: BigInt(policyForm.performanceFeeBps || 0),
-                        managementFeeBps: BigInt(policyForm.managementFeeBps || 0),
-                        entryFeeBps: BigInt(policyForm.entryFeeBps || 0),
-                        exitFeeBps: BigInt(policyForm.exitFeeBps || 0),
-                        feeRecipient: policyForm.feeRecipient || '0x0000000000000000000000000000000000000000',
-                      };
-                      updatePolicy(vaultAddr, fullPolicy);
-                      setTimeout(() => { setShowPolicyModal(false); refetch(); }, 3000);
-                    }}
-                  >
-                    {policyPending ? 'Updating...' : 'Update On-Chain'}
-                  </ControlButton>
-                  <ControlButton variant="secondary" className="flex-1" onClick={() => setShowPolicyModal(false)}>
-                    Cancel
-                  </ControlButton>
-                </div>
-              </div>
-            </GlassPanel>
-          )}
-
-          {/* Vault Info (REAL addresses) */}
-          <GlassPanel className="p-5">
-            <SectionLabel color="text-steel/40">Vault Info</SectionLabel>
-            <div className="space-y-2 text-[11px]">
-              <div className="flex justify-between">
-                <span className="text-steel/50">Contract</span>
-                <span className="font-mono text-cyan/50">{vaultAddress?.slice(0, 8)}...{vaultAddress?.slice(-6)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-steel/50">Executor</span>
-                <span className="font-mono text-cyan/50">{executorAddress?.slice(0, 8)}...{executorAddress?.slice(-6)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-steel/50">API Executor</span>
-                <span className="font-mono text-white/50">
-                  {activeOrchestratorExecutor
-                    ? `${activeOrchestratorExecutor.slice(0, 8)}...${activeOrchestratorExecutor.slice(-6)}`
-                    : 'Not detected'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-steel/50">Executor Sync</span>
-                <span className={`font-mono ${executorMatchesActiveOrchestrator ? 'text-emerald-soft/70' : 'text-amber-warn/70'}`}>
-                  {executorMatchesActiveOrchestrator ? 'Matched' : activeOrchestratorExecutor ? 'Different' : 'Offline'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-steel/50">Network</span>
-                <span className="font-mono text-white/50">{networkName}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-steel/50">Last Execution</span>
-                <span className="font-mono text-white/50">{lastExecTs ? formatTime(lastExecTs) : 'Never'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-steel/50">Daily Actions</span>
-                <span className="font-mono text-white/50">{dailyActions} / {pol.maxActionsPerDay}</span>
-              </div>
+              <span className="ed-mono text-[11.5px] w-[72px] text-right" style={{ color: 'var(--ed-steel-50)' }}>{r.v}</span>
             </div>
-          </GlassPanel>
+          ))}
         </div>
       </div>
+    </SectionHead>
+  );
+}
+
+/* ─────────────────── Capital ticket ─────────────────── */
+
+function CapitalTicket({
+  tab, setTab, amount, setAmount, walletBalance,
+  tokens = [], selectedSymbol, onSelectSymbol,
+  sharePrice, estShares, entryFeeBps, exitFeeBps, isConnected, onSubmit,
+}) {
+  const presets = [25, 100, 500];
+  const displayBalance = Number.isFinite(walletBalance) ? walletBalance : 0;
+  const feeBps = tab === 'deposit' ? entryFeeBps : exitFeeBps;
+  // Withdraw settles in the vault's actual base asset (the token whose
+  // `isBase` flag is true — set dynamically from liveVault.baseAsset).
+  // Falling back to tokens[0] keeps the UI responsive while the on-chain
+  // baseAsset lookup is still loading.
+  const baseToken = tokens.find((t) => t.isBase) || tokens[0];
+  const activeToken = tab === 'deposit'
+    ? tokens.find((t) => t.symbol === selectedSymbol) || baseToken
+    : baseToken;
+  const activeSymbol = activeToken?.symbol || 'USDC';
+  const balanceDecimals = activeToken?.symbol === 'USDC' ? 2 : 6;
+  // For 0G we surface the W0G / native split in the balance line so the user
+  // can see that native balance is spendable too (auto-wrap covers the gap).
+  const is0GActive = activeSymbol === '0G';
+  const wrappedBalNum = is0GActive ? parseFloat(activeToken?.wrappedBalance || '0') : 0;
+  const nativeBalNum = is0GActive ? parseFloat(activeToken?.nativeBalance || '0') : 0;
+
+  return (
+    <SectionHead marker="Capital · ticket">
+      <div className="rounded-2xl p-1" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
+        <div className="grid grid-cols-2 rounded-xl p-0.5 mb-3" style={{ background: 'rgba(255,255,255,0.03)' }}>
+          {['deposit', 'withdraw'].map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className="ed-mono text-[11px] uppercase tracking-[0.18em] py-2.5 rounded-lg transition-colors"
+              style={{
+                background: tab === t ? 'rgba(255,255,255,0.06)' : 'transparent',
+                color: tab === t ? 'var(--ed-steel-50)' : 'var(--ed-steel-400)',
+              }}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'deposit' && tokens.length > 1 && (
+          <div className="px-3 pt-1 pb-2">
+            <Eyebrow tone="muted" className="!block mb-1.5">Token</Eyebrow>
+            <div className="flex gap-1.5 flex-wrap">
+              {tokens.map((t) => {
+                const active = t.symbol === activeSymbol;
+                return (
+                  <button
+                    key={t.symbol}
+                    type="button"
+                    onClick={() => onSelectSymbol?.(t.symbol)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md ed-mono text-[10.5px] transition-colors"
+                    style={{
+                      background: active ? `${ACCENTS.gold}22` : 'rgba(255,255,255,0.02)',
+                      color: active ? ACCENTS.gold : 'var(--ed-steel-400)',
+                      boxShadow: active
+                        ? `inset 0 0 0 1px ${ACCENTS.gold}4A`
+                        : 'var(--ed-ghost-border)',
+                    }}
+                  >
+                    <TokenIcon symbol={t.symbol} size={13} />
+                    {t.symbol}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {tab === 'withdraw' && tokens.length > 1 && (
+          <div className="px-3 pt-1 pb-2">
+            <Eyebrow tone="muted" className="!block mb-1.5">Settlement token</Eyebrow>
+            <div className="flex items-center gap-1.5">
+              <span
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md ed-mono text-[10.5px]"
+                style={{
+                  background: `${ACCENTS.gold}22`,
+                  color: ACCENTS.gold,
+                  boxShadow: `inset 0 0 0 1px ${ACCENTS.gold}4A`,
+                }}
+              >
+                <TokenIcon symbol={baseToken?.symbol || 'USDC'} size={13} />
+                {baseToken?.symbol || 'USDC'}
+              </span>
+              <span className="ed-mono text-[9.5px]" style={{ color: 'var(--ed-steel-500)' }}>
+                base asset · locked by contract
+              </span>
+            </div>
+            <p className="ed-mono text-[9.5px] mt-2 leading-[1.5]" style={{ color: 'var(--ed-steel-500)' }}>
+              Vault settles withdrawals in {baseToken?.symbol || 'base asset'} only. Non-base holdings
+              (WBTC / WETH / 0G) auto-convert back when the AI closes positions.
+            </p>
+          </div>
+        )}
+
+        <div className="p-4 pt-1">
+          <div className="flex items-center justify-between mb-2">
+            <Eyebrow tone="muted">
+              Amount · {activeSymbol}
+              {!activeToken?.isBase && tab === 'deposit' && (
+                <span className="ml-1.5 ed-mono text-[9px] uppercase tracking-[0.14em]" style={{ color: ACCENTS.amber }}>
+                  · transfer
+                </span>
+              )}
+            </Eyebrow>
+            <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
+              {tab === 'deposit' && is0GActive ? (
+                <>
+                  W0G{' '}
+                  <span style={{ color: 'var(--ed-steel-50)' }}>
+                    {wrappedBalNum.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                  </span>
+                  {' · '}
+                  Native{' '}
+                  <span style={{ color: 'var(--ed-steel-50)' }}>
+                    {nativeBalNum.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                  </span>
+                </>
+              ) : (
+                <>
+                  {tab === 'deposit' ? 'Wallet' : 'NAV'}{' '}
+                  <span style={{ color: 'var(--ed-steel-50)' }}>
+                    {displayBalance.toLocaleString(undefined, { maximumFractionDigits: balanceDecimals })}{' '}
+                    {tab === 'deposit' ? activeSymbol : 'USDC'}
+                  </span>
+                </>
+              )}
+            </span>
+          </div>
+          <div
+            className="flex items-center gap-2 rounded-xl px-3 h-12 mb-2"
+            style={{ background: 'rgba(0,0,0,0.3)', boxShadow: 'var(--ed-ghost-border)' }}
+          >
+            <TokenIcon symbol={activeSymbol} size={16} />
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+              className="flex-1 bg-transparent outline-none ed-mono text-[18px]"
+              style={{ color: 'var(--ed-steel-50)' }}
+            />
+            <button
+              type="button"
+              onClick={() => setAmount(String(displayBalance))}
+              className="ed-mono text-[10px] uppercase tracking-[0.2em] transition-colors"
+              style={{ color: ACCENTS.cyan }}
+            >
+              Max
+            </button>
+          </div>
+          {tab === 'deposit' && !activeToken?.isBase && (
+            <div
+              className="rounded-lg px-2.5 py-1.5 mb-3 ed-mono text-[10px] leading-[1.5]"
+              style={{ background: `${ACCENTS.amber}0D`, boxShadow: `inset 0 0 0 1px ${ACCENTS.amber}22`, color: '#F5C97E' }}
+            >
+              {activeSymbol} goes via plain transfer() — it does not update totalDeposited or mint shares.
+            </div>
+          )}
+          <div className="grid grid-cols-3 gap-1.5 mb-4">
+            {presets.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setAmount(String(p))}
+                className="rounded-lg py-2 ed-mono text-[11px] transition-colors"
+                style={{
+                  background: Number(amount) === p ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)',
+                  color: Number(amount) === p ? 'var(--ed-steel-50)' : 'var(--ed-steel-400)',
+                  boxShadow: 'var(--ed-ghost-border)',
+                }}
+              >
+                {p} {activeSymbol}
+              </button>
+            ))}
+          </div>
+          <div
+            className="space-y-2 rounded-xl p-3 mb-3"
+            style={{ background: 'rgba(0,0,0,0.2)', boxShadow: 'var(--ed-ghost-border)' }}
+          >
+            <TicketRow label={tab === 'deposit' ? 'Entry NAV' : 'Exit NAV'} value={`${sharePrice} / share`} />
+            {tab === 'deposit' && estShares && <TicketRow label="Est. shares" value={estShares} />}
+            <TicketRow
+              label={tab === 'deposit' ? 'Entry fee' : 'Exit fee'}
+              value={activeToken?.isBase || tab === 'withdraw' ? `${(feeBps / 100).toFixed(2)}%` : '—'}
+            />
+            <TicketRow label="Cooldown" value="24 h · unstake" tone="amber" />
+          </div>
+          <ControlButton
+            variant="primary"
+            className="w-full"
+            disabled={!isConnected || !amount || Number(amount) <= 0}
+            onClick={onSubmit}
+          >
+            {tab === 'deposit' ? <Plus className="w-3 h-3" /> : <RefreshCw className="w-3 h-3" />}
+            {tab === 'deposit'
+              ? `Deposit ${Number(amount || 0).toLocaleString(undefined, { maximumFractionDigits: balanceDecimals })} ${activeSymbol}`
+              : 'Request withdrawal'}
+          </ControlButton>
+          <div className="flex items-center justify-center mt-3 gap-1.5">
+            <Shield className="w-2.5 h-2.5" style={{ color: 'var(--ed-steel-500)' }} />
+            <span className="ed-mono text-[10px]" style={{ color: 'var(--ed-steel-500)' }}>
+              On-chain settlement · signed intent
+            </span>
+          </div>
+        </div>
+      </div>
+    </SectionHead>
+  );
+}
+
+function TicketRow({ label, value, tone = 'default' }) {
+  const color = tone === 'amber' ? ACCENTS.amber : 'var(--ed-steel-50)';
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-[11.5px]" style={{ color: 'var(--ed-steel-500)' }}>{label}</span>
+      <span className="ed-mono text-[12px]" style={{ color }}>{value}</span>
     </div>
   );
 }
 
-// Editorial progress bar for a single policy bound.
-// Colors based on ratio current/max: low = emerald, mid = amber, near limit = rose.
-// `inverse` flips the semantics — for caps like "max daily loss" where a low
-// current reading is good (green) and approaching the cap is bad (red).
-function PolicyBar({ label, cur, max, unit = '', inverse = false }) {
-  const safeMax = Number(max) || 0;
-  const safeCur = Number(cur) || 0;
-  const ratio = safeMax > 0 ? Math.min(1, safeCur / safeMax) : 0;
-  const displayRatio = inverse ? ratio : Math.min(1, safeCur / safeMax);
-  let tone = 'var(--ed-emerald)';
-  if (displayRatio > 0.8) tone = 'var(--ed-rose)';
-  else if (displayRatio > 0.6) tone = 'var(--ed-amber)';
+/* ─────────────────── Fees panel ─────────────────── */
+
+function FeesPanel({
+  policy, feeState, liveNavUsd, feeRecipientExplorerHref, walletAddress, isConnected,
+  accruePending, claimPending, claimSuccess, accrueSuccess, onAccrue, onClaim,
+}) {
+  const canClaim = walletAddress && walletAddress.toLowerCase() === (policy?.feeRecipient || '').toLowerCase();
+  return (
+    <SectionHead marker="Operator · fees">
+      <div className="rounded-2xl p-5" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
+        <div className="grid grid-cols-4 gap-1.5 mb-4">
+          <FeeChip label="Perf" value={formatBps(policy.performanceFeeBps)} tone="gold" />
+          <FeeChip label="Mgmt" value={formatBps(policy.managementFeeBps)} tone="cyan" />
+          <FeeChip label="Entry" value={formatBps(policy.entryFeeBps)} tone="steel" />
+          <FeeChip label="Exit" value={formatBps(policy.exitFeeBps)} tone="steel" />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <div className="rounded-md px-3 py-2" style={{ background: 'rgba(255,255,255,0.02)', boxShadow: 'var(--ed-ghost-border)' }}>
+            <Eyebrow tone="muted" className="!text-[9px]">Live NAV</Eyebrow>
+            <div className="ed-italic text-[18px] mt-1" style={{ color: 'var(--ed-steel-50)' }}>
+              ${liveNavUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            </div>
+          </div>
+          <div className="rounded-md px-3 py-2" style={{ background: 'rgba(255,255,255,0.02)', boxShadow: 'var(--ed-ghost-border)' }}>
+            <Eyebrow tone="muted" className="!text-[9px]">High water</Eyebrow>
+            <div className="ed-italic text-[18px] mt-1" style={{ color: ACCENTS.emerald }}>
+              ${(feeState?.highWaterMark || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="rounded-lg p-3 mb-3"
+          style={{
+            background: `linear-gradient(135deg, ${ACCENTS.gold}12, ${ACCENTS.gold}03)`,
+            boxShadow: `inset 0 0 0 1px ${ACCENTS.gold}28`,
+          }}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <Eyebrow tone="gold">Accrued fees</Eyebrow>
+            {feeState?.lastFeeAccrual && (
+              <span className="ed-mono text-[9.5px]" style={{ color: 'var(--ed-steel-500)' }}>
+                Last: {new Date(feeState.lastFeeAccrual * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <FeeStatTile label="Mgmt" value={`$${(feeState?.accruedManagement || 0).toFixed(2)}`} color={ACCENTS.cyan} />
+            <FeeStatTile label="Perf" value={`$${(feeState?.accruedPerformance || 0).toFixed(2)}`} color={ACCENTS.gold} />
+            <FeeStatTile label="Total" value={`$${(feeState?.accruedTotal || 0).toFixed(2)}`} color="var(--ed-steel-50)" />
+          </div>
+        </div>
+
+        {policy.feeRecipient && policy.feeRecipient !== '0x0000000000000000000000000000000000000000' && (
+          <div
+            className="flex items-center justify-between ed-mono text-[10px] px-3 py-1.5 rounded mb-3"
+            style={{ background: 'rgba(255,255,255,0.02)', boxShadow: 'var(--ed-ghost-border)' }}
+          >
+            <span style={{ color: 'var(--ed-steel-500)' }}>Fee recipient</span>
+            {feeRecipientExplorerHref ? (
+              <a
+                href={feeRecipientExplorerHref}
+                target="_blank"
+                rel="noreferrer"
+                className="transition-colors"
+                style={{ color: ACCENTS.cyan }}
+              >
+                {shortHexLabel(policy.feeRecipient)}
+              </a>
+            ) : (
+              <span style={{ color: 'var(--ed-steel-50)' }}>{shortHexLabel(policy.feeRecipient)}</span>
+            )}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-2">
+          <ControlButton variant="secondary" size="sm" disabled={!isConnected || accruePending} onClick={onAccrue}>
+            <Hourglass className="w-3 h-3" />
+            {accruePending ? 'Accruing…' : 'Accrue'}
+          </ControlButton>
+          <ControlButton
+            variant="gold"
+            size="sm"
+            disabled={!isConnected || claimPending || !(feeState?.accruedTotal > 0) || !canClaim}
+            onClick={onClaim}
+          >
+            <Wallet className="w-3 h-3" />
+            {claimPending ? 'Claiming…' : 'Claim'}
+          </ControlButton>
+        </div>
+
+        {claimSuccess && (
+          <p className="ed-mono text-[10px] text-center mt-2" style={{ color: '#8AE6C2' }}>
+            Fees claimed · 80% to operator · 20% to treasury
+          </p>
+        )}
+        {accrueSuccess && (
+          <p className="ed-mono text-[10px] text-center mt-2" style={{ color: ACCENTS.cyan }}>Fees accrued on-chain</p>
+        )}
+
+        {feeState?.pendingFeeChange?.pending && (
+          <div
+            className="mt-3 rounded-md px-3 py-2"
+            style={{ background: `${ACCENTS.amber}0D`, boxShadow: `inset 0 0 0 1px ${ACCENTS.amber}26` }}
+          >
+            <div className="flex items-center gap-1.5 mb-1">
+              <AlertTriangle className="w-3 h-3" style={{ color: ACCENTS.amber }} />
+              <Eyebrow tone="amber">Pending fee change</Eyebrow>
+            </div>
+            <div className="text-[10.5px] leading-[1.55]" style={{ color: 'var(--ed-steel-400)' }}>
+              New: Perf {formatBps(feeState.pendingFeeChange.newPerformanceFeeBps)} · Mgmt {formatBps(feeState.pendingFeeChange.newManagementFeeBps)} · Entry {formatBps(feeState.pendingFeeChange.newEntryFeeBps)} · Exit {formatBps(feeState.pendingFeeChange.newExitFeeBps)}
+            </div>
+            <div className="ed-mono text-[9.5px] mt-1" style={{ color: 'var(--ed-steel-500)' }}>
+              Effective {new Date(feeState.pendingFeeChange.effectiveAt * 1000).toLocaleString()}
+            </div>
+          </div>
+        )}
+      </div>
+    </SectionHead>
+  );
+}
+
+function FeeChip({ label, value, tone }) {
+  const color = ACCENTS[tone] || ACCENTS.steel;
+  return (
+    <div
+      className="rounded-md px-2 py-1.5"
+      style={{ background: `${color}0A`, boxShadow: `inset 0 0 0 1px ${color}26` }}
+    >
+      <div className="flex items-center gap-1 mb-0.5">
+        <Eyebrow tone="muted" className="!text-[8px]">{label}</Eyebrow>
+      </div>
+      <div className="ed-mono text-[11px]" style={{ color }}>{value}</div>
+    </div>
+  );
+}
+
+function FeeStatTile({ label, value, color }) {
   return (
     <div>
-      <div className="flex justify-between items-baseline mb-1.5">
-        <span className="text-[12.5px]" style={{ color: 'var(--ed-steel-200)' }}>
-          {label}
+      <Eyebrow tone="muted" className="!text-[9px]">{label}</Eyebrow>
+      <div className="ed-italic text-[14px] mt-0.5" style={{ color }}>{value}</div>
+    </div>
+  );
+}
+
+/* ─────────────────── Briefing ─────────────────── */
+
+function BriefingPanel({
+  vaultAddress, executorAddress, operator, executorRegistered, networkName,
+  mandateType, baseAssetSymbol, resolvedDecimals, lastExecTs, dailyActions,
+  maxActionsPerDay, executorSyncLabel, executorSyncTone, onCopy, addressCopied,
+  vaultExplorerHref, executorExplorerHref,
+}) {
+  const rows = [
+    {
+      label: 'Address',
+      value: (
+        <a
+          href={vaultExplorerHref || '#'}
+          target={vaultExplorerHref ? '_blank' : undefined}
+          rel={vaultExplorerHref ? 'noreferrer' : undefined}
+          className="ed-mono text-[12px] transition-colors"
+          style={{ color: vaultExplorerHref ? ACCENTS.cyan : 'var(--ed-steel-50)' }}
+          onClick={(e) => { if (!vaultExplorerHref) e.preventDefault(); }}
+        >
+          {shortHexLabel(vaultAddress, 8, 6)}
+        </a>
+      ),
+      copyValue: vaultAddress,
+      copyKey: 'vault',
+    },
+    {
+      label: 'Executor',
+      value: (
+        <a
+          href={executorExplorerHref || '#'}
+          target={executorExplorerHref ? '_blank' : undefined}
+          rel={executorExplorerHref ? 'noreferrer' : undefined}
+          className="ed-mono text-[12px] transition-colors"
+          style={{ color: executorExplorerHref ? ACCENTS.cyan : 'var(--ed-steel-50)' }}
+          onClick={(e) => { if (!executorExplorerHref) e.preventDefault(); }}
+        >
+          {executorAddress ? shortHexLabel(executorAddress, 8, 6) : 'Unset'}
+        </a>
+      ),
+      copyValue: executorAddress,
+      copyKey: 'executor',
+    },
+    {
+      label: 'Operator',
+      value: operator?.name ? (
+        <span className="ed-mono text-[12px]" style={{ color: ACCENTS.cyan }}>{operator.name}</span>
+      ) : (
+        <span className="ed-mono text-[12px] italic" style={{ color: 'var(--ed-steel-500)' }}>
+          {executorRegistered === false ? 'Unregistered' : 'Loading…'}
         </span>
-        <span className="ed-mono text-[11px]" style={{ color: tone }}>
-          {safeCur}
-          {unit}{' '}
-          <span style={{ color: 'var(--ed-steel-500)' }}>
-            / {safeMax}
-            {unit}
-          </span>
-        </span>
+      ),
+    },
+    {
+      label: 'Sync',
+      value: (
+        <Chip tone={executorSyncTone} dense leading={<StatusDot tone={executorSyncTone} size={5} pulse={executorSyncTone === 'emerald'} />}>
+          {executorSyncLabel}
+        </Chip>
+      ),
+    },
+    { label: 'Network', value: <span className="ed-mono text-[12px]" style={{ color: 'var(--ed-steel-50)' }}>{networkName}</span> },
+    { label: 'Asset', value: <span className="ed-mono text-[12px]" style={{ color: 'var(--ed-steel-50)' }}>{baseAssetSymbol} · {resolvedDecimals} decimals</span> },
+    { label: 'Policy', value: <span className="ed-mono text-[12px]" style={{ color: 'var(--ed-steel-50)' }}>{mandateType} · v1</span> },
+    { label: 'Last action', value: <span className="ed-mono text-[12px]" style={{ color: 'var(--ed-steel-50)' }}>{lastExecTs ? formatTime(lastExecTs) : 'Never'}</span> },
+    { label: 'Actions today', value: <span className="ed-mono text-[12px]" style={{ color: 'var(--ed-steel-50)' }}>{dailyActions} / {maxActionsPerDay || 0}</span> },
+  ];
+
+  return (
+    <SectionHead marker="Vault · briefing">
+      <div className="rounded-2xl p-5 space-y-2.5" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
+        {rows.map((row, i) => (
+          <div key={i} className="flex items-center justify-between gap-4 py-1">
+            <Eyebrow tone="muted">{row.label}</Eyebrow>
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="truncate">{row.value}</div>
+              {row.copyKey && row.copyValue && (
+                <button
+                  type="button"
+                  onClick={() => onCopy(row.copyKey, row.copyValue)}
+                  className="transition-colors"
+                  style={{ color: addressCopied === row.copyKey ? ACCENTS.emerald : 'var(--ed-steel-500)' }}
+                  title={addressCopied === row.copyKey ? 'Copied' : 'Copy'}
+                >
+                  {addressCopied === row.copyKey ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
+    </SectionHead>
+  );
+}
+
+/* ─────────────────── System controls ─────────────────── */
+
+function SystemControlsPanel({
+  isConnected, isPaused, pausePending, unpausePending, onPause, onExecutor, onEditPolicy, onExport,
+  executorMatches, recentTxs, withdrawSuccess, depositSuccess, policySuccess, executorSuccess,
+}) {
+  return (
+    <SectionHead marker="System · controls">
+      <div className="rounded-2xl p-4 space-y-2" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
+        <ControlButton
+          variant={isPaused ? 'gold' : 'danger'}
+          className="w-full"
+          disabled={!isConnected || pausePending || unpausePending}
+          onClick={onPause}
+        >
+          {isPaused ? (
+            <><PlayCircle className="w-3.5 h-3.5" /> {unpausePending ? 'Resuming…' : 'Resume vault'}</>
+          ) : (
+            <><PauseCircle className="w-3.5 h-3.5" /> {pausePending ? 'Pausing…' : 'Emergency pause'}</>
+          )}
+        </ControlButton>
+        <ControlButton
+          variant={executorMatches ? 'secondary' : 'gold'}
+          className="w-full"
+          disabled={!isConnected}
+          onClick={onExecutor}
+        >
+          <Cpu className="w-3 h-3" /> {executorMatches ? 'Executor linked' : 'Set executor'}
+        </ControlButton>
+        <ControlButton variant="secondary" className="w-full" disabled={!isConnected} onClick={onEditPolicy}>
+          <Settings className="w-3 h-3" /> Edit policy
+        </ControlButton>
+        <ControlButton variant="secondary" className="w-full" onClick={onExport}>
+          <Download className="w-3 h-3" /> Export journal
+        </ControlButton>
+
+        {withdrawSuccess && <p className="ed-mono text-[10px] text-center mt-1" style={{ color: '#8AE6C2' }}>Withdrawal submitted</p>}
+        {depositSuccess && <p className="ed-mono text-[10px] text-center mt-1" style={{ color: '#8AE6C2' }}>Deposit submitted</p>}
+        {policySuccess && <p className="ed-mono text-[10px] text-center mt-1" style={{ color: '#8AE6C2' }}>Policy updated on-chain</p>}
+        {executorSuccess && <p className="ed-mono text-[10px] text-center mt-1" style={{ color: '#8AE6C2' }}>Executor updated on-chain</p>}
+
+        {recentTxs.length > 0 && (
+          <div className="mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+            <Eyebrow tone="cyan" className="!text-[10px] mb-2 block">Latest wallet transactions</Eyebrow>
+            <div className="flex flex-col gap-1.5">
+              {recentTxs.slice(0, 6).map((tx) => (
+                <a
+                  key={tx.href}
+                  href={tx.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ed-mono text-[10px] transition-colors"
+                  style={{ color: ACCENTS.cyan }}
+                >
+                  {tx.label} · {shortHexLabel(tx.hash, 8, 4)} ↗
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </SectionHead>
+  );
+}
+
+/* ─────────────────── Modal shell ─────────────────── */
+
+function ModalShell({ title, onClose, children, tone = 'default' }) {
+  const borderColor = tone === 'gold' ? 'rgba(201,168,76,0.28)' : 'rgba(255,255,255,0.08)';
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog">
+      <div className="absolute inset-0" style={{ background: 'rgba(5,5,7,0.8)', backdropFilter: 'blur(8px)' }} onClick={onClose} />
       <div
-        className="relative"
-        style={{ height: 6, background: 'rgba(255,255,255,0.04)', borderRadius: 3, overflow: 'hidden' }}
+        className="relative w-full max-w-md rounded-2xl p-6"
+        style={{
+          background: '#0F0F13',
+          boxShadow: `inset 0 0 0 1px ${borderColor}, 0 24px 60px rgba(0,0,0,0.55)`,
+        }}
       >
-        <div
-          style={{
-            width: `${ratio * 100}%`,
-            height: '100%',
-            background: tone,
-            opacity: 0.85,
-            transition: 'width 300ms var(--ed-ease-snappy)',
-          }}
-        />
-        <div
-          style={{
-            position: 'absolute',
-            right: 0,
-            top: -2,
-            bottom: -2,
-            width: 1,
-            background: 'var(--ed-rose)',
-          }}
-        />
+        <div className="flex items-center justify-between mb-4">
+          <h4 className="ed-display text-[16px] m-0" style={{ color: 'var(--ed-steel-50)' }}>{title}</h4>
+          <button
+            type="button"
+            onClick={onClose}
+            className="transition-colors"
+            style={{ color: 'var(--ed-steel-500)' }}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        {children}
       </div>
     </div>
   );
 }
 
-// Editorial execution log — compact on-chain receipt table.
-// Reads straight from the orchestrator's executions feed (already pulled into
-// the page via useExecutions). Shows time, kind, action, delta, confidence,
-// source, state chip, and a tx link column.
-function ExecutionLogTable({ rows = [], chainId }) {
-  const list = Array.isArray(rows) ? rows.slice(0, 8) : [];
-  if (list.length === 0) return null;
-  const formatTime = (ts) => {
-    if (!ts) return '—';
-    const d = new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts);
-    if (Number.isNaN(d.getTime())) return '—';
-    return d.toISOString().slice(11, 19);
-  };
-  const counts = list.reduce(
-    (acc, r) => {
-      const s = (r.outcome || r.state || r.status || 'executed').toLowerCase();
-      if (s === 'blocked' || s === 'vetoed' || s === 'policy') acc.veto += 1;
-      else if (s === 'skipped' || s === 'governance') acc.skip += 1;
-      else acc.exec += 1;
-      return acc;
-    },
-    { exec: 0, veto: 0, skip: 0 },
-  );
+/* ─────────────────── Deposit modal ─────────────────── */
+
+function DepositModal({
+  onClose, depositStep, setDepositStep, depositTokens, selectedDepositToken, setSelectedDepositToken,
+  depositAmount, setDepositAmount, approve, approvePending, approveSuccess,
+  transferToken, transferPending, deposit, depositPending,
+  wrapNative, wrapPending, wrapSuccess, refetchW0g, refetchNative,
+  vaultAddr, refetch,
+}) {
+  // 0G special case: we auto-wrap native → W0G when the user's W0G balance is
+  // short of the deposit amount, then transfer W0G to the vault. Wrap amount is
+  // only the gap (keeps gas minimal and preserves any existing W0G balance).
+  const is0G = selectedDepositToken.symbol === '0G';
+  const wrappedBal = parseFloat(selectedDepositToken.wrappedBalance || '0');
+  const nativeBal = parseFloat(selectedDepositToken.nativeBalance || '0');
+  const targetAmount = parseFloat(depositAmount || '0');
+  const wrapGap = Math.max(0, targetAmount - wrappedBal);
+  const needsWrap = is0G && wrapGap > 0;
+  const canCoverWithWrap = is0G && nativeBal >= wrapGap;
+  const balanceDecimals = selectedDepositToken.symbol === 'USDC' ? 2 : 6;
+
   return (
-    <div className="ed-card overflow-hidden mb-8">
-      <div className="flex items-end justify-between px-6 pt-5 pb-4">
-        <div>
-          <div className="flex items-baseline gap-3.5 mb-2">
-            <span className="ed-eyebrow">§ V.05</span>
-            <span
-              className="ed-mono text-[10.5px] tracking-[0.22em] uppercase"
-              style={{ color: 'var(--ed-steel-400)' }}
-            >
-              Execution log
-            </span>
+    <ModalShell title="Deposit to vault" onClose={onClose} tone="gold">
+      <div className="space-y-4">
+        {depositStep === 'input' && (
+          <>
+            <div>
+              <Eyebrow tone="muted" className="!block mb-2">Select token</Eyebrow>
+              <div className="flex gap-2 flex-wrap">
+                {depositTokens.map((t) => (
+                  <button
+                    key={t.symbol}
+                    type="button"
+                    onClick={() => { setSelectedDepositToken(t); setDepositAmount(''); }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md ed-mono text-[11px] transition-all"
+                    style={{
+                      background: selectedDepositToken.symbol === t.symbol ? `${ACCENTS.gold}26` : 'rgba(255,255,255,0.03)',
+                      color: selectedDepositToken.symbol === t.symbol ? ACCENTS.gold : 'var(--ed-steel-400)',
+                      boxShadow: selectedDepositToken.symbol === t.symbol
+                        ? `inset 0 0 0 1px ${ACCENTS.gold}4A`
+                        : 'var(--ed-ghost-border)',
+                    }}
+                  >
+                    <TokenIcon symbol={t.symbol} size={14} />
+                    {t.symbol}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Eyebrow tone="muted">Amount ({selectedDepositToken.symbol})</Eyebrow>
+                <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
+                  {is0G ? (
+                    <>
+                      W0G <span style={{ color: 'var(--ed-steel-50)' }}>
+                        {wrappedBal.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                      </span>
+                      {' · '}
+                      Native <span style={{ color: 'var(--ed-steel-50)' }}>
+                        {nativeBal.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      Wallet <span style={{ color: 'var(--ed-steel-50)' }}>
+                        {parseFloat(selectedDepositToken.balance).toLocaleString(undefined, { maximumFractionDigits: balanceDecimals })}
+                      </span>
+                    </>
+                  )}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 rounded-xl px-3 h-11" style={{ background: 'rgba(0,0,0,0.3)', boxShadow: 'var(--ed-ghost-border)' }}>
+                <TokenIcon symbol={selectedDepositToken.symbol} size={16} />
+                <input
+                  type="number"
+                  value={depositAmount}
+                  onChange={(e) => setDepositAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="flex-1 bg-transparent outline-none ed-mono text-[16px]"
+                  style={{ color: 'var(--ed-steel-50)' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setDepositAmount(selectedDepositToken.balance)}
+                  className="ed-mono text-[10px] uppercase tracking-[0.2em] transition-colors"
+                  style={{ color: ACCENTS.cyan }}
+                >
+                  Max
+                </button>
+              </div>
+            </div>
+
+            {is0G && needsWrap && (
+              <div
+                className="rounded-lg px-3 py-2 ed-mono text-[10px] leading-[1.5]"
+                style={{ background: `${ACCENTS.cyan}0D`, boxShadow: `inset 0 0 0 1px ${ACCENTS.cyan}22`, color: 'var(--ed-cyan-ink)' }}
+              >
+                Auto-wrap: {wrapGap.toLocaleString(undefined, { maximumFractionDigits: 4 })} native 0G → W0G before
+                {selectedDepositToken.isBase ? ' deposit.' : ' transfer.'}
+                {' '}Requires {selectedDepositToken.isBase ? '3 signatures (wrap + approve + deposit)' : '2 signatures (wrap + transfer)'}.
+              </div>
+            )}
+
+            {!selectedDepositToken.isBase && !is0G && (
+              <div
+                className="rounded-lg px-3 py-2 ed-mono text-[10px]"
+                style={{ background: `${ACCENTS.amber}0D`, boxShadow: `inset 0 0 0 1px ${ACCENTS.amber}22`, color: '#F5C97E' }}
+              >
+                {selectedDepositToken.symbol} transfers go directly to the vault contract. This does not update totalDeposited (base asset tracking).
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <ControlButton
+                variant="primary"
+                className="flex-1"
+                disabled={
+                  !depositAmount ||
+                  parseFloat(depositAmount) <= 0 ||
+                  (is0G && !canCoverWithWrap)
+                }
+                onClick={() => setDepositStep('approve')}
+              >
+                Continue
+              </ControlButton>
+              <ControlButton variant="secondary" className="flex-1" onClick={onClose}>Cancel</ControlButton>
+            </div>
+            {is0G && !canCoverWithWrap && targetAmount > 0 && (
+              <p className="ed-mono text-[10px] text-center" style={{ color: '#F4A0B3' }}>
+                Insufficient 0G. You have {(wrappedBal + nativeBal).toLocaleString(undefined, { maximumFractionDigits: 4 })} combined.
+              </p>
+            )}
+          </>
+        )}
+
+        {/* Base-asset approve+deposit step. Fires for:
+              - Any non-0G base asset (USDC / WBTC / WETH vault)
+              - 0G when W0G balance already covers (no wrap needed). The
+                wrap block below takes precedence when needsWrap=true. */}
+        {depositStep === 'approve' && selectedDepositToken.isBase && (!is0G || !needsWrap) && (
+          <>
+            <div className="text-center py-2">
+              <div className="flex justify-center mb-2"><TokenIcon symbol={selectedDepositToken.symbol} size={28} /></div>
+              <p className="ed-mono text-[11.5px] uppercase tracking-[0.2em]" style={{ color: 'var(--ed-steel-50)' }}>
+                Step 1 / 2 · Approve {selectedDepositToken.symbol}
+              </p>
+              <p className="ed-mono text-[10.5px] mt-1" style={{ color: 'var(--ed-steel-500)' }}>
+                Allow the vault to use {depositAmount} {selectedDepositToken.symbol}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <ControlButton
+                variant="gold"
+                className="flex-1"
+                disabled={approvePending}
+                onClick={() => approve(selectedDepositToken.address, vaultAddr, depositAmount, selectedDepositToken.decimals)}
+              >
+                {approvePending ? 'Approving…' : `Approve ${selectedDepositToken.symbol}`}
+              </ControlButton>
+              <ControlButton variant="secondary" className="flex-1" onClick={() => setDepositStep('input')}>Back</ControlButton>
+            </div>
+            {approveSuccess && (
+              <ControlButton variant="primary" className="w-full" onClick={() => setDepositStep('deposit')}>
+                Approved · continue to deposit
+              </ControlButton>
+            )}
+          </>
+        )}
+
+        {depositStep === 'approve' && is0G && needsWrap && (
+          <>
+            <div className="text-center py-2">
+              <div className="flex justify-center mb-2"><TokenIcon symbol="0G" size={28} /></div>
+              <p className="ed-mono text-[11.5px] uppercase tracking-[0.2em]" style={{ color: 'var(--ed-steel-50)' }}>
+                Step 1 / {selectedDepositToken.isBase ? '3' : '2'} · Wrap native 0G
+              </p>
+              <p className="ed-mono text-[10.5px] mt-1" style={{ color: 'var(--ed-steel-500)' }}>
+                Convert {wrapGap.toLocaleString(undefined, { maximumFractionDigits: 4 })} native 0G → W0G
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <ControlButton
+                variant="gold"
+                className="flex-1"
+                disabled={wrapPending || wrapSuccess}
+                onClick={() => wrapNative(selectedDepositToken.address, wrapGap.toString(), selectedDepositToken.decimals)}
+              >
+                {wrapPending ? 'Wrapping…' : wrapSuccess ? 'Wrapped ✓' : `Wrap ${wrapGap.toFixed(4)} 0G`}
+              </ControlButton>
+              <ControlButton variant="secondary" className="flex-1" onClick={() => setDepositStep('input')}>Back</ControlButton>
+            </div>
+            {wrapSuccess && (
+              <ControlButton
+                variant="primary"
+                className="w-full"
+                onClick={() => {
+                  refetchW0g?.();
+                  refetchNative?.();
+                  // For a W0G-base vault we continue with the proper
+                  // approve → deposit path; for non-base vaults we fall back
+                  // to the bare transfer flow (no accounting update).
+                  setDepositStep(selectedDepositToken.isBase ? 'approveW0g' : 'transfer0g');
+                }}
+              >
+                {selectedDepositToken.isBase ? 'Wrapped · continue to approve' : 'Wrapped · continue to transfer'}
+              </ControlButton>
+            )}
+          </>
+        )}
+
+        {/* Intermediate approve step for W0G-base vaults after wrap, before
+            vault.deposit() is called. Kept separate from the base approve
+            block so we don't have to re-run the needsWrap check on stale
+            balance state. */}
+        {depositStep === 'approveW0g' && is0G && selectedDepositToken.isBase && (
+          <>
+            <div className="text-center py-2">
+              <div className="flex justify-center mb-2"><TokenIcon symbol="0G" size={28} /></div>
+              <p className="ed-mono text-[11.5px] uppercase tracking-[0.2em]" style={{ color: 'var(--ed-steel-50)' }}>
+                Step 2 / 3 · Approve W0G
+              </p>
+              <p className="ed-mono text-[10.5px] mt-1" style={{ color: 'var(--ed-steel-500)' }}>
+                Allow the vault to use {depositAmount} W0G
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <ControlButton
+                variant="gold"
+                className="flex-1"
+                disabled={approvePending}
+                onClick={() => approve(selectedDepositToken.address, vaultAddr, depositAmount, selectedDepositToken.decimals)}
+              >
+                {approvePending ? 'Approving…' : 'Approve W0G'}
+              </ControlButton>
+              <ControlButton variant="secondary" className="flex-1" onClick={() => setDepositStep('approve')}>Back</ControlButton>
+            </div>
+            {approveSuccess && (
+              <ControlButton variant="primary" className="w-full" onClick={() => setDepositStep('deposit')}>
+                Approved · continue to deposit
+              </ControlButton>
+            )}
+          </>
+        )}
+
+        {depositStep === 'approve' && is0G && !needsWrap && !selectedDepositToken.isBase && (
+          <TransferNonBaseStep
+            token={selectedDepositToken}
+            amount={depositAmount}
+            transferToken={transferToken}
+            transferPending={transferPending}
+            vaultAddr={vaultAddr}
+            refetch={refetch}
+            onClose={onClose}
+            setDepositStep={setDepositStep}
+          />
+        )}
+
+        {depositStep === 'approve' && !selectedDepositToken.isBase && !is0G && (
+          <TransferNonBaseStep
+            token={selectedDepositToken}
+            amount={depositAmount}
+            transferToken={transferToken}
+            transferPending={transferPending}
+            vaultAddr={vaultAddr}
+            refetch={refetch}
+            onClose={onClose}
+            setDepositStep={setDepositStep}
+          />
+        )}
+
+        {depositStep === 'transfer0g' && (
+          <>
+            <div className="text-center py-2">
+              <div className="flex justify-center mb-2"><TokenIcon symbol="0G" size={28} /></div>
+              <p className="ed-mono text-[11.5px] uppercase tracking-[0.2em]" style={{ color: 'var(--ed-steel-50)' }}>
+                Step 2 / 2 · Transfer W0G
+              </p>
+              <p className="ed-mono text-[10.5px] mt-1" style={{ color: 'var(--ed-steel-500)' }}>
+                Send {depositAmount} W0G directly to vault
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <ControlButton
+                variant="primary"
+                className="flex-1"
+                disabled={transferPending}
+                onClick={() => {
+                  transferToken(selectedDepositToken.address, vaultAddr, depositAmount, selectedDepositToken.decimals);
+                  setTimeout(() => { onClose(); setDepositStep('input'); refetch(); }, 4000);
+                }}
+              >
+                {transferPending ? 'Sending…' : 'Send W0G'}
+              </ControlButton>
+              <ControlButton variant="secondary" className="flex-1" onClick={() => setDepositStep('approve')}>Back</ControlButton>
+            </div>
+          </>
+        )}
+
+        {depositStep === 'deposit' && (
+          <>
+            <div className="text-center py-2">
+              <div className="flex justify-center mb-2"><TokenIcon symbol={selectedDepositToken.symbol} size={28} /></div>
+              <p className="ed-mono text-[11.5px] uppercase tracking-[0.2em]" style={{ color: 'var(--ed-steel-50)' }}>
+                {is0G && needsWrap ? 'Step 3 / 3' : 'Step 2 / 2'} · Deposit to vault
+              </p>
+              <p className="ed-mono text-[10.5px] mt-1" style={{ color: 'var(--ed-steel-500)' }}>
+                Depositing {depositAmount} {selectedDepositToken.symbol}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <ControlButton
+                variant="primary"
+                className="flex-1"
+                disabled={depositPending}
+                onClick={() => {
+                  deposit(vaultAddr, depositAmount, selectedDepositToken.decimals);
+                  setTimeout(() => { onClose(); setDepositStep('input'); refetch(); }, 4000);
+                }}
+              >
+                {depositPending ? 'Depositing…' : 'Confirm deposit'}
+              </ControlButton>
+              <ControlButton variant="secondary" className="flex-1" onClick={() => setDepositStep('approve')}>Back</ControlButton>
+            </div>
+          </>
+        )}
+      </div>
+    </ModalShell>
+  );
+}
+
+function TransferNonBaseStep({
+  token, amount, transferToken, transferPending, vaultAddr, refetch, onClose, setDepositStep,
+}) {
+  const isW0g = token.symbol === '0G';
+  return (
+    <>
+      <div className="text-center py-2">
+        <div className="flex justify-center mb-2"><TokenIcon symbol={token.symbol} size={28} /></div>
+        <p className="ed-mono text-[11.5px] uppercase tracking-[0.2em]" style={{ color: 'var(--ed-steel-50)' }}>
+          Transfer {isW0g ? 'W0G' : token.symbol}
+        </p>
+        <p className="ed-mono text-[10.5px] mt-1" style={{ color: 'var(--ed-steel-500)' }}>
+          Send {amount} {isW0g ? 'W0G' : token.symbol} directly to vault
+        </p>
+      </div>
+      <div className="flex gap-2">
+        <ControlButton
+          variant="primary"
+          className="flex-1"
+          disabled={transferPending}
+          onClick={() => {
+            transferToken(token.address, vaultAddr, amount, token.decimals);
+            setTimeout(() => { onClose(); setDepositStep('input'); refetch(); }, 4000);
+          }}
+        >
+          {transferPending ? 'Sending…' : `Send ${isW0g ? 'W0G' : token.symbol}`}
+        </ControlButton>
+        <ControlButton variant="secondary" className="flex-1" onClick={() => setDepositStep('input')}>Back</ControlButton>
+      </div>
+    </>
+  );
+}
+
+/* ─────────────────── Withdraw modal ─────────────────── */
+
+function WithdrawModal({
+  onClose, withdrawAmount, setWithdrawAmount, withdraw, withdrawPending, vaultAddr, refetch, liveVault, hasLive,
+  baseAssetSymbol = 'USDC', baseAssetDecimals = 6,
+  // v2 additions — silently ignored on v1 vaults
+  vaultVersion = 'v1', vaultAssetRows = [], depositTokens = [],
+  withdrawToken, withdrawTokenPending, withdrawAllNonBase, withdrawAllPending,
+}) {
+  const isV2 = vaultVersion === 'v2';
+
+  // For v2: build a display row per allowed asset that has a positive vault
+  // balance, picking symbol/decimals from the depositTokens registry so
+  // labels are consistent with the deposit UI.
+  const tokenMeta = (addr) => depositTokens.find(
+    (t) => t.address?.toLowerCase() === addr?.toLowerCase()
+  );
+  const withdrawableRows = isV2
+    ? vaultAssetRows
+        .map((row) => {
+          const meta = tokenMeta(row.address);
+          const dec = meta?.decimals ?? 18;
+          const raw = row.balance ?? 0n;
+          const formatted = (() => {
+            try { return formatUnits(raw, dec); } catch { return '0'; }
+          })();
+          const isBase = !!meta?.isBase
+            || row.address?.toLowerCase() === liveVault?.baseAsset?.toLowerCase();
+          return {
+            address: row.address,
+            symbol: meta?.symbol || (isBase ? baseAssetSymbol : 'Unknown'),
+            decimals: dec,
+            balance: parseFloat(formatted),
+            isBase,
+          };
+        })
+        .filter((r) => r.balance > 0 || r.isBase)
+    : [];
+
+  // Selected token in v2 mode. Default = base asset (backward-compat path).
+  const [v2Selected, setV2Selected] = useState(null);
+  const activeRow = isV2
+    ? (v2Selected || withdrawableRows.find((r) => r.isBase) || withdrawableRows[0])
+    : null;
+  const activeIsBase = isV2 ? !!activeRow?.isBase : true;
+  const activeSymbol = isV2 ? (activeRow?.symbol || baseAssetSymbol) : baseAssetSymbol;
+  const activeDecimals = isV2 ? (activeRow?.decimals ?? baseAssetDecimals) : baseAssetDecimals;
+  const activeBalance = isV2
+    ? (activeRow?.balance ?? 0)
+    : (hasLive ? parseFloat(liveVault.balance) : 0);
+
+  const isStable = activeSymbol === 'USDC' || activeSymbol === 'USDCe';
+  const availablePrefix = isStable ? '$' : '';
+
+  const nonBaseCount = withdrawableRows.filter((r) => !r.isBase).length;
+  const pending = withdrawPending || withdrawTokenPending;
+
+  const handleConfirm = () => {
+    if (!withdrawAmount || parseFloat(withdrawAmount) <= 0) return;
+    if (!isV2 || activeIsBase) {
+      // v1 or v2 base asset — goes through vault.withdraw() (fee applies)
+      withdraw(vaultAddr, withdrawAmount, activeDecimals);
+    } else {
+      // v2 non-base rescue — no fee
+      withdrawToken(vaultAddr, activeRow.address, withdrawAmount, activeDecimals);
+    }
+    setTimeout(() => { onClose(); refetch?.(); }, 3000);
+  };
+
+  const handleDrainAllNonBase = () => {
+    withdrawAllNonBase(vaultAddr);
+    setTimeout(() => { onClose(); refetch?.(); }, 3000);
+  };
+
+  return (
+    <ModalShell title={`Withdraw ${isV2 ? 'from vault' : baseAssetSymbol}`} onClose={onClose}>
+      <div className="space-y-4">
+        {/* v2-only: multi-asset token selector */}
+        {isV2 && withdrawableRows.length > 0 && (
+          <div>
+            <Eyebrow tone="muted" className="!block mb-2">Token</Eyebrow>
+            <div className="flex gap-1.5 flex-wrap">
+              {withdrawableRows.map((r) => {
+                const active = (activeRow?.address || '').toLowerCase() === r.address.toLowerCase();
+                return (
+                  <button
+                    key={r.address}
+                    type="button"
+                    onClick={() => { setV2Selected(r); setWithdrawAmount(''); }}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md ed-mono text-[10.5px] transition-colors"
+                    style={{
+                      background: active ? `${ACCENTS.gold}22` : 'rgba(255,255,255,0.02)',
+                      color: active ? ACCENTS.gold : 'var(--ed-steel-400)',
+                      boxShadow: active ? `inset 0 0 0 1px ${ACCENTS.gold}4A` : 'var(--ed-ghost-border)',
+                    }}
+                  >
+                    <TokenIcon symbol={r.symbol} size={13} />
+                    {r.symbol}
+                    {r.isBase && <span className="ml-0.5 text-[8.5px]" style={{ color: 'var(--ed-steel-500)' }}>· base</span>}
+                  </button>
+                );
+              })}
+            </div>
+            {!activeIsBase && (
+              <p className="mt-2 ed-mono text-[10px] leading-[1.5]" style={{ color: 'var(--ed-steel-500)' }}>
+                Non-base rescue — no exit fee. Base withdrawals still route through the
+                standard withdraw() path.
+              </p>
+            )}
           </div>
-          <h3
-            className="ed-display"
-            style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}
-          >
-            Last 24 hours
-          </h3>
+        )}
+
+        <div>
+          <Eyebrow tone="muted" className="!block mb-2">Amount ({activeSymbol})</Eyebrow>
+          <div className="flex items-center gap-2 rounded-xl px-3 h-11" style={{ background: 'rgba(0,0,0,0.3)', boxShadow: 'var(--ed-ghost-border)' }}>
+            <input
+              type="number"
+              value={withdrawAmount}
+              onChange={(e) => setWithdrawAmount(e.target.value)}
+              placeholder="0.00"
+              className="flex-1 bg-transparent outline-none ed-mono text-[16px]"
+              style={{ color: 'var(--ed-steel-50)' }}
+            />
+            {activeBalance > 0 && (
+              <button
+                type="button"
+                onClick={() => setWithdrawAmount(String(activeBalance))}
+                className="ed-mono text-[10px] uppercase tracking-[0.2em] transition-colors"
+                style={{ color: ACCENTS.cyan }}
+              >
+                Max
+              </button>
+            )}
+          </div>
+          {activeBalance > 0 && (
+            <div className="mt-2 ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
+              Available <span style={{ color: 'var(--ed-steel-50)' }}>{availablePrefix}{activeBalance.toLocaleString(undefined, { maximumFractionDigits: 6 })}</span> {activeSymbol}
+            </div>
+          )}
         </div>
-        <div className="flex gap-1.5">
-          <span className="ed-chip ed-chip-emerald">executed · {counts.exec}</span>
-          <span className="ed-chip ed-chip-rose">veto · {counts.veto}</span>
-          <span className="ed-chip ed-chip-amber">skipped · {counts.skip}</span>
+        <div className="flex gap-2">
+          <ControlButton
+            variant="primary"
+            className="flex-1"
+            disabled={!withdrawAmount || pending || parseFloat(withdrawAmount) <= 0}
+            onClick={handleConfirm}
+          >
+            {pending
+              ? (activeIsBase ? 'Withdrawing…' : 'Rescuing…')
+              : (activeIsBase ? 'Confirm withdraw' : `Rescue ${activeSymbol}`)}
+          </ControlButton>
+          <ControlButton variant="secondary" className="flex-1" onClick={onClose}>Cancel</ControlButton>
+        </div>
+
+        {/* v2-only: drain-all-non-base shortcut. Only show when at least one
+            non-base asset is sitting in the vault. */}
+        {isV2 && nonBaseCount > 0 && (
+          <div className="pt-3 border-t border-white/[0.05]">
+            <p className="ed-mono text-[10px] mb-2" style={{ color: 'var(--ed-steel-500)' }}>
+              Vault currently holds {nonBaseCount} non-base asset{nonBaseCount === 1 ? '' : 's'}.
+              One-tap drain sends them all back to you (no fee).
+            </p>
+            <ControlButton
+              variant="secondary"
+              className="w-full"
+              disabled={withdrawAllPending}
+              onClick={handleDrainAllNonBase}
+            >
+              {withdrawAllPending ? 'Draining…' : `Withdraw all non-base (${nonBaseCount})`}
+            </ControlButton>
+          </div>
+        )}
+      </div>
+    </ModalShell>
+  );
+}
+
+/* ─────────────────── Executor modal ─────────────────── */
+
+function ExecutorModal({
+  onClose, executorForm, setExecutorForm, executorAddress, executorSyncLabel, executorSyncTone,
+  activeOrchestratorExecutor, activeOrchestratorExecutors, activeOrchestratorExecutorSummary,
+  activeMarketplaceOps, setExecutor, executorPending, vaultAddr, refetch, liveVault, hasLive,
+}) {
+  return (
+    <ModalShell title="Set vault executor" onClose={onClose}>
+      <p className="text-[11.5px] leading-[1.55] mb-4" style={{ color: 'var(--ed-steel-400)' }}>
+        Point this vault to the wallet used by your orchestrator. The owner keeps custody, while the executor only submits
+        intents that still pass on-chain policy checks.
+      </p>
+
+      <div className="rounded-lg px-3 py-3 space-y-2 mb-3" style={{ background: 'rgba(255,255,255,0.02)', boxShadow: 'var(--ed-ghost-border)' }}>
+        <div className="flex justify-between gap-3">
+          <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>Current executor</span>
+          <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-50)' }}>{executorAddress ? shortHexLabel(executorAddress, 8, 6) : '—'}</span>
+        </div>
+        <div className="flex justify-between gap-3">
+          <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>Active API executor</span>
+          <span className="ed-mono text-[11px]" style={{ color: ACCENTS.cyan }}>{activeOrchestratorExecutorSummary || 'Not detected'}</span>
+        </div>
+        <div className="flex justify-between gap-3">
+          <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>Sync status</span>
+          <Chip tone={executorSyncTone} dense leading={<StatusDot tone={executorSyncTone} size={5} pulse={executorSyncTone === 'emerald'} />}>
+            {executorSyncLabel}
+          </Chip>
         </div>
       </div>
 
-      <div
-        className="grid items-center px-6 py-2.5"
-        style={{
-          gridTemplateColumns: '80px 80px 1fr 80px 80px 90px 90px 40px',
-          gap: 14,
-          borderTop: '1px solid rgba(255,255,255,0.05)',
-          borderBottom: '1px solid rgba(255,255,255,0.05)',
-          background: 'var(--ed-obsidian-dim)',
-        }}
-      >
-        {['TIME', 'KIND', 'ACTION', 'Δ', 'CONF', 'SOURCE', 'STATE', ''].map((h, i) => (
-          <span
-            key={i}
-            className="ed-mono"
-            style={{ fontSize: 9.5, color: 'var(--ed-steel-500)', letterSpacing: '0.22em' }}
-          >
-            {h}
-          </span>
+      {activeOrchestratorExecutor && (
+        <ControlButton variant="gold" className="w-full mb-3" onClick={() => setExecutorForm(activeOrchestratorExecutor)}>
+          <Cpu className="w-3 h-3" />
+          {activeOrchestratorExecutors.length > 1 ? 'Use primary orchestrator wallet' : 'Use active orchestrator wallet'}
+        </ControlButton>
+      )}
+
+      {activeMarketplaceOps.length > 0 && (
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <Eyebrow tone="muted">Pick from marketplace ({activeMarketplaceOps.length})</Eyebrow>
+            <Link to="/marketplace" className="ed-mono text-[10px] transition-colors" style={{ color: ACCENTS.cyan }}>Browse →</Link>
+          </div>
+          <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1">
+            {activeMarketplaceOps.map((op) => {
+              const selected = executorForm.toLowerCase() === op.wallet.toLowerCase();
+              return (
+                <button
+                  key={op.wallet}
+                  type="button"
+                  onClick={() => setExecutorForm(op.wallet)}
+                  className="w-full text-left px-3 py-2 rounded-md transition-colors"
+                  style={{
+                    background: selected ? `${ACCENTS.gold}0D` : 'rgba(255,255,255,0.02)',
+                    boxShadow: selected ? `inset 0 0 0 1px ${ACCENTS.gold}4A` : 'var(--ed-ghost-border)',
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <Cpu className="w-3 h-3" style={{ color: ACCENTS.gold, opacity: 0.6 }} />
+                    <span className="text-[11.5px] font-medium truncate" style={{ color: 'var(--ed-steel-50)' }}>{op.name}</span>
+                    <Chip tone="steel" dense>{op.mandateLabel}</Chip>
+                  </div>
+                  <div className="ed-mono text-[9.5px] mt-0.5 truncate" style={{ color: 'var(--ed-steel-500)' }}>{op.wallet}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="mb-3">
+        <Eyebrow tone="muted" className="!block mb-2">Executor address</Eyebrow>
+        <input
+          type="text"
+          value={executorForm}
+          onChange={(e) => setExecutorForm(e.target.value.trim())}
+          placeholder="0x…"
+          spellCheck="false"
+          className="w-full rounded-xl px-3 py-2 ed-mono text-[13px] outline-none"
+          style={{ background: 'rgba(0,0,0,0.3)', boxShadow: 'var(--ed-ghost-border)', color: 'var(--ed-steel-50)' }}
+        />
+        {!isAddress(executorForm || '') && executorForm && (
+          <p className="ed-mono text-[10.5px] mt-2" style={{ color: ACCENTS.rose }}>Enter a valid EVM address.</p>
+        )}
+      </div>
+
+      <div className="flex gap-2 pt-2">
+        <ControlButton
+          variant="primary"
+          className="flex-1"
+          disabled={
+            !hasLive ||
+            !isAddress(executorForm || '') ||
+            executorForm.toLowerCase() === (liveVault?.executor || '').toLowerCase() ||
+            executorPending
+          }
+          onClick={() => {
+            setExecutor(vaultAddr, executorForm);
+            setTimeout(() => { onClose(); refetch(); }, 3000);
+          }}
+        >
+          {executorPending ? 'Updating…' : 'Update executor'}
+        </ControlButton>
+        <ControlButton variant="secondary" className="flex-1" onClick={onClose}>Cancel</ControlButton>
+      </div>
+    </ModalShell>
+  );
+}
+
+/* ─────────────────── Policy modal ─────────────────── */
+
+function PolicyModal({ onClose, policyForm, setPolicyForm, updatePolicy, policyPending, vaultAddr, refetch }) {
+  const params = [
+    { key: 'maxPositionBps', label: 'Max Position (bps)', min: 100, max: 10000 },
+    { key: 'maxDailyLossBps', label: 'Max Daily Loss (bps)', min: 50, max: 5000 },
+    { key: 'stopLossBps', label: 'Stop-Loss (bps)', min: 100, max: 5000 },
+    { key: 'cooldownSeconds', label: 'Cooldown (seconds)', min: 10, max: 3600 },
+    { key: 'confidenceThresholdBps', label: 'Confidence Min (bps)', min: 1000, max: 9500 },
+    { key: 'maxActionsPerDay', label: 'Max Actions / Day', min: 1, max: 100 },
+  ];
+  return (
+    <ModalShell title="Edit vault policy" onClose={onClose} tone="gold">
+      <div className="space-y-3">
+        {params.map((p) => (
+          <div key={p.key} className="flex items-center justify-between gap-3">
+            <span className="text-[11.5px]" style={{ color: 'var(--ed-steel-300)' }}>{p.label}</span>
+            <input
+              type="number"
+              value={policyForm[p.key]}
+              onChange={(e) => setPolicyForm((prev) => ({ ...prev, [p.key]: Number(e.target.value) }))}
+              min={p.min}
+              max={p.max}
+              className="w-24 rounded-lg px-2 py-1 ed-mono text-[12px] text-right outline-none"
+              style={{ background: 'rgba(0,0,0,0.3)', boxShadow: 'var(--ed-ghost-border)', color: 'var(--ed-steel-50)' }}
+            />
+          </div>
         ))}
-      </div>
-
-      {list.map((r, i) => {
-        const stateRaw = (r.outcome || r.state || r.status || 'executed').toLowerCase();
-        const state = stateRaw === 'blocked' || stateRaw === 'policy' || stateRaw === 'vetoed'
-          ? 'veto'
-          : stateRaw === 'skipped' || stateRaw === 'governance'
-            ? 'skip'
-            : 'exec';
-        const stateColor =
-          state === 'veto' ? 'var(--ed-rose)' : state === 'skip' ? 'var(--ed-amber)' : 'var(--ed-emerald)';
-        const kind = state === 'veto' ? 'VETO' : state === 'skip' ? 'HOLD' : 'EXECUTE';
-        const chipTone = state === 'veto' ? 'rose' : state === 'skip' ? 'amber' : 'emerald';
-        const actionName = (r.action || r.type || 'action').toString().toUpperCase();
-        const delta = r.deltaPct != null
-          ? `${r.deltaPct > 0 ? '+' : ''}${r.deltaPct.toFixed(1)}%`
-          : r.pnl != null
-            ? `${r.pnl > 0 ? '+' : '-'}$${Math.abs(r.pnl).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-            : '—';
-        const deltaColor = String(delta).startsWith('-') || String(delta).startsWith('−')
-          ? 'var(--ed-rose)'
-          : String(delta).startsWith('+')
-            ? 'var(--ed-emerald)'
-            : 'var(--ed-steel-400)';
-        const conf = r.confidence != null ? `${(r.confidence * 100).toFixed(0)}%` : '—';
-        const source = r.source || (r.model ? r.model : '0g-compute');
-        const txHref = r.txHash ? getExplorerTxHref(chainId, r.txHash) : null;
-        const txShort = r.txHash ? `${r.txHash.slice(0, 8)}…${r.txHash.slice(-4)}` : '—';
-        return (
-          <div
-            key={r.id || i}
-            className="grid items-center px-6 py-3.5"
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11.5px]" style={{ color: 'var(--ed-steel-300)' }}>Auto-execution</span>
+          <button
+            type="button"
+            onClick={() => setPolicyForm((prev) => ({ ...prev, autoExecution: !prev.autoExecution }))}
+            className="px-3 py-1 rounded ed-mono text-[10.5px] transition-colors"
             style={{
-              gridTemplateColumns: '80px 80px 1fr 80px 80px 90px 90px 40px',
-              gap: 14,
-              borderBottom: '1px solid rgba(255,255,255,0.05)',
+              background: policyForm.autoExecution ? `${ACCENTS.emerald}26` : 'rgba(255,255,255,0.04)',
+              color: policyForm.autoExecution ? '#8AE6C2' : 'var(--ed-steel-400)',
+              boxShadow: policyForm.autoExecution
+                ? `inset 0 0 0 1px ${ACCENTS.emerald}4A`
+                : 'var(--ed-ghost-border)',
             }}
           >
-            <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>
-              {formatTime(r.timestamp || r.ts)}
-            </span>
-            <span
-              className="ed-mono text-[10px] font-semibold"
-              style={{ color: stateColor, letterSpacing: '0.14em' }}
-            >
-              ● {kind}
-            </span>
-            <div className="flex items-baseline gap-2.5 min-w-0">
-              <span
-                className="ed-display truncate"
-                style={{ fontSize: 14, color: 'var(--ed-steel-50)', fontWeight: 600 }}
-              >
-                {actionName}
-              </span>
-              {txHref ? (
-                <a
-                  href={txHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="ed-mono text-[10px] hover:text-cyan transition-colors"
-                  style={{ color: 'var(--ed-cyan)' }}
-                >
-                  {txShort}
-                </a>
-              ) : r.txHash ? (
-                <span className="ed-mono text-[10px]" style={{ color: 'var(--ed-cyan)' }}>
-                  {txShort}
-                </span>
-              ) : null}
-            </div>
-            <span className="ed-mono text-[12px]" style={{ color: deltaColor }}>
-              {delta}
-            </span>
-            <span className="ed-mono text-[12px]" style={{ color: 'var(--ed-steel-100)' }}>
-              {conf}
-            </span>
-            <span
-              className="ed-mono text-[10.5px] truncate"
-              style={{
-                color: source.includes('0g-compute') ? 'var(--ed-cyan)' : 'var(--ed-steel-400)',
-              }}
-              title={source}
-            >
-              {source}
-            </span>
-            <span className={`ed-chip ed-chip-${chipTone}`}>{state === 'exec' ? 'executed' : state === 'veto' ? 'blocked' : 'skipped'}</span>
-            <span style={{ color: 'var(--ed-steel-500)' }}>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </span>
-          </div>
-        );
-      })}
-    </div>
+            {policyForm.autoExecution ? 'Enabled' : 'Disabled'}
+          </button>
+        </div>
+        <div className="flex gap-2 pt-2">
+          <ControlButton
+            variant="primary"
+            className="flex-1"
+            disabled={policyPending}
+            onClick={() => {
+              const fullPolicy = {
+                maxPositionBps: BigInt(policyForm.maxPositionBps || 0),
+                maxDailyLossBps: BigInt(policyForm.maxDailyLossBps || 0),
+                stopLossBps: BigInt(policyForm.stopLossBps || 0),
+                cooldownSeconds: BigInt(policyForm.cooldownSeconds || 0),
+                confidenceThresholdBps: BigInt(policyForm.confidenceThresholdBps || 0),
+                maxActionsPerDay: BigInt(policyForm.maxActionsPerDay || 0),
+                autoExecution: !!policyForm.autoExecution,
+                paused: !!policyForm.paused,
+                performanceFeeBps: BigInt(policyForm.performanceFeeBps || 0),
+                managementFeeBps: BigInt(policyForm.managementFeeBps || 0),
+                entryFeeBps: BigInt(policyForm.entryFeeBps || 0),
+                exitFeeBps: BigInt(policyForm.exitFeeBps || 0),
+                feeRecipient: policyForm.feeRecipient || '0x0000000000000000000000000000000000000000',
+              };
+              updatePolicy(vaultAddr, fullPolicy);
+              setTimeout(() => { onClose(); refetch(); }, 3000);
+            }}
+          >
+            {policyPending ? 'Updating…' : 'Update on-chain'}
+          </ControlButton>
+          <ControlButton variant="secondary" className="flex-1" onClick={onClose}>Cancel</ControlButton>
+        </div>
+      </div>
+    </ModalShell>
   );
 }

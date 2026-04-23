@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useVaultPolicy, useAllowedAssets, useVaultList } from '../hooks/useVault';
 import { useOGStorageStatus, useOrchestratorStatus } from '../hooks/useOrchestrator';
 import { getDefaultVaultAddress, getDeployments, getExplorerBaseUrl, getNetworkLabel } from '../lib/contracts';
+import { formatOrchestratorExecutorSummary, getPrimaryOrchestratorExecutor } from '../lib/orchestratorStatus';
 import GlassPanel from '../components/ui/GlassPanel';
 import StatusPill from '../components/ui/StatusPill';
 import SectionLabel from '../components/ui/SectionLabel';
@@ -42,6 +43,8 @@ export default function SettingsPage() {
   const { data: assets } = useAllowedAssets(vaultAddr);
   const { data: ogStatus } = useOGStorageStatus();
   const { data: orchStatus } = useOrchestratorStatus();
+  const primaryExecutor = getPrimaryOrchestratorExecutor(orchStatus);
+  const executorSummary = formatOrchestratorExecutorSummary(orchStatus);
 
   const explorer = getExplorerBaseUrl(chainId);
 
@@ -149,7 +152,7 @@ export default function SettingsPage() {
                 <PolicyChip label="Status" value={orchStatus.running ? 'Running' : 'Idle'} icon={<Cpu className="w-3.5 h-3.5" />} />
                 <PolicyChip
                   label="Executor Wallet"
-                  value={orchStatus.executorAddress ? `${orchStatus.executorAddress.slice(0, 8)}...${orchStatus.executorAddress.slice(-6)}` : 'Not configured'}
+                  value={primaryExecutor ? `${primaryExecutor.slice(0, 8)}...${primaryExecutor.slice(-6)}` : 'Not configured'}
                   icon={<Shield className="w-3.5 h-3.5" />}
                 />
                 <PolicyChip
@@ -204,7 +207,7 @@ export default function SettingsPage() {
                   Start your orchestrator with the wallet you want to trust as executor.
                 </p>
                 <p className="text-[11px] font-mono text-cyan/55 mt-2">
-                  {orchStatus?.executorAddress || 'Executor wallet not detected yet'}
+                  {executorSummary || 'Executor wallet not detected yet'}
                 </p>
               </div>
               <div className="rounded-lg border border-white/[0.05] bg-white/[0.02] px-4 py-4">

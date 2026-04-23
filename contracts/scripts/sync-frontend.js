@@ -81,6 +81,14 @@ function buildManifestEntry(targetChainId, source) {
       aegisVaultFactory: source.aegisVaultFactory || '',
       vaultNAVCalculator: source.vaultNAVCalculator || '',
       jaineVenueAdapter: source.jaineVenueAdapter || '',
+      // v2 stack — kept under separate keys so v1 remains queryable for
+      // existing vaults while new creates route through factoryV2.
+      aegisVaultImplementationV2: source.aegisVaultImplementationV2 || '',
+      aegisVaultFactoryV2:        source.aegisVaultFactoryV2 || '',
+      executionRegistryV2:        source.executionRegistryV2 || '',
+      insurancePoolV2:            source.insurancePoolV2 || '',
+      operatorStakingV2:          source.operatorStakingV2 || '',
+      operatorRegistryV2:         source.operatorRegistryV2 || '',
       USDCe: USDC_E,
       WETH:  WETH_REAL,
       WBTC:  WBTC_REAL,

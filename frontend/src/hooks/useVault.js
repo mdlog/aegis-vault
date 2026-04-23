@@ -140,6 +140,39 @@ export function useAllowedAssets(vaultAddress) {
   });
 }
 
+/**
+ * Batch-read the balance of every allowed asset held by the vault itself.
+ * Used by the v2 multi-asset withdraw UI to show users exactly which tokens
+ * their vault is currently holding (base + any non-base left from trades or
+ * legacy transfer-style deposits).
+ *
+ * Returns: [{ address, balance: bigint, loaded: bool }, ...] in the same
+ * order as getAllowedAssets(). balance is raw bigint — caller formats.
+ */
+export function useVaultAssetBalances(vaultAddress) {
+  const { data: allowedAssets } = useAllowedAssets(vaultAddress);
+  const assets = allowedAssets || [];
+
+  const balanceCalls = assets.map((addr) => ({
+    address: addr,
+    abi: MockERC20ABI,
+    functionName: 'balanceOf',
+    args: [vaultAddress],
+  }));
+
+  const { data: balances, isLoading } = useReadContracts({
+    contracts: balanceCalls,
+    query: { enabled: !!vaultAddress && assets.length > 0, refetchInterval: 15000 },
+  });
+
+  const rows = assets.map((addr, i) => ({
+    address: addr,
+    balance: balances?.[i]?.result ?? 0n,
+    loaded: balances?.[i]?.status === 'success',
+  }));
+  return { assets: rows, isLoading };
+}
+
 // ── Read Token Balance of Wallet ──
 
 export function useTokenBalance(tokenAddress, walletAddress, decimals = 6) {
@@ -172,6 +205,39 @@ export function useTransferToken() {
   return { transfer, hash, isPending, isConfirming, isSuccess, error };
 }
 
+// ── Write: Wrap Native → Wrapped ERC-20 (WETH9-compatible) ──
+//
+// W0G on 0G mainnet follows the WETH9 convention: `deposit()` is payable and
+// mints wrapped ERC-20 1:1 to the caller. We use this to bridge native 0G into
+// the ERC-20 path that AegisVault.deposit / transfer() flows require.
+
+const WETH9_DEPOSIT_ABI = [
+  {
+    type: 'function',
+    name: 'deposit',
+    stateMutability: 'payable',
+    inputs: [],
+    outputs: [],
+  },
+];
+
+export function useWrapNative() {
+  const { writeContract, data: hash, isPending, error, reset } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const wrap = (wrappedTokenAddress, amount, decimals = 18) => {
+    writeContract({
+      address: wrappedTokenAddress,
+      abi: WETH9_DEPOSIT_ABI,
+      functionName: 'deposit',
+      args: [],
+      value: parseUnits(amount.toString(), decimals),
+    });
+  };
+
+  return { wrap, hash, isPending, isConfirming, isSuccess, error, reset };
+}
+
 // ── Read Factory Vault List ──
 
 export function useOwnerVaults(factoryAddress, ownerAddress) {
@@ -187,16 +253,27 @@ export function useOwnerVaults(factoryAddress, ownerAddress) {
 // ── Read: Full Vault List for Owner (addresses + summaries) ──
 
 export function useVaultList(factoryAddress, ownerAddress) {
-  // Step 1: get vault addresses from factory
-  const { data: vaultAddrsResult, isLoading: addrsLoading } = useReadContract({
-    address: factoryAddress,
+  // v2-only policy: on chains where factoryV2 is deployed, ONLY query v2.
+  // Vault v1 instances exist on-chain but are hidden from the dashboard —
+  // their funds are accessible only by navigating directly to
+  // /app/vault/<v1-address>. On chains that don't have v2 yet (Arbitrum,
+  // hardhat, older testnets), fall back to v1 so the app still works.
+  const chainId = useChainId();
+  const deployments = getDeployments(chainId);
+  const factoryV2 = deployments.aegisVaultFactoryV2;
+  const activeFactory = factoryV2 || factoryAddress;
+  const activeVersion = factoryV2 ? 'v2' : 'v1';
+
+  const { data: addrsResult, isLoading: addrsLoading } = useReadContract({
+    address: activeFactory,
     abi: AegisVaultFactoryABI,
     functionName: 'getOwnerVaults',
     args: [ownerAddress],
-    query: { enabled: !!factoryAddress && !!ownerAddress, refetchInterval: 30000 },
+    query: { enabled: !!activeFactory && !!ownerAddress, refetchInterval: 30000 },
   });
 
-  const vaultAddrs = vaultAddrsResult || [];
+  const vaultAddrs = addrsResult || [];
+  const vaultVersions = vaultAddrs.map(() => activeVersion);
 
   // Step 2: batch-read getVaultSummary for each vault
   const summaryContracts = vaultAddrs.map((addr) => ({
@@ -213,13 +290,15 @@ export function useVaultList(factoryAddress, ownerAddress) {
   // Step 3: merge into a usable list
   const vaults = vaultAddrs.map((addr, i) => {
     const raw = summaries?.[i]?.result;
+    const version = vaultVersions[i] || 'v1';
     if (!raw) {
-      return { address: addr, loaded: false };
+      return { address: addr, loaded: false, version };
     }
     const [owner, executor, baseAsset, balance, totalDeposited, lastExecution, dailyActions, paused, autoExecution] = raw;
     return {
       address: addr,
       loaded: true,
+      version,
       owner,
       executor,
       baseAsset,
@@ -244,21 +323,30 @@ export function useVaultList(factoryAddress, ownerAddress) {
 }
 
 // ── Read: ALL Platform Vaults (from factory.allVaults) ──
+//
+// v2-only policy: mirror the same rule as useVaultList — when a v2 factory
+// exists on the current chain, we read from it and ignore the v1 factory
+// the caller passed. Keeps platform-wide lists consistent with per-owner
+// lists (no v1 vaults surfacing in marketplace / dashboard / stats).
 
 export function useAllPlatformVaults(factoryAddress) {
+  const chainIdLocal = useChainId();
+  const deploymentsLocal = getDeployments(chainIdLocal);
+  const activeFactory = deploymentsLocal.aegisVaultFactoryV2 || factoryAddress;
+
   // Step 1: get total vault count
   const { data: totalRaw, isLoading: countLoading } = useReadContract({
-    address: factoryAddress,
+    address: activeFactory,
     abi: AegisVaultFactoryABI,
     functionName: 'totalVaults',
-    query: { enabled: !!factoryAddress, refetchInterval: 30000 },
+    query: { enabled: !!activeFactory, refetchInterval: 30000 },
   });
 
   const total = totalRaw ? Number(totalRaw) : 0;
 
   // Step 2: batch-read getVaultAt(i) for each index
   const indexContracts = Array.from({ length: total }, (_, i) => ({
-    address: factoryAddress,
+    address: activeFactory,
     abi: AegisVaultFactoryABI,
     functionName: 'getVaultAt',
     args: [BigInt(i)],
@@ -369,6 +457,73 @@ export function useWithdraw() {
   return { withdraw, hash, isPending, isConfirming, isSuccess, error };
 }
 
+// ── v2 rescue path ──
+//
+// Minimal ABI stub for just the v2-specific functions so we don't need to
+// import a separate AegisVault_v2.json artifact. Signatures are fixed and
+// tested in V2Rescue.test.js.
+const AEGIS_VAULT_V2_ABI = [
+  { type: 'function', name: 'withdrawToken',      stateMutability: 'nonpayable', inputs: [{ name: 'token', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [] },
+  { type: 'function', name: 'withdrawAllNonBase', stateMutability: 'nonpayable', inputs: [], outputs: [] },
+  { type: 'function', name: 'version',            stateMutability: 'pure',       inputs: [], outputs: [{ type: 'string' }] },
+];
+
+/**
+ * Rescue a single non-base ERC-20 from a v2 vault to its owner. Reverts on
+ * v1 vaults (function doesn't exist) — callers should gate on vault.version.
+ */
+export function useWithdrawToken() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const withdrawToken = (vaultAddress, tokenAddress, amount, decimals = 18) => {
+    writeContract({
+      address: vaultAddress,
+      abi: AEGIS_VAULT_V2_ABI,
+      functionName: 'withdrawToken',
+      args: [tokenAddress, parseUnits(amount.toString(), decimals)],
+    });
+  };
+
+  return { withdrawToken, hash, isPending, isConfirming, isSuccess, error };
+}
+
+/**
+ * Drain all allowed non-base assets from a v2 vault in one tx. Bounded by
+ * MAX_ALLOWED_ASSETS (10) on-chain.
+ */
+export function useWithdrawAllNonBase() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const withdrawAllNonBase = (vaultAddress) => {
+    writeContract({
+      address: vaultAddress,
+      abi: AEGIS_VAULT_V2_ABI,
+      functionName: 'withdrawAllNonBase',
+      args: [],
+    });
+  };
+
+  return { withdrawAllNonBase, hash, isPending, isConfirming, isSuccess, error };
+}
+
+/**
+ * Probe vault.version() on-chain. Returns 'v2' for v2 vaults, 'v1' (default)
+ * otherwise. Non-blocking: while the read is in flight we assume v1 so the
+ * UI stays conservative.
+ */
+export function useVaultVersion(vaultAddress) {
+  const { data, isLoading } = useReadContract({
+    address: vaultAddress,
+    abi: AEGIS_VAULT_V2_ABI,
+    functionName: 'version',
+    query: { enabled: !!vaultAddress, retry: false },
+  });
+  // v1 vaults don't have version() — call reverts, data stays undefined.
+  return { version: data === 'v2' ? 'v2' : 'v1', isLoading };
+}
+
 // ── Write: Pause / Unpause ── (full-vault only)
 
 export function usePause() {
@@ -390,9 +545,15 @@ export function useCreateVault() {
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
 
+  // Cutover: new vaults always go to factoryV2 when it's deployed on this
+  // chain (gets rescueToken / withdrawAllNonBase support). Falls back to v1
+  // factory on chains where v2 hasn't shipped (Arbitrum execution layer,
+  // local hardhat, etc).
+  const activeFactory = deployments.aegisVaultFactoryV2 || deployments.aegisVaultFactory;
+
   const createVault = (baseAsset, executor, venue, policy, allowedAssets) => {
     writeContract({
-      address: deployments.aegisVaultFactory,
+      address: activeFactory,
       abi: AegisVaultFactoryABI,
       functionName: 'createVault',
       args: [baseAsset, executor, venue, policy, allowedAssets],
@@ -404,7 +565,7 @@ export function useCreateVault() {
   // a malicious contract injecting a same-named event into the same tx.
   // For batched deploys we keep all addresses but expose the LAST one as the
   // primary `deployedVaultAddress` (most recent = the one the user just made).
-  const factoryAddr = deployments.aegisVaultFactory?.toLowerCase();
+  const factoryAddr = activeFactory?.toLowerCase();
   const deployedVaultAddresses = [];
   if (receipt?.logs) {
     for (const log of receipt.logs) {

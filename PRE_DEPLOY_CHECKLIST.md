@@ -101,7 +101,7 @@ Old Arbitrum deploy script tried to call factory with 2 args (the previous
 ### 3.3 Registry consistency across configs
 - [ ] Verify: `grep -n 'operatorRegistry' contracts/deployments.json contracts/deployments-mainnet.json orchestrator/.env`
       → all three should show the **same** registry address.
-      Fresh deploy (2026-04-21) current address: `0x4C6e88812101C346974c7E48c1587D6Cd3B2C2A9`.
+      Fresh V2 deploy (2026-04-23) current address: `0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5`.
       The prior split-brain issue (two different registries) was fixed in the redeploy —
       `sync-frontend.js deployments-mainnet.json` keeps all three files aligned automatically.
 
@@ -179,7 +179,7 @@ Update `orchestrator/.env` 0G section:
 cd contracts
 export DEPLOYER_PRIVATE_KEY="<your freshly rotated Arbitrum deployer key>"
 export CONFIRM_MAINNET=1
-export TREASURY_ADDRESS_0G=0xb71d34Bc3DE959f5681d28c2496f754664b925c5   # optional — 0G ProtocolTreasury (fresh deploy 2026-04-21)
+export TREASURY_ADDRESS_0G=0xCDc5D994590D0BF407E5be390A62A8d1eBbf0dF4   # optional — 0G ProtocolTreasury (reused across v1/v2, deployed 2026-04-21)
 npx hardhat run scripts/deploy-arbitrum-execution.js --network arbitrum
 ```
 

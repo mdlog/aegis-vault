@@ -238,4 +238,87 @@
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: none; }
 }
-.ed-rise { animation: edRiseIn 700ms var(--ed-ease-snappy) both; }
+.ed-rise { animation: edRiseIn 700ms var(--ed-ease-snappy) both; animation-delay: var(--ed-rise-d, 0ms); }
+
+/* ── Dashboard redesign additions (Aegis mockup parity) ─────────────────── */
+
+/* Press-stock grain (lighter layer used on hero) */
+.ed-grain-light {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.9'/></svg>");
+  background-blend-mode: overlay;
+  opacity: 0.035;
+}
+
+/* Hero headline — display face with editorial italic pairing */
+.ed-hero-h1 {
+  font-family: var(--ed-font-display);
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 0.98;
+  color: var(--ed-steel-50);
+}
+.ed-hero-h1 em {
+  font-family: var(--ed-font-editorial);
+  font-style: italic;
+  font-weight: 400;
+  color: var(--ed-steel-50);
+}
+.ed-hero-num {
+  font-family: var(--ed-font-editorial);
+  font-style: italic;
+  line-height: 0.82;
+  letter-spacing: -0.04em;
+  color: var(--ed-steel-50);
+}
+
+/* Ghost numeral — oversized transparent italic numeral (hero corner) */
+.ed-hero-ghost-numeral {
+  font-family: var(--ed-font-editorial);
+  font-style: italic;
+  font-size: 9rem;
+  line-height: 1;
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(241, 245, 249, 0.16);
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Row hover (tape / leaderboard) */
+.ed-row-hover:hover { background: rgba(255,255,255,.035); }
+
+/* Gauge track (risk dial backing ring) */
+.ed-gauge-track { stroke: rgba(255,255,255,.06); }
+
+/* Breathe (pulse halo behind status dots) */
+@keyframes edBreathe { 0%,100% { opacity: .4; transform: scale(1);} 50% { opacity: 1; transform: scale(1.05);} }
+.ed-breathe { animation: edBreathe 2.6s ease-in-out infinite; }
+
+/* Gradient shift (confidence bar) */
+@keyframes edGS { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+.ed-anim-gs { background-size: 200% 200%; animation: edGS 8s ease-in-out infinite; }
+
+/* Tape-in (each freshly prepended tape row) */
+@keyframes edTapeIn { from { opacity:0; transform: translateY(8px);} to { opacity:1; transform:none; } }
+.ed-tape-in { animation: edTapeIn 500ms var(--ed-ease-snappy) both; animation-delay: var(--ed-tape-d, 0ms); }
+
+/* Sweeping shimmer across the live tape surface */
+.ed-tape-shimmer { position: relative; }
+.ed-tape-shimmer::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(16,185,129,.08) 50%, transparent 100%);
+  animation: edSweep 3.4s var(--ed-ease-snappy) infinite;
+  pointer-events: none;
+}
+@keyframes edSweep {
+  0%   { transform: translateX(-100%); opacity: 0; }
+  30%  { opacity: .6; }
+  100% { transform: translateX(150%); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ed-rise, .ed-tape-in, .ed-breathe, .ed-anim-gs, .ed-tape-shimmer::before, .ed-tape-scroll {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

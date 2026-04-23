@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import Logo from '../ui/Logo';
@@ -43,12 +43,34 @@ export default function AppShell({ children }) {
   const routeVaultAddress = location.pathname.startsWith('/app/vault/') || location.pathname.startsWith('/app/settings/')
     ? location.pathname.split('/')[3]
     : null;
+
+  // Drop the persisted vault whenever the user actually switches wallets, so
+  // the nav never routes wallet B to a vault owned by wallet A. We skip the
+  // very first render (prev=undefined) so a page refresh doesn't wipe a
+  // legitimate cached vault while wagmi is still rehydrating the connection.
+  const prevAddressRef = useRef(address);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (prevAddressRef.current && prevAddressRef.current !== address) {
+      window.localStorage.removeItem('aegis-active-vault');
+    }
+    prevAddressRef.current = address;
+  }, [address]);
+
   // Persist selected vault across nav so AI Actions / Faucet etc. don't reset to vault[0]
   const storedVault = typeof window !== 'undefined' ? window.localStorage.getItem('aegis-active-vault') : null;
-  const activeVaultAddress = routeVaultAddress || storedVault || displayVaults[0]?.address || getDefaultVaultAddress(chainId);
-  // Sync route-selected vault back to storage
+  const storedVaultOwned = !storedVault
+    || displayVaults.some((v) => v.address?.toLowerCase() === storedVault.toLowerCase());
+  const effectiveStoredVault = storedVaultOwned ? storedVault : null;
+  const activeVaultAddress = routeVaultAddress || effectiveStoredVault || displayVaults[0]?.address || getDefaultVaultAddress(chainId);
+  // Only sync back to storage when the routed vault actually belongs to the
+  // current wallet — otherwise a stale URL would re-poison the cache right
+  // after we cleared it.
   if (typeof window !== 'undefined' && routeVaultAddress && routeVaultAddress !== storedVault) {
-    window.localStorage.setItem('aegis-active-vault', routeVaultAddress);
+    const routedOwned = displayVaults.some((v) => v.address?.toLowerCase() === routeVaultAddress.toLowerCase());
+    if (routedOwned) {
+      window.localStorage.setItem('aegis-active-vault', routeVaultAddress);
+    }
   }
 
   // Current vault name (derive from address)
@@ -79,14 +101,11 @@ export default function AppShell({ children }) {
     <div className="min-h-screen bg-obsidian flex flex-col">
       {/* Top bar */}
       <header className="sticky top-0 z-50 bg-obsidian/95 backdrop-blur-xl border-b border-white/[0.04]">
-        <div className="max-w-[1440px] mx-auto px-4 lg:px-6 h-14 flex items-center justify-between gap-4">
+        <div className="max-w-[1440px] mx-auto px-4 lg:px-6 h-24 flex items-center justify-between gap-4">
           {/* Left: Logo + vault switcher */}
           <div className="flex items-center gap-4">
-            <Link to="/" className="flex items-center gap-2.5 group">
-              <Logo size={24} />
-              <span className="text-xs font-medium tracking-[0.12em] uppercase text-white/70 group-hover:text-white transition-colors hidden sm:inline">
-                Aegis Vault
-              </span>
+            <Link to="/" className="flex items-center group">
+              <Logo height={88} />
             </Link>
 
             <div className="h-5 w-px bg-white/[0.06] hidden sm:block" />

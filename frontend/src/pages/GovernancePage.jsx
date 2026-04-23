@@ -62,8 +62,8 @@ export default function GovernancePage() {
 
   // Stats for sidebar
   const { balance: treasuryUsdc } = useTokenBalance(deployments.mockUSDC, deployments.protocolTreasury, 6);
-  const { totalStakers, totalStakedUsd } = useStakingStats(deployments.operatorStaking);
-  const { balance: insuranceBalance, claimCount } = useInsurancePoolStats(deployments.insurancePool, deployments.mockUSDC);
+  const { totalStakers, totalStakedUsd } = useStakingStats((deployments.operatorStakingV2 || deployments.operatorStaking));
+  const { balance: insuranceBalance, claimCount } = useInsurancePoolStats((deployments.insurancePoolV2 || deployments.insurancePool), deployments.mockUSDC);
 
   const { submit, hash: submitHash, isPending: submitting, isSuccess: submitSuccess } = useSubmitProposal();
   const { confirm, hash: confirmHash, isPending: confirming } = useConfirmProposal();
@@ -84,19 +84,19 @@ export default function GovernancePage() {
     switch (actionType) {
       case 'slash':
         if (!isAddress(form.operator) || !form.amount) return;
-        built = ProposalBuilders.slash(deployments.operatorStaking, form.operator, form.amount, form.reason || 'arbitration');
+        built = ProposalBuilders.slash((deployments.operatorStakingV2 || deployments.operatorStaking), form.operator, form.amount, form.reason || 'arbitration');
         break;
       case 'freeze':
         if (!isAddress(form.operator)) return;
-        built = ProposalBuilders.freeze(deployments.operatorStaking, form.operator);
+        built = ProposalBuilders.freeze((deployments.operatorStakingV2 || deployments.operatorStaking), form.operator);
         break;
       case 'unfreeze':
         if (!isAddress(form.operator)) return;
-        built = ProposalBuilders.unfreeze(deployments.operatorStaking, form.operator);
+        built = ProposalBuilders.unfreeze((deployments.operatorStakingV2 || deployments.operatorStaking), form.operator);
         break;
       case 'payout':
         if (!form.claimId || !form.amount) return;
-        built = ProposalBuilders.payoutClaim(deployments.insurancePool, form.claimId, form.amount);
+        built = ProposalBuilders.payoutClaim((deployments.insurancePoolV2 || deployments.insurancePool), form.claimId, form.amount);
         break;
       case 'spend':
         if (!isAddress(form.recipient) || !form.amount) return;

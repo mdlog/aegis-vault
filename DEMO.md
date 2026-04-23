@@ -6,7 +6,7 @@ A 10-15 minute guided tour through the full Phase 1-5 production stack with dual
 - Contracts deployed:
   - 0G Aristotle Mainnet (chain 16661) — via `scripts/deploy-mainnet.js`. See [HACKATHON_SUBMISSION.md](HACKATHON_SUBMISSION.md) for the full 0G address table.
   - Arbitrum One (chain 42161) — via `scripts/deploy-arbitrum-execution.js` (optional, for dual-chain demo).
-- Orchestrator running on `localhost:4002` with fresh `.env` pointing at the new 0G factory (`0x7D0D6c77...`).
+- Orchestrator running on `localhost:4002` with fresh `.env` pointing at the v2 0G factory (`0x9450ac91...`).
 - Frontend running on `localhost:5173`.
 - Connected to **0G Aristotle Mainnet (chain 16661)** — the demo focus. Arbitrum is the sibling execution layer.
 - Two MetaMask accounts with native 0G + USDC.e:

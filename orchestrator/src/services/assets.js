@@ -28,6 +28,15 @@ const TRACKED_ASSETS = [
     isStablecoin: false,
     aliases: ['ETH', 'WETH'],
   },
+  {
+    tradeSymbol: '0G',
+    contractSymbol: 'W0G',
+    address: config.contracts.w0g,
+    decimals: 18,
+    coingeckoId: '0g',
+    isStablecoin: false,
+    aliases: ['0G', 'W0G', 'ZEROGRAVITY'],
+  },
 ];
 
 function bySymbolOrAlias(symbol) {
@@ -69,6 +78,7 @@ export function getTokenAddresses() {
     usdc: getAssetAddress('USDC'),
     wbtc: getAssetAddress('WBTC'),
     weth: getAssetAddress('WETH'),
+    w0g: getAssetAddress('W0G'),
   };
 }
 

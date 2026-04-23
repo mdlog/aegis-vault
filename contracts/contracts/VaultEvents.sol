@@ -120,4 +120,9 @@ library VaultEvents {
     // ── Phase 5 / KillCritic: Edge case events ──
     /// @notice Emitted when accrued operator fees are forfeited because vault balance is insufficient
     event AccruedFeesForfeited(address indexed vault, uint256 vaultBalance);
+
+    // ── v2: multi-asset rescue ──
+    /// @notice Emitted by AegisVault_v2.withdrawToken / withdrawAllNonBase when a
+    ///         non-base ERC-20 is released from the vault to the owner.
+    event TokenWithdrawn(address indexed vault, address indexed token, address indexed recipient, uint256 amount);
 }

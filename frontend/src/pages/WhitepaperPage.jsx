@@ -42,12 +42,9 @@ export default function WhitepaperPage() {
     <div className="min-h-screen bg-obsidian text-steel-50">
       {/* Top bar — minimal, non-app shell so it feels like a document, not a dashboard */}
       <header className="sticky top-0 z-40 bg-obsidian/95 backdrop-blur-xl border-b border-white/[0.04]">
-        <div className="max-w-[820px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
-          <Link to="/" className="flex items-center gap-2.5 group">
-            <Logo size={22} />
-            <span className="text-xs font-medium tracking-[0.12em] uppercase text-white/70 group-hover:text-white transition-colors hidden sm:inline">
-              Aegis Vault
-            </span>
+        <div className="max-w-[820px] mx-auto px-4 sm:px-6 h-24 flex items-center justify-between gap-4">
+          <Link to="/" className="flex items-center group">
+            <Logo height={88} />
           </Link>
           <div className="flex items-center gap-2">
             <a

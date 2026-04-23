@@ -47,12 +47,14 @@ async function main() {
   // Start API server
   startAPI();
 
-  // Check if vault is configured
+  // VAULT_ADDRESS is optional now — the indexer auto-discovers all vaults
+  // from the factory via VaultDeployed events. We keep the warning for users
+  // who rely on the old single-vault mode, but we no longer early-return,
+  // so the scheduler is set up regardless and processes whatever the indexer
+  // has assigned to this wallet each cycle.
   if (!config.contracts.vault) {
-    logger.warn('⚠  VAULT_ADDRESS not configured. Orchestrator will start but cycles will fail.');
-    logger.warn('   Set VAULT_ADDRESS in .env and restart.');
-    logger.warn('   You can still use the API endpoints.');
-    return;
+    logger.info('ℹ  VAULT_ADDRESS not set — running in multi-vault indexer mode.');
+    logger.info('   Indexer auto-discovers vaults from factory by executor wallet.');
   }
 
   // Run first cycle immediately

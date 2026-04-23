@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
+import "./libraries/OracleGuardLib.sol";
 
 /**
  * @title UniswapV3VenueAdapter
@@ -64,6 +66,7 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
 
     // ── Constants ──
     uint256 public constant MAX_FEE_TIERS = 10;
+    uint16  public constant MAX_SLIPPAGE_BPS_CAP = 2000;
 
     // ── Immutables ──
     ISwapRouter02 public immutable router;
@@ -72,6 +75,12 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
 
     // ── Fee tiers to try (Uniswap V3 standard) ──
     uint24[] public feeTiers;
+
+    // ── Oracle guard (optional; address(0) disables the check) ──
+    IPyth public pyth;
+    uint16 public maxSlippageBps = 300;
+    mapping(address => bytes32) public priceFeeds;
+    mapping(address => uint8)   public tokenDecimals;
 
     // ── Events ──
     event Swapped(
@@ -82,6 +91,9 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
         uint256 amountOut,
         uint24 fee
     );
+    event PythUpdated(address indexed oldPyth, address indexed newPyth);
+    event MaxSlippageUpdated(uint16 oldBps, uint16 newBps);
+    event AssetRegistered(address indexed token, bytes32 priceFeedId, uint8 decimals);
 
     // ── Errors ──
     error NoPoolFound(address tokenIn, address tokenOut);
@@ -91,6 +103,7 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
     error ZeroAddress();
     error SameToken();
     error TooManyFeeTiers();
+    error SlippageBpsTooHigh();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert OnlyOwner();
@@ -133,6 +146,11 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
     ) external nonReentrant returns (uint256 amountOut) {
         if (amountIn == 0) revert ZeroAmount();
         if (tokenIn == tokenOut) revert SameToken();
+
+        // Oracle guard — reject AI-supplied minAmountOut that deviates too far from
+        // fair market price. Skipped when pyth is unset or either token lacks a
+        // registered feed.
+        _checkOracleDeviation(tokenIn, tokenOut, amountIn, minAmountOut);
 
         // Find pool with best liquidity (reverts if none found)
         uint24 fee = _findPoolWithLiquidity(tokenIn, tokenOut);
@@ -215,11 +233,47 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
         return (false, 0, 0);
     }
 
+    function _checkOracleDeviation(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 minAmountOut
+    ) internal view {
+        if (address(pyth) == address(0)) return;
+        bytes32 feedIn  = priceFeeds[tokenIn];
+        bytes32 feedOut = priceFeeds[tokenOut];
+        if (feedIn == bytes32(0) || feedOut == bytes32(0)) return;
+
+        OracleGuardLib.checkDeviation(
+            pyth, feedIn, feedOut,
+            tokenDecimals[tokenIn], tokenDecimals[tokenOut],
+            amountIn, minAmountOut, maxSlippageBps
+        );
+    }
+
     // ── Admin ──
 
     function addFeeTier(uint24 _fee) external onlyOwner {
         if (feeTiers.length >= MAX_FEE_TIERS) revert TooManyFeeTiers();
         feeTiers.push(_fee);
+    }
+
+    function setPyth(address _pyth) external onlyOwner {
+        emit PythUpdated(address(pyth), _pyth);
+        pyth = IPyth(_pyth);
+    }
+
+    function setMaxSlippageBps(uint16 _bps) external onlyOwner {
+        if (_bps > MAX_SLIPPAGE_BPS_CAP) revert SlippageBpsTooHigh();
+        emit MaxSlippageUpdated(maxSlippageBps, _bps);
+        maxSlippageBps = _bps;
+    }
+
+    function registerAsset(address token, bytes32 feedId, uint8 decimals) external onlyOwner {
+        if (token == address(0)) revert ZeroAddress();
+        priceFeeds[token]    = feedId;
+        tokenDecimals[token] = decimals;
+        emit AssetRegistered(token, feedId, decimals);
     }
 
     function transferOwnership(address newOwner) external onlyOwner {

@@ -62,6 +62,7 @@ const PYTH_ADDRESS = "0x2880ab155794e7179c9ee2e38200202908c17b43";
 const PYTH_FEED_BTC = "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43";
 const PYTH_FEED_ETH = "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace";
 const PYTH_FEED_USDC = "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a";
+const PYTH_FEED_0G   = "0xfa9e8d4591613476ad0961732475dc08969d248faca270cc6c47efe009ea3070";
 
 // Hard-coded mainnet chain id
 const EXPECTED_CHAIN_ID = 16661;
@@ -239,6 +240,19 @@ async function main() {
   console.log("        →", deployments.jaineVenueAdapter);
   console.log("        Active pools (USDC.e/W0G, WETH/W0G, WBTC/W0G) via factory", JAINE_FACTORY);
 
+  // Oracle guard — reject AI-supplied minAmountOut that deviates > maxSlippageBps
+  // from fair market price (Pyth). Only enforced for registered tokens; swaps
+  // involving unregistered assets (e.g. W0G, which has no Pyth feed on 0G) skip
+  // the check and fall back to the router's own slippage enforcement.
+  console.log("        Wiring oracle guard (Pyth at", PYTH_ADDRESS + ")...");
+  await (await adapter.setPyth(PYTH_ADDRESS)).wait();
+  await (await adapter.setMaxSlippageBps(500)).wait(); // 5% — allow for Pyth update lag on crypto pairs
+  await (await adapter.registerAsset(USDCE_ADDRESS, PYTH_FEED_USDC, 6)).wait();
+  await (await adapter.registerAsset(WETH_ADDRESS,  PYTH_FEED_ETH,  18)).wait();
+  await (await adapter.registerAsset(WBTC_ADDRESS,  PYTH_FEED_BTC,  8)).wait();
+  await (await adapter.registerAsset(W0G_ADDRESS,   PYTH_FEED_0G,   18)).wait();
+  console.log("        ✓ guard armed for USDC.e / WETH / WBTC / W0G (maxSlippage 5%)");
+
   // ═══════════════════════════════════════════════
   // PHASE 2: Stake & Slashing
   // ═══════════════════════════════════════════════
@@ -331,6 +345,9 @@ async function main() {
   console.log("        Adding WBTC...");
   await (await navCalc.addAsset(WBTC_ADDRESS, PYTH_FEED_BTC, 8, false)).wait();
   console.log("        ✓");
+  console.log("        Adding W0G (wrapped native 0G)...");
+  await (await navCalc.addAsset(W0G_ADDRESS, PYTH_FEED_0G, 18, false)).wait();
+  console.log("        ✓");
 
   // ═══════════════════════════════════════════════
   // No MockDEX, no mock tokens, no demo vault.
@@ -394,6 +411,7 @@ async function main() {
     feedBTC: PYTH_FEED_BTC,
     feedETH: PYTH_FEED_ETH,
     feedUSDC: PYTH_FEED_USDC,
+    feed0G: PYTH_FEED_0G,
   };
   // Real Jaine-pair tokens live on 0G mainnet — derived from Jaine pool
   // swap events. These are the addresses the frontend chain profile maps

@@ -47,8 +47,8 @@ const MANDATE_COLORS = {
 export default function OperatorMarketplacePage() {
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
-  const registryAddress = deployments.operatorRegistry;
-  const stakingAddress = deployments.operatorStaking;
+  const registryAddress = deployments.operatorRegistryV2 || deployments.operatorRegistry;
+  const stakingAddress = deployments.operatorStakingV2 || deployments.operatorStaking;
   const reputationAddress = deployments.operatorReputation;
   const { operators, count, isLoading } = useOperatorList(registryAddress);
 
@@ -725,7 +725,7 @@ function FeaturedOperatorCard({ op, tier, reputation }) {
               View profile <ArrowRight className="w-3.5 h-3.5" />
             </ControlButton>
           </Link>
-          <Link to="/create">
+          <Link to={`/create?operator=${op.wallet}`}>
             <ControlButton variant="secondary">Assign to vault</ControlButton>
           </Link>
         </div>

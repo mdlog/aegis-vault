@@ -2,7 +2,7 @@
 
 **AI-managed, risk-controlled trading vaults with contract-enforced guardrails and dual-chain real execution.**
 
-*Version 1.0 · 2026-04-22*
+*Version 1.1 · 2026-04-23 (v2 stack: asset-rescue on vault, staking, insurance pool)*
 
 ---
 
@@ -45,7 +45,7 @@ The critical insight is that an AI vault protocol cannot be verifiable unless th
 
 ### 2.1 Contract topology
 
-The 0G mainnet deployment comprises fourteen contracts; the Arbitrum mainnet deployment comprises eight. All addresses are enumerated in Section 9.
+The 0G mainnet deployment comprises twenty contracts — the full v2 stack (AegisVault V2, OperatorRegistry V2, OperatorStaking V2, InsurancePool V2, ExecutionRegistry V2, factory V2) plus shared infrastructure (treasury, reputation, governor, NAV calculator, JaineVenueAdapter, ExecLib / SealedLib / IOLib) plus legacy v1 implementations kept on-chain for existing vault holders. The Arbitrum mainnet deployment comprises eight contracts (v2 not yet ported). All addresses are enumerated in Section 9.
 
 ```
                     User
@@ -366,24 +366,24 @@ The user does not need to trust the operator beyond "will run the strategy their
 
 ## 9. Deployed Instances
 
-### 9.1 0G Aristotle Mainnet (chain 16661) — deployed 2026-04-21
+### 9.1 0G Aristotle Mainnet (chain 16661) — v2 stack deployed 2026-04-23 (v1 initial deploy 2026-04-21, kept on-chain as legacy)
 
 | Contract | Address |
 |---|---|
-| AegisVaultFactory | `0x7D0D6c77e2C3476Aa310DE192A774164c3f55151` |
-| AegisVault (implementation) | `0xF7A9f61eF536C4B21e3336e2178A817D06CE1A91` |
-| ExecutionRegistry | `0x8489306Bdf106cb0e5485486C30EF223D9888c74` |
-| SealedLib | `0x2732878473489f427B795ba7C38B6B9491049b7e` |
-| ExecLib | `0x64729eB3De843d62e6850fCc0d457b34366CcF7f` |
-| IOLib | `0x6350dF660C66a861Fa5dE897e9933c3868e0Bd7a` |
-| OperatorRegistry | `0x4C6e88812101C346974c7E48c1587D6Cd3B2C2A9` |
-| OperatorStaking (stake = USDC.e) | `0xbb73584d07dBFcA69FB2d3032F28d7E059D3E2E7` |
-| OperatorReputation | `0xa55c04E1688fFbea734044775834C2F66a2EE8F2` |
-| AegisGovernor (1-of-1 init) | `0xf3Ffa341950d807bF2177D1dD7C76db993b12a89` |
-| InsurancePool | `0xdEA7542458b229aD35CC1F06746824fd31bcB4e2` |
-| ProtocolTreasury | `0xb71d34Bc3DE959f5681d28c2496f754664b925c5` |
-| JaineVenueAdapter | `0x3d5fe23DE2F0B1aCBde70395C7787DEC79413D92` |
-| VaultNAVCalculator (Pyth-backed) | `0xFC7b533b3Aa3f4AecFB8aec49cB816E6095cD97A` |
+| AegisVaultFactory | `0x9450ac911D06c81a54007a768d4278929d87A17e` |
+| AegisVault (implementation) | `0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181` |
+| ExecutionRegistry | `0x3a8a59865546e99c8377aFd2d02736e25Ac5d04E` |
+| SealedLib | `0x9dD28eE7d9B7D3e913D23dD1Fc3f4FB36b0F9063` |
+| ExecLib | `0x1F2110aE2E7280455Da63517942cBee7ecdB3045` |
+| IOLib | `0x0e60443Ee2c939f8cE19Fa5909c063B35a3baF7a` |
+| OperatorRegistry | `0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5` |
+| OperatorStaking (stake = USDC.e) | `0xAABC708aA3d5e9a37A90ff675EdBD681C204a376` |
+| OperatorReputation | `0xc270c579400a45975B2EBff05A2fF80f620080CA` |
+| AegisGovernor (1-of-1 init) | `0x023EC4a54435f94E9395460e4835e75E429D5A2e` |
+| InsurancePool | `0x0CaCfc2a5a47C315343f20A8841EE29133AD1598` |
+| ProtocolTreasury | `0xCDc5D994590D0BF407E5be390A62A8d1eBbf0dF4` |
+| JaineVenueAdapter | `0x0F8B269368925Fd55C62560B6f818173A8cB25eD` |
+| VaultNAVCalculator (Pyth-backed) | `0xBd21bfd62a11e1F8d04e7bE42D2cbDB6C51C4Ae1` |
 
 Canonical Jaine-pair tokens (verified via pool swap events):
 
@@ -430,7 +430,7 @@ Post-deploy wiring verified by direct RPC calls:
 ### 9.4 First operator + vault on the fresh 0G deployment
 
 - Operator `0x4E08B728087158a02aB458f03d833137b282eC5d` — name "Aegis Alpha bot", balanced mandate, AI model `zai-org/GLM-5-FP8`, bonded manifest hash `0xef462f339acbb414...ba21c79e`.
-- Vault `0xAEDAc17B531d55b8Ac587691922DEAec6C273181` — sealed mode enabled, 0.999 USDC.e deposited (after 0.1% entry fee), allowed assets = WBTC / WETH / USDC.e.
+- Vault (legacy v1) `0xAEDAc17B531d55b8Ac587691922DEAec6C273181` — sealed mode enabled, 0.999 USDC.e deposited (after 0.1% entry fee), allowed assets = WBTC / WETH / USDC.e. Kept on-chain as historical reference; vaults created post-2026-04-23 route through `AegisVaultFactory V2` with multi-asset rescue (`withdrawToken`, `withdrawAllNonBase`).
 
 ---
 

@@ -249,4 +249,174 @@ describe("UniswapV3VenueAdapter", function () {
       ).to.be.revertedWithCustomError(adapter, "ZeroAddress");
     });
   });
+
+  // ── Oracle guard (deviation check against Pyth) ────────────────────────────
+
+  describe("Oracle guard", function () {
+    let mockPyth, stable, stablePool;
+    const USDC_FEED   = ethers.id("USDC/USD");
+    const STABLE_FEED = ethers.id("STABLE/USD");
+
+    beforeEach(async function () {
+      const MockPyth = await ethers.getContractFactory("MockPyth");
+      mockPyth = await MockPyth.deploy(600, 0);
+
+      const Mock20 = await ethers.getContractFactory("MockERC20");
+      stable = await Mock20.deploy("Stable", "STBL", 6);
+      await stable.mint(await router.getAddress(), USDC_AMT(1_000_000));
+
+      const MockPool = await ethers.getContractFactory("MockUniV3Pool");
+      stablePool = await MockPool.deploy(1_000_000n);
+      await factory.setPool(
+        await usdc.getAddress(),
+        await stable.getAddress(),
+        500,
+        await stablePool.getAddress()
+      );
+
+      await adapter.setPyth(await mockPyth.getAddress());
+      await adapter.registerAsset(await usdc.getAddress(), USDC_FEED, 6);
+      await adapter.registerAsset(await stable.getAddress(), STABLE_FEED, 6);
+
+      await usdc.mint(user.address, USDC_AMT(1000));
+      await usdc.connect(user).approve(await adapter.getAddress(), USDC_AMT(1000));
+
+      await _pushPrices(1_00000000n, 1_00000000n, -8); // both $1, expo -8
+    });
+
+    async function _pushPrices(usdcPrice, stablePrice, expo) {
+      const now = (await ethers.provider.getBlock("latest")).timestamp;
+      const updates = [
+        await mockPyth.createPriceFeedUpdateData(USDC_FEED,   usdcPrice,   10000n, expo, usdcPrice,   10000n, now, 0),
+        await mockPyth.createPriceFeedUpdateData(STABLE_FEED, stablePrice, 10000n, expo, stablePrice, 10000n, now, 0),
+      ];
+      await mockPyth.updatePriceFeeds(updates, { value: 0 });
+    }
+
+    it("passes when minAmountOut is within the slippage tolerance", async function () {
+      // 100 USDC → fair 100 STBL. maxSlippage 3% → min acceptable 97 STBL.
+      await expect(
+        adapter.connect(user).swap(
+          await usdc.getAddress(),
+          await stable.getAddress(),
+          USDC_AMT(100),
+          USDC_AMT(99)
+        )
+      ).to.not.be.reverted;
+    });
+
+    it("reverts when minAmountOut deviates beyond maxSlippageBps", async function () {
+      await expect(
+        adapter.connect(user).swap(
+          await usdc.getAddress(),
+          await stable.getAddress(),
+          USDC_AMT(100),
+          USDC_AMT(90)
+        )
+      ).to.be.revertedWithCustomError(
+        { interface: new ethers.Interface(["error OracleDeviationExceeded(uint256 fairMin, uint256 claimed)"]) },
+        "OracleDeviationExceeded"
+      );
+    });
+
+    it("reverts on Pyth expo mismatch between the two feeds", async function () {
+      // Re-push only STABLE with a different expo.
+      const now = (await ethers.provider.getBlock("latest")).timestamp;
+      const update = await mockPyth.createPriceFeedUpdateData(
+        STABLE_FEED, 1_000000n, 10000n, -6, 1_000000n, 10000n, now, 0
+      );
+      await mockPyth.updatePriceFeeds([update], { value: 0 });
+
+      await expect(
+        adapter.connect(user).swap(
+          await usdc.getAddress(),
+          await stable.getAddress(),
+          USDC_AMT(100),
+          USDC_AMT(99)
+        )
+      ).to.be.revertedWithCustomError(
+        { interface: new ethers.Interface(["error OracleExpoMismatch(int32 expoIn, int32 expoOut)"]) },
+        "OracleExpoMismatch"
+      );
+    });
+
+    it("skips the check when pyth is not configured", async function () {
+      const Adapter = await ethers.getContractFactory("UniswapV3VenueAdapter");
+      const noOracle = await Adapter.deploy(await router.getAddress(), await factory.getAddress());
+
+      await usdc.mint(user.address, USDC_AMT(100));
+      await usdc.connect(user).approve(await noOracle.getAddress(), USDC_AMT(100));
+
+      // minAmountOut = 1 wei would fail the guard if it ran — proves guard is off.
+      await expect(
+        noOracle.connect(user).swap(
+          await usdc.getAddress(),
+          await stable.getAddress(),
+          USDC_AMT(100),
+          1n
+        )
+      ).to.not.be.reverted;
+    });
+
+    it("skips the check when one token is not registered", async function () {
+      const Mock20 = await ethers.getContractFactory("MockERC20");
+      const unreg = await Mock20.deploy("Unreg", "UNR", 6);
+      await unreg.mint(await router.getAddress(), USDC_AMT(1000));
+
+      const MockPool = await ethers.getContractFactory("MockUniV3Pool");
+      const p = await MockPool.deploy(1_000_000n);
+      await factory.setPool(
+        await usdc.getAddress(),
+        await unreg.getAddress(),
+        500,
+        await p.getAddress()
+      );
+
+      // unreg has no feed → guard is bypassed even with absurd minAmountOut.
+      await expect(
+        adapter.connect(user).swap(
+          await usdc.getAddress(),
+          await unreg.getAddress(),
+          USDC_AMT(100),
+          1n
+        )
+      ).to.not.be.reverted;
+    });
+
+    describe("Admin", function () {
+      it("setPyth emits PythUpdated and persists", async function () {
+        await expect(adapter.connect(owner).setPyth(user.address))
+          .to.emit(adapter, "PythUpdated")
+          .withArgs(await mockPyth.getAddress(), user.address);
+        expect(await adapter.pyth()).to.equal(user.address);
+      });
+
+      it("setMaxSlippageBps enforces the hard cap", async function () {
+        await expect(adapter.connect(owner).setMaxSlippageBps(2001))
+          .to.be.revertedWithCustomError(adapter, "SlippageBpsTooHigh");
+      });
+
+      it("setMaxSlippageBps updates the stored value", async function () {
+        await adapter.connect(owner).setMaxSlippageBps(500);
+        expect(await adapter.maxSlippageBps()).to.equal(500);
+      });
+
+      it("rejects non-owner setPyth", async function () {
+        await expect(adapter.connect(attacker).setPyth(user.address))
+          .to.be.revertedWithCustomError(adapter, "OnlyOwner");
+      });
+
+      it("rejects non-owner registerAsset", async function () {
+        await expect(
+          adapter.connect(attacker).registerAsset(await usdc.getAddress(), USDC_FEED, 6)
+        ).to.be.revertedWithCustomError(adapter, "OnlyOwner");
+      });
+
+      it("registerAsset rejects zero token", async function () {
+        await expect(
+          adapter.connect(owner).registerAsset(ethers.ZeroAddress, USDC_FEED, 6)
+        ).to.be.revertedWithCustomError(adapter, "ZeroAddress");
+      });
+    });
+  });
 });
