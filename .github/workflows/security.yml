@@ -2,9 +2,12 @@ name: Security Scan
 on:
   push:
     branches: [main]
-    paths: ['contracts/**']
+    paths: ['contracts/**', '.github/workflows/security.yml']
   pull_request:
-    paths: ['contracts/**']
+    paths: ['contracts/**', '.github/workflows/security.yml']
+  # Lets maintainers re-run the job manually from the Actions tab without
+  # pushing a dummy contracts/ change.
+  workflow_dispatch:
 
 jobs:
   slither:
