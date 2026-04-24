@@ -152,6 +152,9 @@ contract VaultNAVCalculator {
      */
     function updatePriceFeeds(bytes[] calldata updateData) external payable {
         uint256 fee = pyth.getUpdateFee(updateData);
+        // `pyth` is the admin-configured Pyth oracle contract (set at deploy
+        // and only rotatable via admin). Not an arbitrary target.
+        // slither-disable-next-line arbitrary-send-eth
         pyth.updatePriceFeeds{value: fee}(updateData);
     }
 

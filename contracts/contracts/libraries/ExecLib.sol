@@ -103,7 +103,15 @@ library ExecLib {
     }
 
     function _swap(address venue, address tokenIn, address tokenOut, uint256 amountIn, uint256 minAmountOut) private returns (uint256 amountOut) {
+        // Measure-before / measure-after is the standard AMM swap pattern: we
+        // read balances, call the venue, then compute actuals from the delta.
+        // No state writes happen between the reads and the call, and the
+        // `require(balanceOf < tokenInBefore)` check below rejects any
+        // post-call tampering. `venue` is the vault's configured adapter
+        // (not user-controlled).
+        // slither-disable-next-line reentrancy-balance
         uint256 tokenOutBefore = IERC20(tokenOut).balanceOf(address(this));
+        // slither-disable-next-line reentrancy-balance
         uint256 tokenInBefore = IERC20(tokenIn).balanceOf(address(this));
         IERC20(tokenIn).forceApprove(venue, amountIn);
         (bool ok, bytes memory ret) = venue.call(abi.encodeWithSignature("swap(address,address,uint256,uint256)", tokenIn, tokenOut, amountIn, minAmountOut));

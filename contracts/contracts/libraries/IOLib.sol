@@ -21,6 +21,10 @@ library IOLib {
         uint256 entryFeeBps
     ) external returns (uint256 net) {
         require(amount > 0, "0");
+        // `depositor` is always the upstream `msg.sender` of the vault's
+        // `deposit()` entrypoint, so this pulls tokens from the caller —
+        // not from an arbitrary account.
+        // slither-disable-next-line arbitrary-send-erc20
         IERC20(baseAssetAddr).safeTransferFrom(depositor, address(this), amount);
         net = amount;
         uint256 fee = (amount * entryFeeBps) / 10000;
