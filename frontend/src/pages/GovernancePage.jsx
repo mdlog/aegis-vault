@@ -7,7 +7,6 @@ import {
   getDeployments,
   getExplorerAddressHref,
   getExplorerTxHref,
-  isConfiguredAddress,
   shortHexLabel,
 } from '../lib/contracts';
 import { demoGovernance } from '../data/demoContent';
@@ -156,7 +155,7 @@ export default function GovernancePage() {
   })).filter((item) => item.href);
 
   return (
-    <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
+    <div className="max-w-[1540px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-8">
         <div>

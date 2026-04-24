@@ -22,4 +22,6 @@ jobs:
         with:
           target: contracts/
           slither-args: '--filter-paths "node_modules|mocks|test" --exclude-dependencies'
-          fail-on: none
+          # Gate merges on high-severity Slither findings. Medium/low/informational
+          # findings still show up in the report but don't fail the job.
+          fail-on: high

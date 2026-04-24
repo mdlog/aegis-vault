@@ -16,10 +16,11 @@ import {
 import { useVaultList, useAllPlatformVaults } from '../hooks/useVault';
 import {
   useOrchestratorStatus,
-  useKVState,
   usePythPrices,
   usePlatformTVL,
   useAlerts,
+  useDecisions,
+  useExecutions,
 } from '../hooks/useOrchestrator';
 import { useOperatorList } from '../hooks/useOperatorRegistry';
 import { useOperatorTiers } from '../hooks/useOperatorStaking';
@@ -249,6 +250,7 @@ function ProtocolPulse({ alerts }) {
       level: e.level || e.kind || 'info',
       title: e.message || e.reason || e.action || 'Event emitted',
       meta: e.vault ? `vault ${e.vault.slice(0, 8)}…${e.vault.slice(-4)}` : 'global',
+      txHref: e.txHref || null,
     }));
   }, [alerts]);
 
@@ -340,12 +342,25 @@ function TapeRow({ event, delay }) {
   };
   const { tone, icon: IconEl, chip, color } = toneMap[event.level] || toneMap.info;
 
+  // Show the viewer's local timezone (same convention as Decision feed on the
+  // vault detail page). Orchestrator logs print in local time, so echoing local
+  // here avoids the UTC ↔ server-time reconciliation confusion.
   const timeLabel = useMemo(() => {
     const ts = event.ts;
     if (!ts) return '—:—:—';
     const d = new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts);
     if (Number.isNaN(d.getTime())) return '—:—:—';
-    return d.toISOString().slice(11, 19);
+    const hhmmss = d.toLocaleTimeString(undefined, {
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    });
+    let abbr = '';
+    try {
+      const parts = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(d);
+      abbr = parts.find((p) => p.type === 'timeZoneName')?.value || '';
+    } catch {
+      abbr = '';
+    }
+    return abbr ? `${hhmmss} ${abbr}` : hhmmss;
   }, [event.ts]);
 
   return (
@@ -370,7 +385,22 @@ function TapeRow({ event, delay }) {
       </div>
       <div className="flex items-center gap-2">
         <Chip tone={tone} dense>{chip}</Chip>
-        <ArrowUpRight className="w-3.5 h-3.5" style={{ color: 'var(--ed-steel-500)' }} />
+        {event.txHref ? (
+          <a
+            href={event.txHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="View transaction on 0G Explorer"
+            className="inline-flex items-center justify-center h-5 w-5 rounded transition-colors"
+            onMouseEnter={(e) => (e.currentTarget.style.color = color)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-300)')}
+            style={{ color: 'var(--ed-steel-300)' }}
+          >
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </a>
+        ) : (
+          <ArrowUpRight className="w-3.5 h-3.5" style={{ color: 'var(--ed-steel-500)' }} />
+        )}
       </div>
     </div>
   );
@@ -475,7 +505,7 @@ function ProtocolHealthSection({ status, myVaultCount, totalVaults, operatorCoun
 
 /* ─────────────── AI Signal ─────────────── */
 
-function AISignalSection({ signal, accuracyHistory, signalTxHref, isDemo }) {
+function AISignalSection({ signal, signalStats, signalTxHref, isDemo }) {
   const noSignal = !signal;
   const action = signal?.action ? String(signal.action).toUpperCase() : 'HOLD';
   const asset = signal?.asset || 'USDC';
@@ -487,12 +517,17 @@ function AISignalSection({ signal, accuracyHistory, signalTxHref, isDemo }) {
     action === 'SELL' ? 'rose' :
     'amber';
 
-  const rollingAcc = useMemo(() => {
-    if (Array.isArray(accuracyHistory) && accuracyHistory.length > 0) return accuracyHistory;
-    return [62, 68, 71, 74, 78, 81, 79, 84, 86, 88, 87, 90, 88];
-  }, [accuracyHistory]);
+  // Real rolling accuracy derived from `platformDecisions` (30d non-veto rate
+  // per bucket). Falls back to a demo curve when orchestrator has no decisions
+  // yet — tagged with `isSynthetic` so the UI can flag it.
+  const hasRealStats = signalStats && Array.isArray(signalStats.accuracy) && signalStats.accuracy.length > 0;
+  const rollingAcc = hasRealStats
+    ? signalStats.accuracy
+    : [62, 68, 71, 74, 78, 81, 79, 84, 86, 88, 87, 90, 88];
+  const isSynthetic = !hasRealStats;
 
   const accuracyValue = Math.round((rollingAcc[rollingAcc.length - 1] || 0));
+  const accuracyDelta = accuracyValue - (rollingAcc[0] || 0);
 
   const features = signal ? [
     { k: 'edge_score',  v: signal.final_edge_score ?? '—' },
@@ -615,24 +650,37 @@ function AISignalSection({ signal, accuracyHistory, signalTxHref, isDemo }) {
         {/* Accuracy card */}
         <div className="rounded-2xl p-6 flex flex-col" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
           <div className="flex items-start justify-between mb-1">
-            <Eyebrow tone="muted">Rolling accuracy · 30d</Eyebrow>
+            <div className="flex items-center gap-2">
+              <Eyebrow tone="muted">Rolling accuracy · 30d</Eyebrow>
+              {isSynthetic && <Chip tone="gold" dense>demo</Chip>}
+            </div>
             <Sparkles className="w-3.5 h-3.5" style={{ color: ACCENT_CYAN }} />
           </div>
           <div className="flex items-end gap-3 mt-1">
             <span className="ed-italic text-[48px] sm:text-[56px] leading-none" style={{ color: 'var(--ed-steel-50)' }}>
               {accuracyValue}<span className="text-[20px] ml-1" style={{ color: 'var(--ed-steel-500)' }}>%</span>
             </span>
-            <span className="ed-mono text-[11px] pb-2" style={{ color: ACCENT_EMERALD }}>
-              {accuracyValue >= (rollingAcc[0] || 0) ? '+' : ''}{accuracyValue - (rollingAcc[0] || 0)} pts
-            </span>
+            {rollingAcc.length > 1 && (
+              <span
+                className="ed-mono text-[11px] pb-2"
+                style={{ color: accuracyDelta >= 0 ? ACCENT_EMERALD : ACCENT_ROSE }}
+              >
+                {accuracyDelta >= 0 ? '+' : ''}{accuracyDelta} pts
+              </span>
+            )}
+          </div>
+          <div className="mt-1 ed-mono text-[10px]" style={{ color: 'var(--ed-steel-500)' }}>
+            {isSynthetic
+              ? 'Awaiting first cycle — showing indicative curve'
+              : 'Non-veto rate · bucketed from live decision journal'}
           </div>
           <div className="mt-4 flex-1">
             <BarSeries data={rollingAcc} color={ACCENT_CYAN} height={60} />
           </div>
           <div className="mt-4 pt-4 grid grid-cols-3 gap-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-            <MiniStat label="Signals" value={String(signal?.hist_signals ?? rollingAcc.length * 16)} />
-            <MiniStat label="Hits"    value={String(Math.round((accuracyValue / 100) * rollingAcc.length * 16))} />
-            <MiniStat label="Veto"    value={String(signal?.hist_veto ?? Math.round((1 - accuracyValue / 100) * rollingAcc.length * 16))} />
+            <MiniStat label="Signals" value={String(signalStats?.totalSignals ?? '—')} />
+            <MiniStat label="Hits"    value={String(signalStats?.totalHits ?? '—')} />
+            <MiniStat label="Veto"    value={String(signalStats?.totalVeto ?? '—')} />
           </div>
         </div>
       </div>
@@ -1046,6 +1094,41 @@ export default function DashboardPage() {
   const { vaults: allVaults, isLoading: allLoading, total: totalVaults } = useAllPlatformVaults(deployments.aegisVaultFactory);
   const { data: orchStatus } = useOrchestratorStatus();
   const { data: protocolAlerts } = useAlerts(6);
+  const { data: protocolExecutions } = useExecutions(6);
+  // Protocol Pulse shows both successes AND failures on the execution tape —
+  // merge the two journal streams and keep the six most recent regardless of
+  // type. Successful executions are type='execution', failures surface as
+  // type='alert'. Without this merge the tape silently omits every settled
+  // swap and the dashboard looks stuck on the last veto.
+  const protocolEvents = useMemo(() => {
+    const alertList = Array.isArray(protocolAlerts) ? protocolAlerts : [];
+    const execList  = Array.isArray(protocolExecutions) ? protocolExecutions : [];
+    const mapped = [
+      ...alertList.map((e) => ({
+        ...e,
+        _level: e.level || 'critical',
+        _title: e.message || e.reason || `Execution failed${e.action ? ` for ${e.action.toUpperCase()} ${e.asset || ''}`.trim() : ''}`,
+      })),
+      ...execList.map((e) => ({
+        ...e,
+        _level: e.success === false ? 'critical' : 'executed',
+        _title: e.success === false
+          ? `Execution reverted${e.action ? ` · ${e.action.toUpperCase()} ${e.asset || ''}`.trim() : ''}`
+          : `${(e.action || 'trade').toUpperCase()} settled${e.asset ? ` · ${e.asset}` : ''}${e.txHash ? ` · ${e.txHash.slice(0, 10)}…` : ''}`,
+      })),
+    ];
+    mapped.sort((a, b) => {
+      const ta = new Date(a.timestamp || a.ts || a.time || 0).getTime();
+      const tb = new Date(b.timestamp || b.ts || b.time || 0).getTime();
+      return tb - ta;
+    });
+    return mapped.slice(0, 6).map((e) => ({
+      ...e,
+      level: e._level,
+      message: e._title,
+      txHref: e.txHash ? getExplorerTxHref(chainId, e.txHash) : null,
+    }));
+  }, [protocolAlerts, protocolExecutions, chainId]);
   const { operators: marketplaceOps } = useOperatorList(deployments.operatorRegistryV2 || deployments.operatorRegistry);
   const activeMarketplaceOps = marketplaceOps.filter((op) => op.loaded && op.active);
   const marketplaceAddrs = activeMarketplaceOps.map((op) => op.wallet);
@@ -1053,8 +1136,12 @@ export default function DashboardPage() {
     deployments.operatorStakingV2 || deployments.operatorStaking,
     marketplaceAddrs,
   );
-  const { data: kvState } = useKVState();
+  // `lastSignal` is surfaced via /api/status (public), so we don't need the
+  // auth-gated /api/state endpoint on the public dashboard.
   const { data: pythPrices } = usePythPrices();
+  // Platform-wide decision stream (omit vaultAddress → all vaults). Powers the
+  // "Rolling accuracy · 30d" panel — non-veto rate bucketed over time.
+  const { data: platformDecisions } = useDecisions(100);
 
   const myAddrsLower = new Set(myVaults.map((v) => v.address?.toLowerCase()));
   const otherVaults = allVaults.filter((v) => !myAddrsLower.has(v.address?.toLowerCase()));
@@ -1070,7 +1157,7 @@ export default function DashboardPage() {
   const displayRunningCount = showDemoExperience ? demoPlatformSnapshot.runningVaults : runningCount;
   const displayPlatformTVL = showDemoExperience ? demoPlatformSnapshot.platformTVL : platformTVL;
   const displayTVLSource = showDemoExperience ? 'Demo · live' : tvlSource || 'Pyth · live';
-  const displaySignal = kvState?.lastSignal || (showDemoExperience ? demoSignal : null);
+  const displaySignal = orchStatus?.lastSignal || (showDemoExperience ? demoSignal : null);
   const displayStatus = orchStatus || (showDemoExperience ? demoStatus : null);
   const displayPrices = pythPrices || (showDemoExperience ? demoPythPrices : null);
   const risk = computeRisk(displaySignal, demoPlatformSnapshot.aggregateRisk);
@@ -1096,6 +1183,45 @@ export default function DashboardPage() {
     const peak = displayPlatformTVL;
     return base.map((b, i) => peak * (0.6 + b * 0.4) + i * (peak * 0.002));
   }, [displayPlatformTVL]);
+
+  // Rolling accuracy — bucket the last 30 days of AI decisions into up to 13
+  // groups and compute non-veto rate per bucket. Non-veto rate = how often AI
+  // signals survive policy checks (hard_veto=false). Null when orchestrator
+  // hasn't emitted any real decisions yet — `AISignalSection` falls back to a
+  // demo curve in that case so the panel still reads as a design surface.
+  const signalStats = useMemo(() => {
+    if (!Array.isArray(platformDecisions) || platformDecisions.length === 0) return null;
+    // Anchor the 30d window to the newest decision in the batch (not Date.now)
+    // so the memoised value stays pure — same input always yields same output.
+    const timestamps = platformDecisions
+      .map((d) => new Date(d.timestamp).getTime())
+      .filter(Number.isFinite);
+    if (timestamps.length === 0) return null;
+    const newest = Math.max(...timestamps);
+    const cutoff = newest - 30 * 24 * 60 * 60 * 1000;
+    const recent = platformDecisions.filter((d) => {
+      const ts = new Date(d.timestamp).getTime();
+      return Number.isFinite(ts) && ts >= cutoff;
+    });
+    if (recent.length === 0) return null;
+    // Journal returns newest-first; flip so the chart reads left-to-right
+    // (oldest → newest). Equal-size buckets so sparse days don't drop points.
+    const ordered = [...recent].reverse();
+    const numBuckets = Math.min(13, ordered.length);
+    const buckets = Array.from({ length: numBuckets }, () => ({ total: 0, veto: 0 }));
+    ordered.forEach((d, i) => {
+      const idx = Math.min(numBuckets - 1, Math.floor((i / ordered.length) * numBuckets));
+      buckets[idx].total += 1;
+      if (d.hard_veto) buckets[idx].veto += 1;
+    });
+    const accuracy = buckets.map((b) =>
+      b.total === 0 ? 0 : Math.round((1 - b.veto / b.total) * 100),
+    );
+    const totalSignals = recent.length;
+    const totalVeto = recent.filter((d) => d.hard_veto).length;
+    const totalHits = totalSignals - totalVeto;
+    return { accuracy, totalSignals, totalHits, totalVeto };
+  }, [platformDecisions]);
 
   const deltaPct = showDemoExperience ? '+12.4% · 7d' : displayPlatformTVL > 0 ? `${tvlSource || 'on-chain'}` : null;
 
@@ -1179,7 +1305,7 @@ export default function DashboardPage() {
         <div className="mt-6 lg:mt-8 grid grid-cols-1 xl:grid-cols-[1fr_340px] gap-6 lg:gap-8">
           <div className="flex flex-col gap-10 min-w-0">
             <div className="ed-rise" style={{ '--ed-rise-d': '80ms' }}>
-              <ProtocolPulse alerts={protocolAlerts} />
+              <ProtocolPulse alerts={protocolEvents} />
             </div>
             <div className="ed-rise" style={{ '--ed-rise-d': '160ms' }}>
               <ProtocolHealthSection
@@ -1191,7 +1317,12 @@ export default function DashboardPage() {
               />
             </div>
             <div className="ed-rise" style={{ '--ed-rise-d': '240ms' }}>
-              <AISignalSection signal={displaySignal} signalTxHref={signalTxHref} isDemo={showDemoExperience && !kvState?.lastSignal} />
+              <AISignalSection
+                signal={displaySignal}
+                signalTxHref={signalTxHref}
+                isDemo={showDemoExperience && !orchStatus?.lastSignal}
+                signalStats={signalStats}
+              />
             </div>
             <div className="ed-rise" style={{ '--ed-rise-d': '320ms' }}>
               <OperatorLeaderboard operators={activeMarketplaceOps} tiersByAddress={tiersByAddress} />
@@ -1243,15 +1374,17 @@ export default function DashboardPage() {
 function FooterTickerContent() {
   return (
     <>
-      <span>Aegis · sovereign vault orchestration</span>
+      <span>Aegis · AI-managed DeFi vaults on 0G</span>
       <span style={{ color: ACCENT_CYAN }}>✦</span>
-      <span>Cycle <span style={{ color: 'var(--ed-steel-50)' }}>live</span></span>
+      <span>Chain <span style={{ color: 'var(--ed-steel-50)' }}>0G Aristotle · 16661</span></span>
       <span style={{ color: ACCENT_CYAN }}>✦</span>
-      <span>Block <span style={{ color: 'var(--ed-steel-50)' }}>100ms</span></span>
+      <span>Venue <span style={{ color: 'var(--ed-steel-50)' }}>Jaine V3</span></span>
+      <span style={{ color: ACCENT_CYAN }}>✦</span>
+      <span>AI <span style={{ color: 'var(--ed-steel-50)' }}>GLM-5-FP8 · TEE-signed</span></span>
+      <span style={{ color: ACCENT_CYAN }}>✦</span>
+      <span>Intent <span style={{ color: 'var(--ed-steel-50)' }}>EIP-712 sealed</span></span>
       <span style={{ color: ACCENT_CYAN }}>✦</span>
       <span className="ed-italic normal-case tracking-[0.02em]" style={{ color: 'var(--ed-steel-50)' }}>"receipts, not promises"</span>
-      <span style={{ color: ACCENT_CYAN }}>✦</span>
-      <span>VM <span style={{ color: 'var(--ed-steel-50)' }}>move</span></span>
       <span style={{ color: ACCENT_CYAN }}>✦</span>
     </>
   );

@@ -6,7 +6,7 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "cycle": "node -e \"import('./src/services/orchestrator.js').then(m => { m.initialize(); return m.runCycle(); }).then(r => { console.log(JSON.stringify(r, null, 2)); process.exit(0); })\"",
-    "test": "node --test --test-reporter=spec test/**/*.test.js"
+    "test": "node --test --test-reporter=spec test"
   },
   "keywords": [],
   "author": "",
@@ -16,7 +16,7 @@
     "@0glabs/0g-serving-broker": "^0.7.4",
     "@0glabs/0g-ts-sdk": "^0.3.3",
     "@pythnetwork/hermes-client": "^2.0.0",
-    "axios": "^1.14.0",
+    "axios": "^1.15.2",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "ethers": "^6.16.0",
@@ -24,6 +24,10 @@
     "node-cron": "^4.2.1",
     "p-limit": "^7.3.0",
     "winston": "^3.19.0"
+  },
+  "overrides": {
+    "axios": "^1.15.2",
+    "elliptic": "^6.6.1"
   },
   "type": "module"
 }

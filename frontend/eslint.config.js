@@ -23,7 +23,14 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // Allow capitalized / underscore-prefixed names to be unused. This
+      // covers JSX component props that this config can't see as "used"
+      // (we don't pull in eslint-plugin-react's jsx-uses-vars) and the
+      // conventional `_foo` parameter used to signal intentional skips.
+      'no-unused-vars': ['error', {
+        varsIgnorePattern: '^[A-Z_]',
+        argsIgnorePattern: '^[A-Z_]',
+      }],
     },
   },
 ])

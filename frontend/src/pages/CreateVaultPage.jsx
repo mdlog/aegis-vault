@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { isAddress } from 'viem';
@@ -17,8 +17,8 @@ import {
   useOperatorTiers, TIER_LABELS, TIER_COLORS, formatVaultCap,
 } from '../hooks/useOperatorStaking';
 import { demoOperatorTiers, demoOperators } from '../data/demoContent';
-import { ENABLE_DEMO_FALLBACKS, getDeployments } from '../lib/contracts';
-import { resolveVenueAddress, getChainProfile, requiresDemoDisclaimer } from '../lib/chainConfig';
+import { ENABLE_DEMO_FALLBACKS, getDeployments, findDeploymentChainId } from '../lib/contracts';
+import { resolveVenueAddress, getChainProfile } from '../lib/chainConfig';
 import { getPrimaryOrchestratorExecutor } from '../lib/orchestratorStatus';
 import { parseTxError } from '../lib/txErrors';
 import { useDraftState } from '../lib/useDraftState';
@@ -85,6 +85,8 @@ export default function CreateVaultPage() {
   const { isConnected, address: walletAddress } = useAccount();
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
+  const factoryChainId = findDeploymentChainId('aegisVaultFactoryV2')
+    || findDeploymentChainId('aegisVaultFactory');
   const {
     createVault,
     isSuccess: createSuccess,
@@ -110,6 +112,11 @@ export default function CreateVaultPage() {
   // Snapshot taken at executeDeploy() so subsequent phases (approve, deposit)
   // are immune to user edits during the multi-tx flow.
   const deploySnapshotRef = useRef(null);
+  // One-shot guards — React 19 StrictMode + effect dep changes used to fire
+  // the success toast + navigate twice (and sometimes loop). Refs gate each
+  // side-effect to exactly one invocation per deploy.
+  const doneHandledRef = useRef(false);
+  const navigateQueuedRef = useRef(false);
   const draftKey = `draft:create-vault:v1:${walletAddress || 'anon'}`;
   const [config, setConfig, { clearDraft, hasDraft }] = useDraftState(draftKey, {
     depositAmount: 50000,
@@ -271,7 +278,9 @@ export default function CreateVaultPage() {
   // Pick a marketplace operator and apply their recommended policy as a
   // starting point. Registry stores percentages as bps (5000 = 50%) and time
   // as seconds; the form holds them as percent and minutes.
-  const pickMarketplaceOperator = (op) => {
+  // Stable identity so the auto-select effects below can list it as a dep
+  // without retriggering every render. Only reads prop `op` + state setters.
+  const pickMarketplaceOperator = useCallback((op) => {
     setSelectedMarketplaceOperator(op.wallet);
     const hasRecommendation =
       op.recommendedMaxPositionBps ||
@@ -308,7 +317,11 @@ export default function CreateVaultPage() {
       cooldown: suggestions.cooldown ?? prev.cooldown,
       maxActionsPerDay: suggestions.maxActionsPerDay ?? prev.maxActionsPerDay,
     }));
-  };
+    // setConfig / setSelectedMarketplaceOperator / setOperatorSuggestions are
+    // stable useState setters, so no deps are actually needed. Listing setConfig
+    // explicitly just silences react-hooks/exhaustive-deps without affecting
+    // identity stability.
+  }, [setConfig]);
 
   // Pre-select an operator when landing here from "Assign to vault" button.
   // Reads ?operator=0x... from URL, auto-selects the matching operator and
@@ -326,7 +339,7 @@ export default function CreateVaultPage() {
       setExecutorMode('marketplace');
     }
     setPrefillHandled(true);
-  }, [operatorFromQuery, activeMarketplaceOperators, prefillHandled]);
+  }, [operatorFromQuery, activeMarketplaceOperators, prefillHandled, pickMarketplaceOperator]);
 
   // Auto-select first operator when user switches to marketplace mode and
   // there's no selection yet. Saves a click when the list is small. User
@@ -336,7 +349,7 @@ export default function CreateVaultPage() {
     if (selectedMarketplaceOperator) return;
     if (activeMarketplaceOperators.length === 0) return;
     pickMarketplaceOperator(activeMarketplaceOperators[0]);
-  }, [activeExecutorMode, selectedMarketplaceOperator, activeMarketplaceOperators]);
+  }, [activeExecutorMode, selectedMarketplaceOperator, activeMarketplaceOperators, pickMarketplaceOperator]);
 
   // Auto-deposit flow: createVault → approve → deposit → navigate
   // Each phase reads from deploySnapshotRef (frozen at executeDeploy) so user
@@ -360,9 +373,11 @@ export default function CreateVaultPage() {
     }
   }, [deployPhase, approveSuccess, deployedVaultAddress, deposit]);
 
-  // Navigate once deposit is confirmed
+  // Navigate once deposit is confirmed. Guarded so StrictMode's dev-only
+  // double-invocation doesn't queue two `setTimeout(navigate)` calls.
   useEffect(() => {
-    if (deployPhase === 'depositing' && depositSuccess) {
+    if (deployPhase === 'depositing' && depositSuccess && !navigateQueuedRef.current) {
+      navigateQueuedRef.current = true;
       setDeployPhase('done');
       setTimeout(() => navigate('/app'), 1500);
     }
@@ -392,8 +407,11 @@ export default function CreateVaultPage() {
   }, [deployPhase, createError, approveError, depositError]);
 
   // Success toast + draft cleanup when full flow completes.
+  // Guarded by doneHandledRef: `clearDraft` re-creates state which can
+  // otherwise feed back into the effect and spam toasts.
   useEffect(() => {
-    if (deployPhase === 'done') {
+    if (deployPhase === 'done' && !doneHandledRef.current) {
+      doneHandledRef.current = true;
       toast.success('Vault deployed and funded', {
         description: 'Redirecting you to the dashboard…',
       });
@@ -526,7 +544,7 @@ export default function CreateVaultPage() {
   };
 
   return (
-    <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-8 lg:py-12">
+    <div className="max-w-[1540px] mx-auto px-4 lg:px-6 py-8 lg:py-12">
         {/* Mobile sticky progress bar — keeps step context visible while scrolling */}
         <div className="sm:hidden sticky top-0 z-20 -mx-4 px-4 py-2 mb-4 bg-obsidian/85 backdrop-blur border-b border-white/[0.06]">
           <div className="flex items-center justify-between gap-3">
@@ -554,8 +572,8 @@ export default function CreateVaultPage() {
 
         {isConnected && (
           <NetworkWarning
-            requiredAddress={deployments.aegisVaultFactory}
-            expectedChainId={16602}
+            requiredAddress={deployments.aegisVaultFactoryV2 || deployments.aegisVaultFactory}
+            expectedChainId={factoryChainId}
             contractName="Aegis Vault Factory"
           />
         )}

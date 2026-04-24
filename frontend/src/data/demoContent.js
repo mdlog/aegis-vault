@@ -1,7 +1,5 @@
 import {
   allocation,
-  drawdownHistory,
-  navHistory,
   policy as basePolicy,
   riskEvents,
   vaultOverview,

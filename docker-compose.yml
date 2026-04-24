@@ -1,0 +1,41 @@
+# Aegis Vault — local dev orchestration.
+#
+# Brings up orchestrator + frontend behind their production images. Secrets
+# come from .env at repo root (see .env.example). Not intended for prod —
+# for prod you'd run orchestrator under a process supervisor (pm2 /
+# systemd / k8s Deployment) and serve the frontend bundle from a CDN.
+#
+# Usage:
+#   cp .env.example .env       # fill in PRIVATE_KEY, AEGIS_API_KEY, etc.
+#   docker compose up --build
+#   curl http://localhost:4002/api/health
+#   open http://localhost:8080
+
+services:
+  orchestrator:
+    build:
+      context: ./orchestrator
+    image: aegis-orchestrator:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: 4002
+      NODE_ENV: production
+    ports:
+      - "4002:4002"
+    volumes:
+      - ./orchestrator/logs:/app/logs
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_ORCHESTRATOR_URL: http://localhost:4002
+        VITE_CHAIN_ID: "16661"
+    image: aegis-frontend:latest
+    restart: unless-stopped
+    depends_on:
+      - orchestrator
+    ports:
+      - "8080:80"

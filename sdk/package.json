@@ -1,0 +1,53 @@
+{
+  "name": "@aegis-vault/sdk",
+  "version": "0.3.0",
+  "description": "JavaScript/TypeScript SDK for the Aegis Vault protocol on 0G Chain — on-chain reads, orchestrator API, and operator tooling.",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./orchestrator": "./src/orchestrator.js",
+    "./vault": "./src/vault.js",
+    "./factory": "./src/factory.js",
+    "./operator": "./src/operator.js",
+    "./token": "./src/token.js",
+    "./execution-registry": "./src/executionRegistry.js",
+    "./errors": "./src/errors.js",
+    "./multicall": "./src/multicall.js",
+    "./manifest": "./src/manifest.js",
+    "./wallet": "./src/wallet.js",
+    "./config": "./src/config.js",
+    "./abi/*": "./src/abi/*.json"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test --test-reporter=spec test",
+    "example:status": "node examples/orchestrator-status.js",
+    "example:vault": "node examples/read-vault.js",
+    "example:register-operator": "node examples/register-operator.js"
+  },
+  "keywords": [
+    "aegis",
+    "0g-chain",
+    "defi",
+    "vault",
+    "sdk",
+    "ethers"
+  ],
+  "author": "Aegis Vault",
+  "license": "MIT",
+  "peerDependencies": {
+    "ethers": "^6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "ethers": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

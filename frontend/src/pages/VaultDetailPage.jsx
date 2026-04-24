@@ -154,8 +154,8 @@ export default function VaultDetailPage() {
   const { unpause, hash: unpauseHash, isPending: unpausePending } = useUnpause();
   const { withdraw, hash: withdrawHash, isPending: withdrawPending, isSuccess: withdrawSuccess } = useWithdraw();
   // v2 rescue paths — only wired up in the modal when vault.version === 'v2'
-  const { withdrawToken, isPending: withdrawTokenPending, isSuccess: withdrawTokenSuccess } = useWithdrawToken();
-  const { withdrawAllNonBase, isPending: withdrawAllPending, isSuccess: withdrawAllSuccess } = useWithdrawAllNonBase();
+  const { withdrawToken, isPending: withdrawTokenPending } = useWithdrawToken();
+  const { withdrawAllNonBase, isPending: withdrawAllPending } = useWithdrawAllNonBase();
   const { approve, hash: approveHash, isPending: approvePending, isSuccess: approveSuccess } = useApprove();
   const { deposit, hash: depositHash, isPending: depositPending, isSuccess: depositSuccess } = useDeposit();
   const { transfer: transferToken, hash: transferHash, isPending: transferPending, isSuccess: transferSuccess } = useTransferToken();
@@ -237,6 +237,9 @@ export default function VaultDetailPage() {
 
   // Inline rail ticket
   const [ticketTab, setTicketTab] = useState('deposit');
+  // Selected token for withdraw tab (separate from deposit — v2 vaults allow
+  // withdrawing any token the vault holds, base or rescue).
+  const [ticketWithdrawSymbol, setTicketWithdrawSymbol] = useState(null);
   const [ticketAmount, setTicketAmount] = useState('');
   const [ticketTokenSymbol, setTicketTokenSymbol] = useState('USDC');
   const [addressCopied, setAddressCopied] = useState(null);
@@ -302,9 +305,12 @@ export default function VaultDetailPage() {
     mandateType === 'Balanced'  ? 'emerald' :
                                   'steel';
 
-  // NAV history (journal-derived)
+  // NAV history (journal-derived). `cycle` = scheduled orchestrator snapshot
+  // every N minutes. `balance_change` = deposit/withdraw listener snapshot on
+  // the backend (same vaultResults shape) — fills the gap between cycles so
+  // the chart reflects a deposit the moment the tx lands on-chain.
   const derivedNavHistory = (journalData || [])
-    .filter((e) => e.type === 'cycle' && Array.isArray(e.vaultResults))
+    .filter((e) => (e.type === 'cycle' || e.type === 'balance_change') && Array.isArray(e.vaultResults))
     .flatMap((e) => {
       const r = e.vaultResults.find((v) => v.vault?.toLowerCase() === vaultAddr?.toLowerCase());
       if (!r || !r.vaultState?.nav) return [];
@@ -358,30 +364,54 @@ export default function VaultDetailPage() {
       }))
     : [];
 
-  // Decisions feed
+  // Decisions feed. Orchestrator writes decision and execution as two separate
+  // journal entries in the same cycle (decision first, execution a few seconds
+  // later after the tx mines). Decisions don't carry `txHash` directly — join
+  // to the nearest matching execution by (vault, action, asset) within a short
+  // window so the row can link out to the explorer instead of saying
+  // "On-chain pending" forever.
+  const findMatchingExecution = (decision) => {
+    if (!decision || decision.action === 'hold') return null;
+    const rawAction = (decision.action || '').toLowerCase();
+    const asset = decision.asset;
+    const tDecision = new Date(decision.timestamp || 0).getTime();
+    if (!tDecision) return null;
+    return executionData.find((ex) => {
+      if ((ex.action || '').toLowerCase() !== rawAction) return false;
+      if (ex.asset && asset && ex.asset !== asset) return false;
+      const tExec = new Date(ex.timestamp || 0).getTime();
+      if (!tExec) return false;
+      // Execution lands after decision within 5 min (generous for slow mining).
+      return tExec >= tDecision - 2_000 && tExec <= tDecision + 5 * 60_000;
+    }) || null;
+  };
+
   const journalEntries = decisionData.length > 0
-    ? decisionData.map((d, i) => ({
-        id: d.id || `live-${i}`,
-        action: `${(d.action || '').toUpperCase()} ${d.asset || ''}`,
-        rawAction: (d.action || '').toLowerCase(),
-        asset: d.asset,
-        outcome: d.action === 'hold' ? 'skipped' : 'executed',
-        reason: d.reason || '',
-        timestamp: d.timestamp,
-        confidence: d.confidence || 0,
-        riskScore: d.risk_score || 0,
-        txHash: null,
-        source: d.source || 'orchestrator',
-        regime: d.regime,
-        v1Action: d.v1_action,
-        finalEdgeScore: d.final_edge_score,
-        tradeQualityScore: d.trade_quality_score,
-        hardVeto: d.hard_veto,
-        hardVetoReasons: d.hard_veto_reasons,
-        entryTrigger: d.entry_trigger,
-        fill: d.fill || null,
-        pnl: d.pnl ?? null,
-      }))
+    ? decisionData.map((d, i) => {
+        const match = findMatchingExecution(d);
+        return {
+          id: d.id || `live-${i}`,
+          action: `${(d.action || '').toUpperCase()} ${d.asset || ''}`,
+          rawAction: (d.action || '').toLowerCase(),
+          asset: d.asset,
+          outcome: d.action === 'hold' ? 'skipped' : (match?.success === false ? 'failed' : match ? 'executed' : 'pending'),
+          reason: d.reason || '',
+          timestamp: d.timestamp,
+          confidence: d.confidence || 0,
+          riskScore: d.risk_score || 0,
+          txHash: match?.txHash || null,
+          source: d.source || 'orchestrator',
+          regime: d.regime,
+          v1Action: d.v1_action,
+          finalEdgeScore: d.final_edge_score,
+          tradeQualityScore: d.trade_quality_score,
+          hardVeto: d.hard_veto,
+          hardVetoReasons: d.hard_veto_reasons,
+          entryTrigger: d.entry_trigger,
+          fill: d.fill || null,
+          pnl: d.pnl ?? null,
+        };
+      })
     : [];
 
   const decisionCounts = journalEntries.reduce(
@@ -546,6 +576,8 @@ export default function VaultDetailPage() {
       setShowDepositModal(true);
     } else {
       setWithdrawAmount(amount);
+      // For v2 non-base withdraw, WithdrawModal reads `initialWithdrawSymbol`
+      // prop to pre-select the same token the user chose in the ticket.
       setShowWithdrawModal(true);
     }
   };
@@ -561,9 +593,31 @@ export default function VaultDetailPage() {
     URL.revokeObjectURL(url);
   };
 
+  // Withdraw tab: per-token balance inside the vault (v2) or base asset
+  // balance (v1). Reads from vaultAssetRows when a non-base token is picked.
+  const selectedWithdrawRow = vaultVersion === 'v2' && ticketWithdrawSymbol
+    ? vaultAssetRows.find((row) => {
+        const meta = depositTokens.find((t) => t.address?.toLowerCase() === row.address?.toLowerCase());
+        return meta?.symbol === ticketWithdrawSymbol;
+      })
+    : null;
+  const selectedWithdrawMeta = depositTokens.find((t) => t.symbol === ticketWithdrawSymbol);
+  const withdrawTokenBalance = (() => {
+    if (ticketTab !== 'withdraw') return 0;
+    // v1 or base-selected → use liveVault.balance (base asset formatted)
+    if (!selectedWithdrawRow || selectedWithdrawMeta?.isBase) {
+      return parseFloat(liveVault?.balance || '0');
+    }
+    // v2 non-base rescue → format raw vault balance with token's own decimals
+    try {
+      return parseFloat(formatUnits(selectedWithdrawRow.balance ?? 0n, selectedWithdrawMeta.decimals ?? 18));
+    } catch {
+      return 0;
+    }
+  })();
   const ticketWalletBalance = ticketTab === 'deposit'
     ? parseFloat(ticketToken?.balance || '0')
-    : parseFloat(liveVault?.balance || '0');
+    : withdrawTokenBalance;
   // Resolved base-asset metadata for the withdraw path. Falls back to USDC
   // when the on-chain baseAsset hasn't loaded yet (first paint).
   const baseTokenForVault = depositTokens.find((t) => t.isBase);
@@ -798,6 +852,14 @@ export default function VaultDetailPage() {
                 exitFeeBps={effectivePolicy?.exitFeeBps || 0}
                 isConnected={isConnected}
                 onSubmit={handleTicketSubmit}
+                vaultVersion={vaultVersion}
+                vaultAssetRows={vaultAssetRows}
+                liveVault={liveVault}
+                selectedWithdrawSymbol={ticketWithdrawSymbol}
+                onSelectWithdrawSymbol={(sym) => {
+                  setTicketWithdrawSymbol(sym);
+                  setTicketAmount('');
+                }}
               />
             </div>
 
@@ -920,6 +982,7 @@ export default function VaultDetailPage() {
             withdrawTokenPending={withdrawTokenPending}
             withdrawAllNonBase={withdrawAllNonBase}
             withdrawAllPending={withdrawAllPending}
+            initialWithdrawSymbol={ticketWithdrawSymbol}
           />
         )}
 
@@ -956,32 +1019,6 @@ export default function VaultDetailPage() {
           />
         )}
 
-        {/* Footer */}
-        <footer
-          className="mt-12 pt-6 flex items-center justify-between flex-wrap gap-4"
-          style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
-        >
-          <div className="flex items-center gap-2">
-            <Shield className="w-3.5 h-3.5" style={{ color: ACCENTS.emerald }} />
-            <span className="ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
-              Aegis · Vault
-            </span>
-          </div>
-          <div className="flex items-center gap-6 ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
-            <Link to="/whitepaper" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
-              Whitepaper
-            </Link>
-            <Link to="/docs" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
-              Docs
-            </Link>
-            <Link to="/marketplace" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
-              Marketplace
-            </Link>
-          </div>
-          <span className="ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
-            Built on 0G · 2026
-          </span>
-        </footer>
       </div>
     </div>
   );
@@ -1719,6 +1756,9 @@ function CapitalTicket({
   tab, setTab, amount, setAmount, walletBalance,
   tokens = [], selectedSymbol, onSelectSymbol,
   sharePrice, estShares, entryFeeBps, exitFeeBps, isConnected, onSubmit,
+  // v2 withdraw additions
+  vaultVersion = 'v1', vaultAssetRows = [], liveVault,
+  selectedWithdrawSymbol, onSelectWithdrawSymbol,
 }) {
   const presets = [25, 100, 500];
   const displayBalance = Number.isFinite(walletBalance) ? walletBalance : 0;
@@ -1728,11 +1768,49 @@ function CapitalTicket({
   // Falling back to tokens[0] keeps the UI responsive while the on-chain
   // baseAsset lookup is still loading.
   const baseToken = tokens.find((t) => t.isBase) || tokens[0];
+
+  // v2 withdraw: show EVERY allowed asset the vault can hold. Tokens with
+  // zero current balance are still visible so the user sees the full menu —
+  // only the on-chain balance distinguishes "has funds" from "empty". v1
+  // vaults don't support non-base withdraw so the selector collapses to base.
+  const isV2 = vaultVersion === 'v2';
+  const withdrawableTokens = (() => {
+    if (!isV2) return baseToken ? [baseToken] : [];
+    const rows = vaultAssetRows
+      .map((row) => {
+        const meta = tokens.find((t) => t.address?.toLowerCase() === row.address?.toLowerCase());
+        if (!meta) return null;
+        const dec = meta.decimals ?? 18;
+        let vaultBal = 0;
+        try {
+          vaultBal = parseFloat(formatUnits(row.balance ?? 0n, dec));
+        } catch { vaultBal = 0; }
+        const isBaseRow = !!meta.isBase
+          || row.address?.toLowerCase() === liveVault?.baseAsset?.toLowerCase();
+        return { ...meta, isBase: isBaseRow, vaultBalance: vaultBal };
+      })
+      .filter(Boolean);
+    // Ensure base is present even if the factory pre-populated allowedAssets
+    // without an explicit base entry.
+    if (!rows.some((r) => r.isBase) && baseToken) {
+      rows.unshift({ ...baseToken, isBase: true, vaultBalance: parseFloat(liveVault?.balance || '0') });
+    }
+    return rows;
+  })();
+
+  const withdrawSelectedSymbol = selectedWithdrawSymbol
+    || withdrawableTokens.find((t) => t.isBase)?.symbol
+    || baseToken?.symbol;
+  const withdrawActiveToken = withdrawableTokens.find((t) => t.symbol === withdrawSelectedSymbol)
+    || withdrawableTokens[0]
+    || baseToken;
+
   const activeToken = tab === 'deposit'
     ? tokens.find((t) => t.symbol === selectedSymbol) || baseToken
-    : baseToken;
+    : withdrawActiveToken;
   const activeSymbol = activeToken?.symbol || 'USDC';
   const balanceDecimals = activeToken?.symbol === 'USDC' ? 2 : 6;
+  const withdrawIsRescue = tab === 'withdraw' && !activeToken?.isBase;
   // For 0G we surface the W0G / native split in the balance line so the user
   // can see that native balance is spendable too (auto-wrap covers the gap).
   const is0GActive = activeSymbol === '0G';
@@ -1788,7 +1866,8 @@ function CapitalTicket({
           </div>
         )}
 
-        {tab === 'withdraw' && tokens.length > 1 && (
+        {/* V1 vault — single base asset, no rescue path */}
+        {tab === 'withdraw' && !isV2 && tokens.length > 1 && (
           <div className="px-3 pt-1 pb-2">
             <Eyebrow tone="muted" className="!block mb-1.5">Settlement token</Eyebrow>
             <div className="flex items-center gap-1.5">
@@ -1808,9 +1887,59 @@ function CapitalTicket({
               </span>
             </div>
             <p className="ed-mono text-[9.5px] mt-2 leading-[1.5]" style={{ color: 'var(--ed-steel-500)' }}>
-              Vault settles withdrawals in {baseToken?.symbol || 'base asset'} only. Non-base holdings
-              (WBTC / WETH / 0G) auto-convert back when the AI closes positions.
+              V1 vault settles withdrawals in {baseToken?.symbol || 'base asset'} only. Non-base holdings
+              auto-convert back when the AI closes positions.
             </p>
+          </div>
+        )}
+
+        {/* V2 vault — full multi-asset withdraw via withdrawToken / withdraw */}
+        {tab === 'withdraw' && isV2 && withdrawableTokens.length > 0 && (
+          <div className="px-3 pt-1 pb-2">
+            <Eyebrow tone="muted" className="!block mb-1.5">Withdraw token</Eyebrow>
+            <div className="flex gap-1.5 flex-wrap">
+              {withdrawableTokens.map((t) => {
+                const active = t.symbol === withdrawSelectedSymbol;
+                const hasBalance = (t.vaultBalance ?? 0) > 0;
+                return (
+                  <button
+                    key={t.symbol}
+                    type="button"
+                    onClick={() => onSelectWithdrawSymbol?.(t.symbol)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md ed-mono text-[10.5px] transition-colors"
+                    style={{
+                      background: active ? `${ACCENTS.gold}22` : 'rgba(255,255,255,0.02)',
+                      color: active ? ACCENTS.gold : 'var(--ed-steel-400)',
+                      boxShadow: active
+                        ? `inset 0 0 0 1px ${ACCENTS.gold}4A`
+                        : 'var(--ed-ghost-border)',
+                      // Dim non-selected tokens that currently hold zero NAV
+                      // balance. Still clickable — user can verify emptiness.
+                      opacity: active || hasBalance ? 1 : 0.45,
+                    }}
+                  >
+                    <TokenIcon symbol={t.symbol} size={13} />
+                    {t.symbol}
+                    {t.isBase && (
+                      <span className="ml-0.5 text-[8.5px]" style={{ color: 'var(--ed-steel-500)' }}>
+                        · base
+                      </span>
+                    )}
+                    {!hasBalance && !t.isBase && (
+                      <span className="ml-0.5 text-[8.5px]" style={{ color: 'var(--ed-steel-600)' }}>
+                        · empty
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {withdrawIsRescue && (
+              <p className="ed-mono text-[9.5px] mt-2 leading-[1.5]" style={{ color: 'var(--ed-steel-500)' }}>
+                Non-base assets withdraw with no exit fee. Base asset withdrawals still carry
+                the standard exit fee set by the vault policy.
+              </p>
+            )}
           </div>
         )}
 
@@ -1903,7 +2032,13 @@ function CapitalTicket({
             {tab === 'deposit' && estShares && <TicketRow label="Est. shares" value={estShares} />}
             <TicketRow
               label={tab === 'deposit' ? 'Entry fee' : 'Exit fee'}
-              value={activeToken?.isBase || tab === 'withdraw' ? `${(feeBps / 100).toFixed(2)}%` : '—'}
+              value={
+                tab === 'deposit'
+                  ? (activeToken?.isBase ? `${(feeBps / 100).toFixed(2)}%` : '—')
+                  : withdrawIsRescue
+                    ? '0% · non-base'
+                    : `${(feeBps / 100).toFixed(2)}%`
+              }
             />
             <TicketRow label="Cooldown" value="24 h · unstake" tone="amber" />
           </div>
@@ -2651,6 +2786,8 @@ function WithdrawModal({
   // v2 additions — silently ignored on v1 vaults
   vaultVersion = 'v1', vaultAssetRows = [], depositTokens = [],
   withdrawToken, withdrawTokenPending, withdrawAllNonBase, withdrawAllPending,
+  // Pre-selected token from the CapitalTicket withdraw picker (optional).
+  initialWithdrawSymbol = null,
 }) {
   const isV2 = vaultVersion === 'v2';
 
@@ -2679,11 +2816,17 @@ function WithdrawModal({
             isBase,
           };
         })
-        .filter((r) => r.balance > 0 || r.isBase)
+        // Keep every allowed asset visible — zero balance is signalled by the
+        // balance column, not by hiding the pill. User can still see what
+        // tokens the vault is capable of holding.
     : [];
 
-  // Selected token in v2 mode. Default = base asset (backward-compat path).
-  const [v2Selected, setV2Selected] = useState(null);
+  // Selected token in v2 mode. Seeded from the CapitalTicket picker when
+  // provided, otherwise defaults to base asset.
+  const seededRow = isV2 && initialWithdrawSymbol
+    ? withdrawableRows.find((r) => r.symbol === initialWithdrawSymbol)
+    : null;
+  const [v2Selected, setV2Selected] = useState(seededRow || null);
   const activeRow = isV2
     ? (v2Selected || withdrawableRows.find((r) => r.isBase) || withdrawableRows[0])
     : null;
@@ -2727,6 +2870,7 @@ function WithdrawModal({
             <div className="flex gap-1.5 flex-wrap">
               {withdrawableRows.map((r) => {
                 const active = (activeRow?.address || '').toLowerCase() === r.address.toLowerCase();
+                const hasBalance = (r.balance ?? 0) > 0;
                 return (
                   <button
                     key={r.address}
@@ -2737,19 +2881,23 @@ function WithdrawModal({
                       background: active ? `${ACCENTS.gold}22` : 'rgba(255,255,255,0.02)',
                       color: active ? ACCENTS.gold : 'var(--ed-steel-400)',
                       boxShadow: active ? `inset 0 0 0 1px ${ACCENTS.gold}4A` : 'var(--ed-ghost-border)',
+                      opacity: active || hasBalance ? 1 : 0.45,
                     }}
                   >
                     <TokenIcon symbol={r.symbol} size={13} />
                     {r.symbol}
                     {r.isBase && <span className="ml-0.5 text-[8.5px]" style={{ color: 'var(--ed-steel-500)' }}>· base</span>}
+                    {!hasBalance && !r.isBase && (
+                      <span className="ml-0.5 text-[8.5px]" style={{ color: 'var(--ed-steel-600)' }}>· empty</span>
+                    )}
                   </button>
                 );
               })}
             </div>
             {!activeIsBase && (
               <p className="mt-2 ed-mono text-[10px] leading-[1.5]" style={{ color: 'var(--ed-steel-500)' }}>
-                Non-base rescue — no exit fee. Base withdrawals still route through the
-                standard withdraw() path.
+                No exit fee for non-base assets. Base asset withdrawal still uses the
+                standard fee path.
               </p>
             )}
           </div>
@@ -2791,8 +2939,8 @@ function WithdrawModal({
             onClick={handleConfirm}
           >
             {pending
-              ? (activeIsBase ? 'Withdrawing…' : 'Rescuing…')
-              : (activeIsBase ? 'Confirm withdraw' : `Rescue ${activeSymbol}`)}
+              ? 'Withdrawing…'
+              : (activeIsBase ? 'Confirm withdraw' : `Withdraw ${activeSymbol}`)}
           </ControlButton>
           <ControlButton variant="secondary" className="flex-1" onClick={onClose}>Cancel</ControlButton>
         </div>

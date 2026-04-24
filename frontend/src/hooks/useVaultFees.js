@@ -1,4 +1,4 @@
-import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useReadContract, useReadContracts } from 'wagmi';
 import { formatUnits } from 'viem';
 import { toast } from 'sonner';
 import { AegisVaultABI } from '../lib/contracts.js';
