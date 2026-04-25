@@ -57,6 +57,24 @@ export async function initOGStorage() {
     logger.info('Initializing 0G Storage...');
 
     _indexer = new Indexer(OG_INDEXER_RPC);
+
+    // Workaround for @0glabs/0g-ts-sdk@0.3.3 against the Aristotle mainnet
+    // indexer. The SDK's `selectNodes()` does `nodes.trusted.sort()` without
+    // a null check, which crashes because the mainnet indexer returns
+    // `trusted: null` (curated list not populated yet) and only fills
+    // `discovered`. Patch the per-instance `getShardedNodes()` so the
+    // returned shape always has a non-null `trusted` array.
+    //
+    // Removable when 0G publishes either (a) a populated trusted set, or
+    // (b) a SDK release that handles `trusted=null`.
+    const origGetShardedNodes = _indexer.getShardedNodes.bind(_indexer);
+    _indexer.getShardedNodes = async function patchedGetShardedNodes() {
+      const nodes = await origGetShardedNodes();
+      if (!Array.isArray(nodes?.trusted) || nodes.trusted.length === 0) {
+        nodes.trusted = Array.isArray(nodes?.discovered) ? nodes.discovered : [];
+      }
+      return nodes;
+    };
     // KV node URL is optional. Mainnet has no official public endpoint as
     // of this writing — operators host their own. When unset, kvSet still
     // works (it uploads via the indexer + Flow contract), but kvGet returns
