@@ -36,7 +36,24 @@ module.exports = {
     },
   },
   networks: {
-    hardhat: {},
+    // Default in-memory hardhat node. When OG_FORK_BLOCK is set, the
+    // network forks 0G Aristotle mainnet at that block — this powers the
+    // adapter integration tests in `test/JaineVenueAdapterV2.fork.test.js`,
+    // letting them swap against the real Jaine router/factory + live pool
+    // liquidity without spending any 0G gas. Set OG_FORK_BLOCK=latest for
+    // the head, or pin a specific number for reproducible test runs.
+    hardhat: process.env.OG_FORK_BLOCK
+      ? {
+          forking: {
+            url: process.env.OG_MAINNET_RPC || "https://evmrpc.0g.ai",
+            blockNumber:
+              process.env.OG_FORK_BLOCK === "latest"
+                ? undefined
+                : Number(process.env.OG_FORK_BLOCK),
+          },
+          chainId: 16661,
+        }
+      : {},
     // 0G Galileo Testnet
     og_testnet: {
       url: process.env.OG_TESTNET_RPC || "https://evmrpc-testnet.0g.ai",

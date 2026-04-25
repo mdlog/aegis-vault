@@ -102,11 +102,19 @@ export function getChainProfile(chainId) {
  * Resolves venue address for the given chain. Returns `null` when the chain
  * profile or deployment entry is missing — callers should refuse to deploy
  * instead of falling back to a wrong venue.
+ *
+ * On 0G mainnet (16661), prefer `jaineVenueAdapterV2` (multi-hop, can route
+ * USDC.e ↔ BTC/ETH via the W0G hub) when it has been deployed. Falls back to
+ * the original single-hop adapter so this works in environments where V2
+ * hasn't shipped yet.
  */
 export function resolveVenueAddress(chainId) {
   const profile = getChainProfile(chainId);
   if (!profile) return null;
   const deployments = getDeployments(chainId);
+  if (chainId === 16661 && deployments?.jaineVenueAdapterV2) {
+    return deployments.jaineVenueAdapterV2;
+  }
   return deployments?.[profile.venueKey] || null;
 }
 

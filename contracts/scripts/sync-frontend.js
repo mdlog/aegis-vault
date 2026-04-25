@@ -81,6 +81,10 @@ function buildManifestEntry(targetChainId, source) {
       aegisVaultFactory: source.aegisVaultFactory || '',
       vaultNAVCalculator: source.vaultNAVCalculator || '',
       jaineVenueAdapter: source.jaineVenueAdapter || '',
+      // V2 multi-hop adapter: optional, only present after running
+      // scripts/deploy-jaine-adapter-v2.js. New vaults should be created
+      // pointing at this venue if defined; existing vaults stay on V1.
+      jaineVenueAdapterV2: source.jaineVenueAdapterV2 || '',
       // v2 stack — kept under separate keys so v1 remains queryable for
       // existing vaults while new creates route through factoryV2.
       aegisVaultImplementationV2: source.aegisVaultImplementationV2 || '',
