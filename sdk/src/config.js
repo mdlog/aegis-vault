@@ -86,7 +86,11 @@ export const ADDRESSES = {
     governor: mainnetDeployments.aegisGovernor,
     protocolTreasury: mainnetDeployments.protocolTreasury,
     navCalculator: mainnetDeployments.vaultNAVCalculator,
-    jaineVenueAdapter: mainnetDeployments.jaineVenueAdapter,
+    // `jaineVenueAdapter` resolves to V2 (multi-hop, USDC.e ↔ BTC/ETH via
+    // W0G hub) when present, else falls back to V1 single-hop. New vault
+    // creates should pass this address as the `venue`.
+    jaineVenueAdapter:
+      mainnetDeployments.jaineVenueAdapterV2 || mainnetDeployments.jaineVenueAdapter,
 
     // Legacy (V1) — kept so historical reads still resolve
     legacy: {
@@ -95,6 +99,7 @@ export const ADDRESSES = {
       operatorRegistry: mainnetDeployments.operatorRegistry,
       operatorStaking: mainnetDeployments.operatorStaking,
       insurancePool: mainnetDeployments.insurancePool,
+      jaineVenueAdapter: mainnetDeployments.jaineVenueAdapter,
     },
 
     // Tokens (canonical 0G mainnet)

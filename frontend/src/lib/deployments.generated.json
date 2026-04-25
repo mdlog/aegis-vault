@@ -26,6 +26,7 @@
     "aegisVaultFactory": "0x49354460eAdE1C2E786E36B3B3e7A18Fb4283C45",
     "vaultNAVCalculator": "0xBd21bfd62a11e1F8d04e7bE42D2cbDB6C51C4Ae1",
     "jaineVenueAdapter": "0x0F8B269368925Fd55C62560B6f818173A8cB25eD",
+    "jaineVenueAdapterV2": "0x261244010A6D87e043b3489D93fA573cdc2274B6",
     "aegisVaultImplementationV2": "0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181",
     "aegisVaultFactoryV2": "0x9450ac911D06c81a54007a768d4278929d87A17e",
     "executionRegistryV2": "0x3a8a59865546e99c8377aFd2d02736e25Ac5d04E",

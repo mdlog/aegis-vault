@@ -33,7 +33,14 @@ const path = require("path");
 
 const DEPLOYMENTS_FILE = path.join(__dirname, "../deployments-mainnet.json");
 
-const EXECUTOR_OWNER = process.env.EXECUTOR_ADDRESS || "0x98cC835148E76b1bD25Cb6f4F4d0a317B71D2b6F";
+// If EXECUTOR_ADDRESS is set, transfer ownership to it. Otherwise the
+// deployer keeps ownership — this is the right default when you're already
+// running the deploy from the executor wallet (`owner = msg.sender` in the
+// adapter constructor takes care of it). We deliberately avoid hardcoding
+// an address here: a typo or stale checksum would crash mid-deploy after
+// the contract is already on-chain (which is exactly how this script's
+// previous version broke).
+const RAW_EXECUTOR = process.env.EXECUTOR_ADDRESS || "";
 
 function readDeployments() {
   if (!fs.existsSync(DEPLOYMENTS_FILE)) {
@@ -95,21 +102,36 @@ async function main() {
     }
   }
 
-  console.log("\n[3/3] Transferring ownership to executor:", EXECUTOR_OWNER);
-  if (EXECUTOR_OWNER.toLowerCase() !== deployer.address.toLowerCase()) {
-    const tx = await adapter.transferOwnership(EXECUTOR_OWNER);
-    await tx.wait();
-    console.log("  → ownership transferred (tx:", tx.hash, ")");
-  } else {
-    console.log("  (skipped — deployer is already the intended owner)");
-  }
-
-  // Persist
+  // Persist FIRST — adapter is already on-chain, we don't want to lose
+  // the address if the optional ownership-transfer step below throws.
   dep.jaineVenueAdapterV2 = adapterAddr;
   dep.jaineVenueAdapterV2DeployedAt = new Date().toISOString();
   dep.jaineVenueAdapterV2Hub = w0g;
   writeDeployments(dep);
-  console.log("\nWrote address to", DEPLOYMENTS_FILE, "under `jaineVenueAdapterV2`.");
+  console.log(`\nWrote ${adapterAddr} to ${DEPLOYMENTS_FILE} under jaineVenueAdapterV2.`);
+
+  // Optional ownership transfer. Only runs when EXECUTOR_ADDRESS env var is
+  // set AND parses as a valid checksummed address. Skipped silently in the
+  // normal case where the executor wallet IS the deployer.
+  if (RAW_EXECUTOR) {
+    let target;
+    try {
+      target = hre.ethers.getAddress(RAW_EXECUTOR);
+    } catch (err) {
+      console.warn(`\n[3/3] WARNING: EXECUTOR_ADDRESS="${RAW_EXECUTOR}" failed checksum parse — keeping deployer as owner. (${err.message})`);
+      target = null;
+    }
+    if (target && target.toLowerCase() !== deployer.address.toLowerCase()) {
+      console.log("\n[3/3] Transferring ownership to executor:", target);
+      const tx = await adapter.transferOwnership(target);
+      await tx.wait();
+      console.log("  → ownership transferred (tx:", tx.hash, ")");
+    } else if (target) {
+      console.log("\n[3/3] Ownership transfer skipped — deployer == EXECUTOR_ADDRESS.");
+    }
+  } else {
+    console.log("\n[3/3] No EXECUTOR_ADDRESS env var — leaving deployer as owner.");
+  }
 
   console.log("\nNext steps:");
   console.log("  1. node scripts/sync-frontend.js deployments-mainnet.json");

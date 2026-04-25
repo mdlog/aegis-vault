@@ -81,5 +81,8 @@
   "operatorStakingV2_retired": "0xa005426b04A7E1B12ce658692F1dd827F305BDaD",
   "operatorRegistry_retired": "0xB3f6611Dd1d76d20d3BF47C7173310F9e606FAb1",
   "operatorRegistryV2": "0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5",
-  "operatorStackV2Redeploy": "2026-04-23T05:04:28.692Z"
+  "operatorStackV2Redeploy": "2026-04-23T05:04:28.692Z",
+  "jaineVenueAdapterV2": "0x261244010A6D87e043b3489D93fA573cdc2274B6",
+  "jaineVenueAdapterV2DeployedAt": "2026-04-26T00:00:00.000Z",
+  "jaineVenueAdapterV2Hub": "0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c"
 }
