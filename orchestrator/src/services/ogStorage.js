@@ -57,6 +57,20 @@ let _indexer = null;
 let _kvClient = null;
 let _flowContract = null;
 let _initialized = false;
+// Serialize on-chain submissions through a single tail-promise. Multiple
+// concurrent vault cycles sharing one executor wallet would otherwise race
+// on the same nonce — ethers v6 surfaces that as REPLACEMENT_UNDERPRICED
+// and the second submission gets dropped. Chaining each `upload`/`kvSet`
+// onto the previous one keeps nonces monotonic without us having to manage
+// them by hand.
+let _writeQueue = Promise.resolve();
+function queueWrite(fn) {
+  const next = _writeQueue.then(fn, fn);
+  // Don't let a rejection on one write tank the whole chain — every
+  // subsequent call should still get a chance to start.
+  _writeQueue = next.catch(() => undefined);
+  return next;
+}
 
 /**
  * Initialize 0G Storage clients
@@ -181,8 +195,9 @@ export async function kvSet(key, value) {
     // Set in stream
     batcher.streamDataBuilder.set(STREAM_ID, keyBytes, valueBytes);
 
-    // Execute
-    const [tx, execErr] = await batcher.exec();
+    // Execute — serialised so concurrent vault cycles don't collide
+    // on the executor wallet's nonce.
+    const [tx, execErr] = await queueWrite(() => batcher.exec());
     if (execErr) {
       throw new Error(`Batcher exec failed: ${execErr}`);
     }
@@ -277,8 +292,14 @@ export async function uploadBlob(name, data) {
     const rootHash = tree.rootHash();
     logger.info(`Uploading blob "${name}" — Root: ${rootHash.substring(0, 18)}... (${jsonStr.length} bytes)`);
 
-    // Upload
-    const [tx, uploadErr] = await _indexer.upload(zgFile, config.rpcUrl, signer);
+    // Upload — serialised through `queueWrite` to keep wallet nonce sane.
+    // The SDK's `Indexer.upload` returns `{ txHash, rootHash }` for single
+    // files (or `{ txHashes, rootHashes }` for fragments >4GB); pull the
+    // hash off whatever shape comes back so the log line is human-readable
+    // instead of "[object Object]".
+    const [tx, uploadErr] = await queueWrite(() =>
+      _indexer.upload(zgFile, config.rpcUrl, signer),
+    );
     await zgFile.close();
 
     // Cleanup temp file
@@ -288,7 +309,8 @@ export async function uploadBlob(name, data) {
       throw new Error(`Upload error: ${uploadErr}`);
     }
 
-    logger.info(`Blob "${name}" uploaded — TX: ${tx}`);
+    const txHash = tx?.txHash || (Array.isArray(tx?.txHashes) ? tx.txHashes[0] : null) || tx;
+    logger.info(`Blob "${name}" uploaded — TX: ${typeof txHash === 'string' ? txHash : JSON.stringify(txHash)}`);
 
     return {
       rootHash,
