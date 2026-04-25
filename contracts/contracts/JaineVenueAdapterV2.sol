@@ -75,6 +75,18 @@ interface IJaineFactoryV2 {
 
 interface IJainePoolV2 {
     function liquidity() external view returns (uint128);
+    function slot0()
+        external view
+        returns (
+            uint160 sqrtPriceX96,
+            int24 tick,
+            uint16 observationIndex,
+            uint16 observationCardinality,
+            uint16 observationCardinalityNext,
+            uint8 feeProtocol,
+            bool unlocked
+        );
+    function token0() external view returns (address);
 }
 
 contract JaineVenueAdapterV2 is ReentrancyGuard {
@@ -298,6 +310,68 @@ contract JaineVenueAdapterV2 is ReentrancyGuard {
         (bool hout, uint24 fo) = _findDirectPool(hubToken, tokenOut);
         if (hin && hout) return (2, fi, fo);
         return (0, 0, 0);
+    }
+
+    /// @notice Spot-price estimate for `amountIn` of `tokenIn` → `tokenOut`,
+    ///         using the same direct-or-hub routing decision as `swap()`.
+    ///
+    /// @dev    This is a Q64.96 spot-price estimate (no Quoter simulation,
+    ///         no fee deduction, no price-impact slippage). Treat as a
+    ///         pre-flight check, not a hard quote — the orchestrator's
+    ///         minAmountOut should add a slippage buffer on top.
+    ///
+    ///         Returns 0 (does NOT revert) when the pair has no route, the
+    ///         pool's slot0 reverts, or the pool isn't initialised. Restoring
+    ///         the V1 surface so off-chain tooling that called
+    ///         `IVenue.getAmountOut(...)` against the old adapter keeps
+    ///         working when pointed at V2.
+    function getAmountOut(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn
+    ) external view returns (uint256) {
+        if (amountIn == 0 || tokenIn == tokenOut) return 0;
+        (bool direct, uint24 feeA) = _findDirectPool(tokenIn, tokenOut);
+        if (direct) {
+            return _quoteSingleHop(tokenIn, tokenOut, feeA, amountIn);
+        }
+        if (tokenIn == hubToken || tokenOut == hubToken) return 0;
+        (bool hin,  uint24 fi) = _findDirectPool(tokenIn,  hubToken);
+        (bool hout, uint24 fo) = _findDirectPool(hubToken, tokenOut);
+        if (!hin || !hout) return 0;
+        uint256 hubAmount = _quoteSingleHop(tokenIn,  hubToken, fi, amountIn);
+        if (hubAmount == 0) return 0;
+        return _quoteSingleHop(hubToken, tokenOut, fo, hubAmount);
+    }
+
+    /// @notice Internal Q64.96 spot quote against a specific Uniswap V3 pool.
+    ///         Returns 0 on any read failure rather than reverting so the
+    ///         outer route picker can fall through to alternative paths.
+    function _quoteSingleHop(
+        address tokenIn,
+        address tokenOut,
+        uint24  fee,
+        uint256 amountIn
+    ) internal view returns (uint256) {
+        address pool = factory.getPool(tokenIn, tokenOut, fee);
+        if (pool == address(0)) return 0;
+        uint160 sqrtPriceX96;
+        address poolToken0;
+        try IJainePoolV2(pool).slot0() returns (
+            uint160 _s, int24, uint16, uint16, uint16, uint8, bool
+        ) { sqrtPriceX96 = _s; } catch { return 0; }
+        try IJainePoolV2(pool).token0() returns (address t0) {
+            poolToken0 = t0;
+        } catch { return 0; }
+        if (sqrtPriceX96 == 0) return 0;
+        uint256 Q96 = 2**96;
+        if (tokenIn == poolToken0) {
+            // price = (sqrtPriceX96)^2 / 2^192 ; split shifts to stay <2^256
+            uint256 p = (uint256(sqrtPriceX96) * amountIn) / Q96;
+            return (p * uint256(sqrtPriceX96)) / Q96;
+        }
+        uint256 q = (Q96 * amountIn) / uint256(sqrtPriceX96);
+        return (q * Q96) / uint256(sqrtPriceX96);
     }
 
     // ── Oracle guard ── (same surface as v1)

@@ -1,7 +1,8 @@
 import { buildMarketSummary } from './marketData.js';
+import { fetchPythPrices } from './pythPrice.js';
 import { requestInference } from './inference.js';
 import { preCheckPolicy } from './policyCheck.js';
-import { buildExecutionIntent, submitIntent, setAssetAddresses } from './executor.js';
+import { buildExecutionIntent, submitIntent, setAssetAddresses, recordExecutionToReputation } from './executor.js';
 import { readVaultState } from './vaultReader.js';
 import { readOperatorState, checkOperatorEligibility } from './operatorReader.js';
 import {
@@ -14,6 +15,7 @@ import { initOGStorage, isOGStorageAvailable, readVaultStateFromOG } from './ogS
 import { initOGCompute, getOGComputeStatus } from './ogCompute.js';
 import { evaluateApprovalTier } from './approvalTier.js';
 import { startIndexer, getVaultsByExecutor, getExecutorVaultCounts } from './vaultIndexer.js';
+import { startVaultEventListener } from './vaultEventListener.js';
 import { getPoolAddresses, getPoolStats, getPoolSize } from './walletPool.js';
 import pLimit from 'p-limit';
 import { buildAssetAddressMap } from './assets.js';
@@ -229,6 +231,13 @@ export async function initialize() {
     logger.warn(`Indexer init failed (will retry on poll): ${err.message}`);
   });
 
+  // Watch managed vaults for Deposited / Withdrawn and record a NAV snapshot
+  // to the journal on each event — fills the gap between 5-minute cycles so
+  // the dashboard chart reflects deposits/withdrawals immediately.
+  await startVaultEventListener().catch((err) => {
+    logger.warn(`Vault event listener init failed: ${err.message}`);
+  });
+
   logger.info(`Orchestrator initialized. Previous cycles: ${cycleCount} | Executor pool size: ${getPoolSize()}`);
 }
 
@@ -421,8 +430,26 @@ async function runVaultCycle(vaultAddress, marketSummary) {
 
     updatePendingApproval(vaultAddress, null);
 
-    // Build + submit intent
-    const oraclePrices = marketSummary.prices;
+    // Build + submit intent. CoinGecko (the marketSummary source) doesn't
+    // list 0G yet, so its `oraclePrices` map is missing 0G. Pyth carries it
+    // — merge Pyth into the price map so SELL 0G / BUY 0G can derive a
+    // sensible `oracleMinOut`. Pyth wins on conflicts (it's the on-chain
+    // truth source the vault would use anyway).
+    const cgPrices = marketSummary.prices || {};
+    let pythSnapshot = {};
+    try {
+      pythSnapshot = await fetchPythPrices();
+    } catch (err) {
+      logger.debug(`Pyth fetch failed inside cycle (using CoinGecko only): ${err.message}`);
+    }
+    const oraclePrices = { ...cgPrices };
+    for (const [sym, snap] of Object.entries(pythSnapshot)) {
+      if (snap?.price > 0) {
+        oraclePrices[sym] = oraclePrices[sym]?.price > 0
+          ? oraclePrices[sym]              // CoinGecko already had it — keep
+          : { symbol: sym, price: snap.price, change24h: 0, volume24h: 0 };
+      }
+    }
     // Track 2: pass the raw 0G Compute response so the executor can derive the
     // TEE attestation report hash and bind it into the intent.
     const intent = await buildExecutionIntent(decision, vaultState, oraclePrices, decision._computeResponse);
@@ -455,6 +482,29 @@ async function runVaultCycle(vaultAddress, marketSummary) {
       submittedIntents.add(intent.intentHash);
       logger.info(`    ✓ Executed on-chain. TX: ${execResult.txHash}`);
       vaultResult.status = 'executed';
+
+      // Record to OperatorReputation so the operator detail page's track record
+      // reflects actual activity. Volume is USDC-denominated 6-decimal: on BUY
+      // it comes directly from the intent (assetIn=USDC), on SELL we use the
+      // pre-sell notional in USD (intent.amountIn is the asset amount in its
+      // native decimals, not comparable to USDC units). PnL is only realized
+      // on SELL. Fire-and-forget: reputation failure shouldn't roll back a
+      // trade that already settled.
+      let volumeUsd6 = 0n;
+      let pnlUsd6 = 0n;
+      if (decision.action === 'buy') {
+        volumeUsd6 = BigInt(intent.amountIn);
+      } else if (decision.action === 'sell') {
+        const sellFraction = (decision.sell_fraction_bps || decision.size_bps || 10000) / 10000;
+        const notionalUsd = (positionState.current_position_notional_usd || 0) * sellFraction;
+        volumeUsd6 = BigInt(Math.round(notionalUsd * 1_000_000));
+        if (positionState.position_cost_basis_usd > 0) {
+          const costBasisSold = positionState.position_cost_basis_usd * sellFraction;
+          const realizedPnlUsd = notionalUsd - costBasisSold;
+          pnlUsd6 = BigInt(Math.round(realizedPnlUsd * 1_000_000));
+        }
+      }
+      recordExecutionToReputation(vaultState.executor, volumeUsd6, pnlUsd6, true).catch(() => {});
 
       // Update position tracking
       if (decision.action === 'buy') {
@@ -513,7 +563,14 @@ async function runVaultCycle(vaultAddress, marketSummary) {
         error: execResult.error,
       });
       vaultResult.status = 'failed';
-      positionState.consecutive_losses += 1;
+      // A tx revert / gas failure is an *operational* error, not a trading
+      // loss. Previously we conflated the two by incrementing
+      // `consecutive_losses` here — that made BUY gates in the decision
+      // engine refuse subsequent trades because it thought the strategy was
+      // in a losing streak. Track operational failures separately so the
+      // trading logic stays independent of tx-submission reliability.
+      positionState.consecutive_execution_failures =
+        (positionState.consecutive_execution_failures || 0) + 1;
       updateKVState({ lastSignal: decision, totalCycles: cycleCount, positionState: vaultPositions });
     }
 
