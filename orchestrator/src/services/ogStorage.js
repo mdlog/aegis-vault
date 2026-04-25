@@ -25,9 +25,14 @@ if (!existsSync(TMP_DIR)) {
 
 // ── 0G Storage Configuration ──
 
-const OG_INDEXER_RPC = process.env.OG_INDEXER_RPC || 'https://indexer-storage-testnet-turbo.0g.ai';
-const OG_KV_RPC = process.env.OG_KV_RPC || 'http://3.101.147.150:6789';
-const OG_FLOW_CONTRACT = process.env.OG_FLOW_CONTRACT || '0x22E03a6A89B950F1c82ec5e74F8eCa321a105296';
+// Default to 0G Aristotle mainnet endpoints (per docs.0g.ai/developer-hub/
+// mainnet/mainnet-overview). Operators can override via env to switch to
+// Galileo testnet or a private deployment. KV_RPC has no official mainnet
+// endpoint published yet — leave empty in env to disable kvGet (kvSet
+// write-side still works through Indexer + Flow contract).
+const OG_INDEXER_RPC = process.env.OG_INDEXER_RPC ?? 'https://indexer-storage-turbo.0g.ai';
+const OG_KV_RPC = process.env.OG_KV_RPC ?? '';
+const OG_FLOW_CONTRACT = process.env.OG_FLOW_CONTRACT ?? '0x62D4144dB0F0a6fBBaeb6296c785C71B3D57C526';
 
 // Stream ID for KV store — derived from vault address for uniqueness
 let STREAM_ID = process.env.OG_STREAM_ID || null;
@@ -52,7 +57,11 @@ export async function initOGStorage() {
     logger.info('Initializing 0G Storage...');
 
     _indexer = new Indexer(OG_INDEXER_RPC);
-    _kvClient = new KvClient(OG_KV_RPC);
+    // KV node URL is optional. Mainnet has no official public endpoint as
+    // of this writing — operators host their own. When unset, kvSet still
+    // works (it uploads via the indexer + Flow contract), but kvGet returns
+    // null and the caller falls back to local journal/state.
+    _kvClient = OG_KV_RPC ? new KvClient(OG_KV_RPC) : null;
 
     // Get flow contract for uploads
     const signer = getSigner();
@@ -68,7 +77,8 @@ export async function initOGStorage() {
     _initialized = true;
     logger.info(`0G Storage initialized`);
     logger.info(`  Indexer: ${OG_INDEXER_RPC}`);
-    logger.info(`  KV Node: ${OG_KV_RPC}`);
+    logger.info(`  KV Node: ${OG_KV_RPC || '(unset — kvGet disabled, writes still work)'}`);
+    logger.info(`  Flow:    ${OG_FLOW_CONTRACT}`);
     logger.info(`  Stream:  ${STREAM_ID || 'Not set'}`);
 
     return true;
@@ -145,6 +155,11 @@ export async function kvSet(key, value) {
 export async function kvGet(key) {
   if (!_initialized) {
     logger.debug('0G Storage not available — skipping KV get');
+    return null;
+  }
+  if (!_kvClient) {
+    // No KV node configured — caller falls back to local state. This is the
+    // expected path on mainnet today, where no public KV endpoint is published.
     return null;
   }
 

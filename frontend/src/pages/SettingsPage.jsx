@@ -495,6 +495,14 @@ function OrchestratorPanel({ orchStatus, chainId }) {
 
 function StoragePanel({ ogStatus }) {
   const connected = !!ogStatus?.available;
+  // Mainnet (Aristotle) endpoints. We treat the indexer as the primary
+  // health signal because mainnet has no public KV node endpoint published —
+  // kvSet still works through Indexer + Flow contract regardless.
+  const indexer = ogStatus?.indexer || '—';
+  const kvNode = ogStatus?.kvNode || '';
+  const isMainnetIndexer = indexer && /indexer-storage-turbo\.0g\.ai/.test(indexer);
+  const network = isMainnetIndexer ? '0G Aristotle Mainnet' : indexer.includes('testnet') ? '0G Galileo Testnet' : 'unknown';
+
   return (
     <Section
       n="S.05"
@@ -507,9 +515,15 @@ function StoragePanel({ ogStatus }) {
       }
     >
       <div className="divide-y divide-white/[0.04]">
-        <KV Icon={Layers} label="Connected" value={connected ? 'Yes' : 'No'} tone={connected ? 'emerald' : 'amber'} mono={false} />
-        <KV Icon={Activity} label="Indexer" value={ogStatus?.indexer || '—'} mono={false} />
-        <KV Icon={Database} label="KV node" value={ogStatus?.kvNode || '—'} />
+        <KV Icon={Layers} label="Network" value={network} tone={isMainnetIndexer ? 'emerald' : 'amber'} mono={false} />
+        <KV Icon={Activity} label="Indexer" value={indexer} mono={false} />
+        <KV
+          Icon={Database}
+          label="KV node"
+          value={kvNode || 'unset · writes-only'}
+          tone={kvNode ? undefined : 'steel'}
+          mono={!!kvNode}
+        />
         <KV Icon={Shield} label="Attestation" value="TEE-bound · sealed mode" tone="amber" mono={false} />
       </div>
 
@@ -525,9 +539,29 @@ function StoragePanel({ ogStatus }) {
             <Zap className="w-3.5 h-3.5" />
           </div>
           <p className="flex-1 text-[12.5px] leading-[1.55]" style={{ color: 'var(--ed-steel-400)' }}>
-            Decision journal currently flushes to the local KV mirror.
-            When the 0G Storage indexer is reachable, the orchestrator will mirror
-            <span className="ed-italic" style={{ color: '#F1F5F9' }}> automatically</span> with no extra config.
+            Decision journal flushes to the local KV mirror until the 0G Storage indexer
+            initializes. The orchestrator will pick it up{' '}
+            <span className="ed-italic" style={{ color: '#F1F5F9' }}>automatically</span> on next restart
+            once <code className="ed-mono">OG_INDEXER_RPC</code> is set in <code className="ed-mono">.env</code>.
+          </p>
+        </div>
+      ) : !kvNode ? (
+        <div
+          className="mt-4 rounded-xl ed-ghost p-4 flex items-start gap-3"
+          style={{ background: 'rgba(76,201,240,0.04)' }}
+        >
+          <div
+            className="h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0"
+            style={{ background: 'rgba(76,201,240,0.15)', color: TONE.info }}
+          >
+            <Activity className="w-3.5 h-3.5" />
+          </div>
+          <p className="flex-1 text-[12.5px] leading-[1.55]" style={{ color: 'var(--ed-steel-400)' }}>
+            Indexer is healthy — decisions and executions are uploaded as on-chain blobs via the Flow contract.
+            Mainnet has{' '}
+            <span className="ed-italic" style={{ color: '#F1F5F9' }}>no official public KV endpoint</span>{' '}
+            yet, so reads fall back to the local mirror. Set <code className="ed-mono">OG_KV_RPC</code> when
+            one is published.
           </p>
         </div>
       ) : null}
