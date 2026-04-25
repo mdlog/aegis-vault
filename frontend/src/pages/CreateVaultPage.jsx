@@ -508,10 +508,12 @@ export default function CreateVaultPage() {
     }).filter(Boolean);
     const baseAssetAddr = deployments[selectedBaseAsset.depKey];
 
-    // Chain-aware venue resolution — on Arbitrum this resolves to the deployed
-    // UniswapV3VenueAdapter; on 0G mainnet to MockDEX (demo). We refuse to deploy
-    // if the venue is not configured, rather than silently creating a vault
-    // bound to address(0) that can never execute a swap.
+    // Chain-aware venue resolution. On 0G mainnet this prefers the V2
+    // multi-hop adapter (`jaineVenueAdapterV2`) when present and falls
+    // back to the legacy V1 single-hop. On Arbitrum it resolves to the
+    // deployed UniswapV3VenueAdapter. We refuse to deploy if the venue
+    // is not configured, rather than silently creating a vault bound to
+    // address(0) that can never execute a swap.
     const venueAddr = resolveVenueAddress(chainId);
     if (!venueAddr) {
       const profile = getChainProfile(chainId);
