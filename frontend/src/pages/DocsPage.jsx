@@ -532,10 +532,21 @@ export default function DocsPage() {
                         address={mainnet.executionRegistry}
                       />
                       <AddressRow
-                        label="JaineVenueAdapter"
-                        description="Real DEX settlement adapter for Jaine pools."
-                        address={mainnet.jaineVenueAdapter}
+                        label={mainnet.jaineVenueAdapterV2 ? 'JaineVenueAdapter (V2)' : 'JaineVenueAdapter'}
+                        description={
+                          mainnet.jaineVenueAdapterV2
+                            ? 'Multi-hop adapter — auto-routes USDC.e ↔ BTC/ETH via the W0G hub when no direct pool exists. New vaults use this venue.'
+                            : 'Real DEX settlement adapter for Jaine pools.'
+                        }
+                        address={mainnet.jaineVenueAdapterV2 || mainnet.jaineVenueAdapter}
                       />
+                      {mainnet.jaineVenueAdapterV2 && mainnet.jaineVenueAdapter ? (
+                        <AddressRow
+                          label="JaineVenueAdapter (V1, legacy)"
+                          description="Single-hop adapter. Older vaults stay pinned to it (their venue is immutable)."
+                          address={mainnet.jaineVenueAdapter}
+                        />
+                      ) : null}
                       <AddressRow
                         label="VaultNAVCalculator"
                         description="Pure view calculator for vault NAV using Pyth + venue prices."
