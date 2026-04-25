@@ -262,8 +262,16 @@ export async function syncKVToOGStorage(state) {
   }
 
   try {
-    await syncVaultState(state);
-    logger.info('KV state synced to 0G Storage');
+    const result = await syncVaultState(state);
+    // syncVaultState returns null when the underlying kvSet is a no-op
+    // (writes disabled or skipped). Don't claim success in that case —
+    // the previous "KV state synced to 0G Storage" line was misleading
+    // because it logged even when the SDK returned null.
+    if (result) {
+      logger.info('KV state synced to 0G Storage');
+    } else {
+      logger.debug('KV state kept local (0G writes disabled or no-op)');
+    }
   } catch (err) {
     logger.warn(`0G KV sync failed: ${err.message} — local state preserved`);
   }

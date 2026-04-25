@@ -34,6 +34,20 @@ const OG_INDEXER_RPC = process.env.OG_INDEXER_RPC ?? 'https://indexer-storage-tu
 const OG_KV_RPC = process.env.OG_KV_RPC ?? '';
 const OG_FLOW_CONTRACT = process.env.OG_FLOW_CONTRACT ?? '0x62D4144dB0F0a6fBBaeb6296c785C71B3D57C526';
 
+// Write toggle. The mainnet FixedPriceFlow contract is currently
+// rejecting our `submit()` calls with a bare `require(false)` — same
+// shape as the contract's `Can not find proper context` revert in
+// `Flow.queryContextAtPosition()`. Until the upstream condition is
+// understood (newer SDK release, mainnet stake/registration step, or
+// docs from the 0G team), let operators turn writes off without
+// disabling the indexer reads or breaking the rest of init.
+//
+// `false` (default) skips kvSet + uploadJsonBlob without error. The
+// frontend keeps reading from the local mirror under `data/`. Set
+// `OG_STORAGE_WRITES_ENABLED=true` once submissions land cleanly to
+// resume on-chain anchoring.
+const OG_WRITES_ENABLED = String(process.env.OG_STORAGE_WRITES_ENABLED ?? 'false').toLowerCase() === 'true';
+
 // Stream ID for KV store — derived from vault address for uniqueness
 let STREAM_ID = process.env.OG_STREAM_ID || null;
 
@@ -141,6 +155,11 @@ export async function kvSet(key, value) {
     logger.debug('0G Storage not available — skipping KV set');
     return null;
   }
+  if (!OG_WRITES_ENABLED) {
+    // Writes intentionally disabled (default). Caller falls back to
+    // local mirror. See OG_WRITES_ENABLED comment near the top.
+    return null;
+  }
 
   try {
     const signer = getSigner();
@@ -231,6 +250,11 @@ export async function kvGet(key) {
 export async function uploadBlob(name, data) {
   if (!_initialized) {
     logger.debug('0G Storage not available — skipping blob upload');
+    return null;
+  }
+  if (!OG_WRITES_ENABLED) {
+    // Writes intentionally disabled (default). Caller falls back to
+    // local journal. See OG_WRITES_ENABLED comment near the top.
     return null;
   }
 
