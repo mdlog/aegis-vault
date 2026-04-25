@@ -4,7 +4,7 @@ import {
   ZgFile,
   getFlowContract,
   Batcher,
-} from '@0glabs/0g-ts-sdk';
+} from '@0gfoundation/0g-ts-sdk';
 import { ethers } from 'ethers';
 import { writeFileSync, mkdirSync, existsSync, unlinkSync } from 'fs';
 import { resolve, dirname } from 'path';
