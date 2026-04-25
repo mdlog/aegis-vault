@@ -1,4 +1,4 @@
-import { ethers } from 'ethers';
+import { ethers, NonceManager } from 'ethers';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -60,7 +60,16 @@ export function getSigner() {
     if (!config.privateKey) {
       throw new Error('PRIVATE_KEY not set in environment');
     }
-    _signer = new ethers.Wallet(config.privateKey, getProvider());
+    // Wrap the wallet with NonceManager so concurrent tx submissions
+    // (intent submit + 0G Storage Flow.submit + KV Batcher) share a
+    // single, locally-incrementing nonce counter. Without this, ethers
+    // re-fetches the chain nonce per call — two parallel submissions can
+    // both grab nonce N from RPC, the first lands, the second fails with
+    // NONCE_EXPIRED. walletPool.js already uses NonceManager for its
+    // sharded executors; this aligns getSigner() with the same pattern
+    // so single-key setups are race-free too.
+    const wallet = new ethers.Wallet(config.privateKey, getProvider());
+    _signer = new NonceManager(wallet);
   }
   return _signer;
 }
