@@ -85,11 +85,23 @@ export async function initOGStorage() {
     const signer = getSigner();
     _flowContract = getFlowContract(OG_FLOW_CONTRACT, signer);
 
-    // Generate stream ID from vault address if not set
-    if (!STREAM_ID && config.contracts.vault) {
-      STREAM_ID = ethers.keccak256(
-        ethers.toUtf8Bytes(`aegis-vault-${config.contracts.vault}`)
-      );
+    // Derive a stream ID. Priority:
+    //   1. OG_STREAM_ID env (manual override)
+    //   2. Per-vault stream when a single VAULT_ADDRESS is configured
+    //   3. Per-chain orchestrator stream as fallback (multi-vault setups)
+    // Without any of these, KV operations would receive `null` as the
+    // stream ID and ethers would reject it with "invalid BytesLike value".
+    if (!STREAM_ID) {
+      if (config.contracts.vault) {
+        STREAM_ID = ethers.keccak256(
+          ethers.toUtf8Bytes(`aegis-vault-${config.contracts.vault}`)
+        );
+      } else {
+        const chainId = config.chainId || process.env.CHAIN_ID || 'default';
+        STREAM_ID = ethers.keccak256(
+          ethers.toUtf8Bytes(`aegis-orchestrator-${chainId}`)
+        );
+      }
     }
 
     _initialized = true;
