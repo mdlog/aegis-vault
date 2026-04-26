@@ -629,19 +629,19 @@ export default function OperatorRegisterPage() {
           <StepSection
             step="3"
             title="Suggested Vault Defaults"
-            description="Recommendations only — vault owners see these pre-filled but can override. These are NOT enforced on-chain."
+            description="Pre-fills the Create Vault form when a user picks you as their operator. Most of these values become hard on-chain caps once the user confirms — see badges per field."
           >
-            <div className="mb-4 p-3.5 rounded-md border border-cyan/15 bg-cyan/[0.04]">
+            <div className="mb-4 p-3.5 rounded-md border border-amber-400/20 bg-amber-400/[0.04]">
               <div className="flex items-start gap-2.5">
-                <Circle className="w-3.5 h-3.5 text-cyan mt-0.5 flex-shrink-0" fill="currentColor" />
-                <div className="text-[11.5px] text-steel/65 leading-relaxed">
-                  <strong className="text-cyan/90">Soft recommendation.</strong> These values are stored in your operator profile as pre-fills for the Create Vault flow. The vault's actual <em>hard</em> guardrails are set separately by each vault owner and enforced on-chain — your recommendations are not.
+                <AlertTriangle className="w-4 h-4 text-amber-300/90 mt-0.5 flex-shrink-0" />
+                <div className="text-[11.5px] text-steel/70 leading-relaxed">
+                  <strong className="text-amber-200/95">These are pre-fills, but most are also hard caps.</strong> When a vault owner accepts your defaults (or sets their own values), Max Position, Min Confidence, Cooldown, and Max Trades are sealed into the vault's on-chain policy and enforced by the contract on every execution. Stop-Loss is the only field below that stays off-chain (enforced by your orchestrator risk veto). Existing vaults are NOT migrated when you update these values — your edits only affect future vault creations.
                 </div>
               </div>
             </div>
             <div className="grid sm:grid-cols-2 gap-5">
               <SliderField
-                label="Max Position Size"
+                label={(<span>Max Position Size <HardCapBadge title="Sealed into vault.policy.maxPositionBps and enforced on-chain — every executeIntent / acceptCrossChainFill must satisfy intent.amountIn ≤ totalDeposited × this %." /></span>)}
                 value={form.recMaxPositionPct}
                 valueLabel={`${form.recMaxPositionPct}%`}
                 onChange={(value) => updateForm({ recMaxPositionPct: value })}
@@ -651,7 +651,7 @@ export default function OperatorRegisterPage() {
                 accent="accent-gold"
               />
               <SliderField
-                label="Min Confidence"
+                label={(<span>Min Confidence <HardCapBadge title="Sealed into vault.policy.confidenceThresholdBps. Both the contract gate and the orchestrator engine derive thresholds from this single knob — strict vault → strict engine." /></span>)}
                 value={form.recConfidenceMinPct}
                 valueLabel={`${form.recConfidenceMinPct}%`}
                 onChange={(value) => updateForm({ recConfidenceMinPct: value })}
@@ -661,7 +661,7 @@ export default function OperatorRegisterPage() {
                 accent="accent-gold"
               />
               <SliderField
-                label="Stop-Loss"
+                label={(<span>Stop-Loss <SoftBadge title="Off-chain only: enforced by the orchestrator's risk veto, not the vault contract. Your value is advisory — vault owners get a pre-fill but the on-chain policy does not act on it." /></span>)}
                 value={form.recStopLossPct}
                 valueLabel={`${form.recStopLossPct}%`}
                 onChange={(value) => updateForm({ recStopLossPct: value })}
@@ -671,7 +671,7 @@ export default function OperatorRegisterPage() {
                 accent="accent-gold"
               />
               <SliderField
-                label="Cooldown"
+                label={(<span>Cooldown <HardCapBadge title="Sealed into vault.policy.cooldownSeconds and enforced on-chain — execution reverts until block.timestamp ≥ lastExecutionTime + this value." /></span>)}
                 value={form.recCooldownMin}
                 valueLabel={`${form.recCooldownMin}m`}
                 onChange={(value) => updateForm({ recCooldownMin: value })}
@@ -682,7 +682,7 @@ export default function OperatorRegisterPage() {
               />
               <div className="sm:col-span-2">
                 <SliderField
-                  label="Max Trades / Day"
+                  label={(<span>Max Trades / Day <HardCapBadge title="Sealed into vault.policy.maxActionsPerDay and enforced on-chain over a rolling 24-hour window — execution reverts past this count." /></span>)}
                   value={form.recMaxActionsPerDay}
                   valueLabel={`${form.recMaxActionsPerDay}`}
                   onChange={(value) => updateForm({ recMaxActionsPerDay: value })}
@@ -1255,6 +1255,34 @@ function PreviewChip({ label, value, tone = 'default' }) {
     <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-mono ${toneClass}`}>
       <span className="text-steel/50">{label}</span>
       <span>{value}</span>
+    </span>
+  );
+}
+
+// Compact badge marking a recommendation field that, once accepted by a vault
+// owner, becomes a hard cap enforced by the AegisVault contract on every
+// execution. Used on Max Position, Min Confidence, Cooldown, Max Trades.
+function HardCapBadge({ title }) {
+  return (
+    <span
+      title={title}
+      className="ml-1.5 inline-flex items-center rounded-full border border-amber-400/35 bg-amber-400/10 px-1.5 py-px align-middle text-[8.5px] font-mono uppercase tracking-[0.08em] text-amber-200/90"
+    >
+      hard cap
+    </span>
+  );
+}
+
+// Compact badge marking a recommendation field that stays advisory — the
+// orchestrator's off-chain risk veto enforces it, but the vault contract
+// does not. Used on Stop-Loss.
+function SoftBadge({ title }) {
+  return (
+    <span
+      title={title}
+      className="ml-1.5 inline-flex items-center rounded-full border border-cyan/30 bg-cyan/10 px-1.5 py-px align-middle text-[8.5px] font-mono uppercase tracking-[0.08em] text-cyan/85"
+    >
+      off-chain
     </span>
   );
 }
