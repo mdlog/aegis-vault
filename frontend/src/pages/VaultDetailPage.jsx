@@ -41,6 +41,7 @@ import {
   useVaultFeeState, useVaultNav, useClaimFees, useAccrueFees, formatBps,
 } from '../hooks/useVaultFees';
 import ControlButton from '../components/ui/ControlButton';
+import CrossChainDepositCard from '../components/dashboard/CrossChainDepositCard';
 import TokenIcon from '../components/ui/TokenIcon';
 import PerformanceChart from '../components/charts/PerformanceChart';
 import {
@@ -861,6 +862,7 @@ export default function VaultDetailPage() {
                   setTicketAmount('');
                 }}
               />
+              <CrossChainDepositCard vaultAddress={vaultAddr} baseAssetAddress={liveVault?.baseAsset} baseAssetSymbol={baseAssetSymbolResolved} baseAssetDecimals={baseAssetDecimalsResolved} />
             </div>
 
             {hasFees && (

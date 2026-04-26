@@ -110,12 +110,18 @@ contract AegisVault_v3 is ReentrancyGuard {
         address _venue,
         VaultPolicy calldata _policy,
         address[] calldata assets_,
-        address /*_protocolTreasury*/
+        address /*_protocolTreasury*/,
+        uint16 _maxCrossChainFeeBps
     ) external {
         require(owner == address(0), "init");
         require(_owner != address(0) && _baseAsset != address(0) && _executor != address(0) && _registry != address(0), "0");
         require(_policy.performanceFeeBps <= 3000 && _policy.managementFeeBps <= 500 && _policy.entryFeeBps <= 200 && _policy.exitFeeBps <= 200, "f");
         require(assets_.length <= MAX_ALLOWED_ASSETS, "too many assets");
+        // v3: cross-chain fee cap is set at init time. 0 disables the
+        //     `acceptCrossChainFill` path (any fill reverts with FeeTooHigh).
+        //     Hard ceiling enforced here so factory + governance can't push it
+        //     past the protocol-wide cap.
+        if (_maxCrossChainFeeBps > MAX_CROSS_CHAIN_FEE_BPS_CAP) revert CrossChain_FeeCapTooHigh();
 
         owner = _owner;
         venue = _venue;
@@ -125,10 +131,7 @@ contract AegisVault_v3 is ReentrancyGuard {
         policy = _policy;
         for (uint256 i = 0; i < assets_.length; i++) _allowedAssets.push(assets_[i]);
         dailyActionResetTime = block.timestamp + 1 days;
-
-        // v3: seed the cross-chain fee cap to the safe default. Owner can
-        //     tighten it further (lower) without redeploying.
-        maxCrossChainFeeBps = DEFAULT_MAX_CROSS_CHAIN_FEE_BPS;
+        maxCrossChainFeeBps = _maxCrossChainFeeBps;
 
         emit VaultEvents.VaultCreated(address(this), _owner, _baseAsset);
     }
@@ -264,16 +267,6 @@ contract AegisVault_v3 is ReentrancyGuard {
         // 2. Expiry
         if (block.timestamp > intent.expiresAt) revert CrossChain_Expired();
 
-        // 8 (early): snapshot vault's `assetOut` balance BEFORE we touch any
-        //            registry state. The delivery must already have landed on
-        //            this contract — we're attesting to a deposit that exists
-        //            at function entry. Any tokens that arrived between this
-        //            snapshot and the post-check (e.g. an in-flight donation)
-        //            satisfies the >= check, which is acceptable: the vault
-        //            cannot lose tokens, only over-attest, and the delta is
-        //            still real value the vault now controls.
-        uint256 prevBalance = IERC20(intent.assetOut).balanceOf(address(this));
-
         // 3 + 4. Hash + ECDSA verification (delegated to CrossChainLib)
         bytes32 intentHash = CrossChainLib.verifySignature(
             intent,
@@ -299,13 +292,21 @@ contract AegisVault_v3 is ReentrancyGuard {
         // 7. minOut floor
         if (actualAmountOut < intent.minAmountOut) revert CrossChain_MinOut();
 
-        // 9. Physical settlement: the vault's assetOut balance must have grown
-        //    by at least `actualAmountOut` since the start of this function.
-        //    Underflow-safe via Solidity 0.8 checked arithmetic — if the
-        //    balance somehow decreased the subtraction reverts before we ever
-        //    compare to actualAmountOut, which is the desired safe-fail mode.
-        uint256 newBalance = IERC20(intent.assetOut).balanceOf(address(this));
-        if (newBalance < prevBalance || newBalance - prevBalance < actualAmountOut) {
+        // 9. Physical settlement: orchestrator captures `intent.prevBalance` —
+        //    the vault's `assetOut` balance immediately BEFORE publishing the
+        //    Khalani deposit — and the TEE signs over it. We re-read the
+        //    current balance and require it has grown by at least
+        //    `actualAmountOut` since the snapshot. The TEE signature binds
+        //    the snapshot to a specific moment; the registry replay guard
+        //    binds each intent to a single accept; together they prevent
+        //    replays of the same delivery.
+        //
+        //    Underflow-safe via Solidity 0.8: a decrease underflows the
+        //    subtraction and reverts inside the comparison, the desired
+        //    safe-fail mode (cannot undercount).
+        uint256 currentBalance = IERC20(intent.assetOut).balanceOf(address(this));
+        if (currentBalance < intent.prevBalance ||
+            currentBalance - intent.prevBalance < actualAmountOut) {
             revert CrossChain_NotSettled();
         }
 

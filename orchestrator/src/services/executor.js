@@ -1,7 +1,8 @@
 import { ethers } from 'ethers';
-import { ABIs, getVaultContract, getShardedVaultContract, computeIntentHash, computeCommitHash, getProvider, EXECUTION_INTENT_TYPES } from '../config/contracts.js';
+import { ABIs, getVaultContract, getShardedVaultContract, computeIntentHash, computeCommitHash, getProvider, getSigner, EXECUTION_INTENT_TYPES } from '../config/contracts.js';
 import { buildAssetAddressMap, getTrackedAsset, normalizeTradeSymbol } from './assets.js';
 import { withRetry } from '../utils/retry.js';
+import { chooseRoute } from './quoteRouter.js';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
@@ -21,6 +22,30 @@ async function quoteVenueAmountOut(venue, tokenIn, tokenOut, amountIn) {
   } catch (err) {
     logger.warn(`  Venue quote failed (${venue}): ${err.shortMessage || err.message}`);
     return null;
+  }
+}
+
+function isNonceExpiredError(err) {
+  const msg = `${err?.code || ''} ${err?.message || ''} ${err?.shortMessage || ''}`;
+  return msg.includes('NONCE_EXPIRED') ||
+    /nonce (has already been used|too low|expired)/i.test(msg);
+}
+
+async function resetNonceManager(contract, err) {
+  const runner = contract?.runner;
+  if (typeof runner?.reset !== 'function') return;
+
+  runner.reset();
+  try {
+    const address = typeof runner.getAddress === 'function'
+      ? await runner.getAddress()
+      : runner.signer?.address;
+    const pending = address
+      ? await getProvider().getTransactionCount(address, 'pending')
+      : null;
+    logger.warn(`  NonceManager reset after stale nonce (${err.code || 'nonce_error'}${pending !== null ? `, pending=${pending}` : ''})`);
+  } catch {
+    logger.warn(`  NonceManager reset after stale nonce (${err.code || 'nonce_error'})`);
   }
 }
 
@@ -157,10 +182,29 @@ export async function buildExecutionIntent(decision, vaultState, oraclePrices = 
     }
   }
 
-  const venueQuote = await quoteVenueAmountOut(vaultState.venue, assetIn, assetOut, amountIn);
+  // Phase 2: compare Jaine direct quote against a Khalani cross-chain route.
+  // Both quotes run in parallel inside chooseRoute; the winner's amountOut is
+  // used for slippage calculation. Execution still goes through Jaine — the
+  // Khalani submission path (deposit/build → broadcast → deposit/submit) lands
+  // in Phase 3 with the V3 vault.
+  // TODO(phase3): when route === 'khalani', call khalani.buildDeposit(quoteId,
+  //   routeId, executor) and route the deposit tx through the sharded wallet
+  //   instead of falling through to Jaine submission.
+  const routeChoice = await chooseRoute({
+    venue: vaultState.venue,
+    tokenIn: assetIn,
+    tokenOut: assetOut,
+    amountIn,
+    executorAddress: vaultState.executor,
+  });
+  logger.info(`  Route: ${routeChoice.route} | diff ${routeChoice.diffBps} bps | ${routeChoice.rationale}`);
+  if (routeChoice.route === 'khalani') {
+    logger.info(`  chose Khalani: orderRoute<-stub (quoteId=${routeChoice.quoteId?.substring(0, 10)}…, routeId=${routeChoice.routeId?.substring(0, 10)}…) — falling back to Jaine submission for Phase 2`);
+  }
+  const venueQuote = routeChoice.amountOut > 0n ? routeChoice.amountOut : null;
   let venueMinOut = 0n;
   if (venueQuote && venueQuote > 0n) {
-    // Apply slippage to the venue quote — this is what the swap will accept.
+    // Apply slippage to the chosen quote — this is what the swap will accept.
     venueMinOut = (venueQuote * BigInt(10000 - slippageBps)) / 10000n;
   }
 
@@ -350,8 +394,15 @@ export async function submitIntent(intent, opts = {}) {
     }
 
     const receipt = await withRetry(async () => {
-      const tx = await vault.executeIntent(intent, attestationSig);
-      return tx.wait();
+      try {
+        const tx = await vault.executeIntent(intent, attestationSig);
+        return tx.wait();
+      } catch (err) {
+        if (isNonceExpiredError(err)) {
+          await resetNonceManager(vault, err);
+        }
+        throw err;
+      }
     }, {
       maxRetries: 3,
       baseDelayMs: 2000,
@@ -421,30 +472,72 @@ export async function submitIntent(intent, opts = {}) {
 }
 
 /**
- * Record execution result on-chain after off-chain swap
- * @param {object} result - ExecutionResult struct
+ * Record execution result to OperatorReputation contract so the operator
+ * detail page's track record (totalExecutions, successRate, volume, PnL) stays
+ * in sync with actual on-chain swap activity.
+ *
+ * Must be called by a wallet that the reputation admin has authorized via
+ * `setRecorder(wallet, true)`. If the executor wallet is not authorized yet,
+ * this returns `{ success: false, error: 'not_authorized' }` and the caller
+ * should surface a setup instruction instead of failing the whole cycle.
+ *
+ * @param {string} operator  operator wallet (vault's `executor` field)
+ * @param {bigint|number} volumeUsd6  notional in USDC 6-decimal units
+ * @param {bigint|number} pnlUsd6     signed realized PnL (6-decimal); 0 on BUY
+ * @param {boolean} success           whether the swap settled successfully
  */
-export async function recordExecutionResult(intentHash, vaultAddress, amountIn, amountOut, success) {
+export async function recordExecutionToReputation(operator, volumeUsd6, pnlUsd6, success) {
+  const reputationAddress = config.contracts.operatorReputation;
+  if (!reputationAddress || reputationAddress === ethers.ZeroAddress) {
+    return { success: false, error: 'reputation_not_configured' };
+  }
+  if (!operator || operator === ethers.ZeroAddress) {
+    return { success: false, error: 'no_operator' };
+  }
+
   try {
-    const vault = getVaultContract(vaultAddress);
+    const signer = getSigner();
+    const recorderAddress = typeof signer.getAddress === 'function'
+      ? await signer.getAddress()
+      : signer.signer?.address || signer.address;
+    const rep = new ethers.Contract(reputationAddress, [
+      'function recordExecution(address operator, uint256 volumeUsd6, int256 pnlUsd6, bool success) external',
+      'function authorizedRecorders(address) view returns (bool)',
+    ], signer);
 
-    const result = {
-      intentHash,
-      venueTxRef: ethers.keccak256(ethers.toUtf8Bytes(`venue-${Date.now()}`)),
-      amountIn,
-      amountOut,
-      executedAt: Math.floor(Date.now() / 1000),
-      success,
-    };
+    const authed = await rep.authorizedRecorders(recorderAddress);
+    if (!authed) {
+      logger.warn(`    Reputation recorder not authorized (${recorderAddress}). Run scripts/authorize-reputation-recorder.mjs as admin.`);
+      return { success: false, error: 'not_authorized' };
+    }
 
-    const tx = await vault.recordExecution(result);
-    const receipt = await tx.wait();
-
-    logger.info(`Execution recorded. TX: ${receipt.hash}`);
+    const receipt = await withRetry(async () => {
+      try {
+        const tx = await rep.recordExecution(operator, BigInt(volumeUsd6), BigInt(pnlUsd6), success);
+        return tx.wait();
+      } catch (err) {
+        if (isNonceExpiredError(err)) {
+          await resetNonceManager(rep, err);
+        }
+        throw err;
+      }
+    }, {
+      maxRetries: 3,
+      baseDelayMs: 2000,
+      label: `recordExecution(${operator.substring(0, 10)})`,
+      shouldRetry: (err) => {
+        const msg = err.message || '';
+        if (msg.includes('revert') || msg.includes('CALL_EXCEPTION')) {
+          return false;
+        }
+        return true;
+      },
+    });
+    logger.info(`    ✓ Reputation recorded. TX: ${receipt.hash.substring(0, 18)}…`);
     return { success: true, txHash: receipt.hash };
 
   } catch (err) {
-    logger.error(`Failed to record execution: ${err.message}`);
-    return { success: false, error: err.message };
+    logger.warn(`    Reputation record failed: ${err.shortMessage || err.message}`);
+    return { success: false, error: err.shortMessage || err.message };
   }
 }

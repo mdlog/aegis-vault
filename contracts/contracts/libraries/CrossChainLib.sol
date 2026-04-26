@@ -42,6 +42,15 @@ library CrossChainLib {
         uint16  maxFeeBps;
         bytes32 routePolicyHash;
         bytes32 khalaniIntentId;
+        // Vault `assetOut` balance the orchestrator observed BEFORE publishing
+        // the Khalani deposit. The vault re-reads its own balance at fill time
+        // and requires `currentBalance >= prevBalance + actualAmountOut` —
+        // proves the solver actually delivered the new tokens. Without this
+        // signed snapshot, the previous `prevBalance = balanceOf(this)` taken
+        // inside `acceptCrossChainFill` always equalled the post-delivery
+        // balance (no transfer happens during a single STATICCALL-only call),
+        // making the settlement check unsatisfiable.
+        uint256 prevBalance;
     }
 
     // ── EIP-712 ──
@@ -50,7 +59,7 @@ library CrossChainLib {
     //   Off-chain signer (orchestrator) MUST hash an identical type string —
     //   any drift breaks signature verification.
     bytes32 internal constant CROSS_CHAIN_INTENT_TYPEHASH = keccak256(
-        "CrossChainIntent(address vault,address assetIn,address assetOut,uint256 amountIn,uint256 minAmountOut,uint256 createdAt,uint256 expiresAt,uint16 confidenceBps,uint16 riskScoreBps,bytes32 attestationReportHash,uint64 routeChainId,uint16 maxFeeBps,bytes32 routePolicyHash,bytes32 khalaniIntentId)"
+        "CrossChainIntent(address vault,address assetIn,address assetOut,uint256 amountIn,uint256 minAmountOut,uint256 createdAt,uint256 expiresAt,uint16 confidenceBps,uint16 riskScoreBps,bytes32 attestationReportHash,uint64 routeChainId,uint16 maxFeeBps,bytes32 routePolicyHash,bytes32 khalaniIntentId,uint256 prevBalance)"
     );
     bytes32 internal constant DOMAIN_TYPE_HASH = keccak256(
         "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
@@ -110,7 +119,8 @@ library CrossChainLib {
             intent.routeChainId,
             intent.maxFeeBps,
             intent.routePolicyHash,
-            intent.khalaniIntentId
+            intent.khalaniIntentId,
+            intent.prevBalance
         ));
         bytes32 domainSeparator = keccak256(abi.encode(
             DOMAIN_TYPE_HASH,
