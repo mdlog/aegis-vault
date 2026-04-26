@@ -71,34 +71,45 @@ function buildManifestEntry(targetChainId, source) {
     const WBTC_REAL = source.realTokens?.WBTC || '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c';
     const W0G = source.realTokens?.W0G || '0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c';
     const CBBTC = source.realTokens?.cbBTC || '';
+
+    // Resolution chain: prefer the most recent stack version, fall back to
+    // older ones, finally empty string. Keeps post-fresh-deploy frontends
+    // working when only V3 is populated, while legacy V1/V2 deployments
+    // remain readable for older frontend code paths that still use the
+    // unsuffixed key names.
+    const factoryAny  = source.aegisVaultFactoryV3  || source.aegisVaultFactoryV2  || source.aegisVaultFactory  || '';
+    const registryAny = source.executionRegistryV3 || source.executionRegistryV2 || source.executionRegistry || '';
+    const operatorReg = source.operatorRegistryV2  || source.operatorRegistry      || '';
+    const stakingAny  = source.operatorStakingV2   || source.operatorStaking       || '';
+    const insuranceAny = source.insurancePoolV2    || source.insurancePool         || '';
+    const adapterAny  = source.jaineVenueAdapterV2 || source.jaineVenueAdapter     || '';
+
     return {
-      operatorRegistry: source.operatorRegistry || '',
-      operatorStaking: source.operatorStaking || '',
-      insurancePool: source.insurancePool || '',
-      operatorReputation: source.operatorReputation || '',
-      aegisGovernor: source.aegisGovernor || '',
-      protocolTreasury: source.protocolTreasury || '',
-      executionRegistry: source.executionRegistry || '',
-      aegisVaultFactory: source.aegisVaultFactory || '',
-      vaultNAVCalculator: source.vaultNAVCalculator || '',
-      jaineVenueAdapter: source.jaineVenueAdapter || '',
-      // V2 multi-hop adapter: optional, only present after running
-      // scripts/deploy-jaine-adapter-v2.js. New vaults should be created
-      // pointing at this venue if defined; existing vaults stay on V1.
+      // Legacy unsuffixed keys — populated via the resolution chain above so
+      // frontend code that still reads e.g. `deployments.aegisVaultFactory`
+      // continues to work after a fresh V3-only deploy. New code should
+      // prefer the explicit `…V3` keys.
+      operatorRegistry:    operatorReg,
+      operatorStaking:     stakingAny,
+      insurancePool:       insuranceAny,
+      operatorReputation:  source.operatorReputation || '',
+      aegisGovernor:       source.aegisGovernor || '',
+      protocolTreasury:    source.protocolTreasury || '',
+      executionRegistry:   registryAny,
+      aegisVaultFactory:   factoryAny,
+      vaultNAVCalculator:  source.vaultNAVCalculator || '',
+      jaineVenueAdapter:   adapterAny,
+      // V2 multi-hop adapter: explicit key kept even after fresh V3 deploy
+      // because executor / orchestrator route quotes through it directly.
       jaineVenueAdapterV2: source.jaineVenueAdapterV2 || '',
-      // v2 stack — kept under separate keys so v1 remains queryable for
-      // existing vaults while new creates route through factoryV2.
+      // v2 stack — kept for back-compat. Empty after a clean V3 deploy.
       aegisVaultImplementationV2: source.aegisVaultImplementationV2 || '',
       aegisVaultFactoryV2:        source.aegisVaultFactoryV2 || '',
       executionRegistryV2:        source.executionRegistryV2 || '',
       insurancePoolV2:            source.insurancePoolV2 || '',
       operatorStakingV2:          source.operatorStakingV2 || '',
       operatorRegistryV2:         source.operatorRegistryV2 || '',
-      // v3 stack — V3 adds cross-chain (Khalani) acceptance to vaults. Frontend
-      // routes new creates through factoryV3 to expose maxCrossChainFeeBps;
-      // existing v2 vaults stay queryable via the v2 keys above. v3 uses its
-      // own ExecutionRegistry / ExecLib / IOLib (audit fixes added incompatible
-      // surfaces) so v1/v2 vault references continue working unchanged.
+      // v3 stack — canonical surface after `deploy-fresh-mainnet.js`.
       execLibraryV3:               source.execLibraryV3 || '',
       ioLibraryV3:                 source.ioLibraryV3 || '',
       crossChainLibrary:           source.crossChainLibrary || '',

@@ -3,9 +3,22 @@
 > Applies to deploying the V3 vault stack alongside Khalani as a second
 > execution venue, with V2 vaults left untouched and live.
 
-This is the operator-facing companion to `deploy-vault-factory-v3.js`.
-It documents the gas budget, wallet topup needs, sequence, and post-deploy
-verification steps for going **fully live with Khalani while keeping Jaine**.
+This is the operator-facing companion to the deploy scripts. Two scripts are
+available depending on what you want:
+
+  - **`deploy-fresh-mainnet.js`** — fresh full deploy. Deploys the entire V3
+    stack from scratch (treasury, governor, registries, NAV calculator,
+    Jaine V2 adapter, V3 vault + factory, Khalani adapter) and writes a
+    clean deployments file. Use this when you want a single coherent
+    deployment with no legacy V1/V2 references in the frontend manifest.
+    14 steps, ~14.7M gas total (~0.05 0G at 3 gwei).
+  - **`deploy-vault-factory-v3.js`** — incremental V3-only deploy. Reuses
+    treasury / NAV / staking / reputation from an existing V2 deployment
+    and only adds the V3-specific contracts (libraries, registry, vault,
+    factory, Khalani adapter). 7 steps, ~6.3M gas (~0.019 0G).
+
+This doc focuses on the **fresh full deploy** path because it's the cleanest
+option for a frontend integration that should not see V1/V2 cutover logic.
 
 ## 1. Wallet funding budget
 
@@ -14,24 +27,32 @@ No multi-chain wallets are needed — `chooseRoute()` issues Khalani intents
 with `fromChainId === toChainId === 0G`, so the orchestrator only needs 0G
 gas. Solvers carry the cross-chain economics.
 
-### Deployer wallet (one-time)
+### Deployer wallet (one-time, fresh full deploy)
 
 | Phase | Gas | 0G @ 3 gwei |
 |---|---|---|
-| ExecLib v3 (audit Fix #3) | 1.0M | 0.0030 |
-| IOLib v3 (audit Fix #8) | 0.5M | 0.0015 |
-| CrossChainLib | 0.3M | 0.0009 |
+| ProtocolTreasury | 0.6M | 0.0018 |
+| AegisGovernor (M-of-N multisig) | 1.3M | 0.0040 |
+| OperatorRegistry | 1.8M | 0.0053 |
+| InsurancePool_v2 | 1.0M | 0.0029 |
+| OperatorStaking_v2 | 1.4M | 0.0042 |
+| OperatorReputation | 0.7M | 0.0020 |
+| VaultNAVCalculator | 0.9M | 0.0026 |
+| Libraries: SealedLib + ExecLib + IOLib + CrossChainLib | 2.0M | 0.0059 |
 | ExecutionRegistry v3 (audit Fix #6 + Ownable2Step + events) | 0.7M | 0.0021 |
 | AegisVault_v3 implementation | 2.1M | 0.0063 |
 | AegisVaultFactoryV3 | 0.7M | 0.0021 |
+| JaineVenueAdapterV2 | 1.7M | 0.0050 |
 | KhalaniVenueAdapter | 0.7M | 0.0021 |
-| Adapter allowlist seed (1 batch chains tx + 1 batch tokens tx — audit LOW #4) | 0.2M | 0.0006 |
-| `registry.authorizeFactory(v3)` | 0.07M | 0.0002 |
-| **Total** | **~6.3M** | **~0.019 0G** |
+| Wiring (registry.authorizeFactory + nav.addAsset×4 + reputation.setRecorder + adapter batch allowlist) | 0.6M | 0.0018 |
+| **Total (fresh full deploy)** | **~16.2M** | **~0.049 0G** |
 
-**Recommended balance:** **0.1 0G** in deployer wallet (3-5x headroom for
-gas-price surge or retries). Top up before running
-`scripts/deploy-vault-factory-v3.js`.
+**Recommended balance:** **0.1–0.2 0G** in deployer wallet (2-4x headroom
+for gas-price surge or retries). Top up before running
+`scripts/deploy-fresh-mainnet.js`.
+
+If you instead use the incremental `deploy-vault-factory-v3.js` (V3-only on
+top of an existing V2 deployment), the budget drops to ~6.3M gas (~0.019 0G).
 
 **Why v3 deploys its own ExecLib + IOLib + ExecutionRegistry:**
 post-audit-fix surfaces aren't backwards compatible (ExecLib added a
@@ -59,39 +80,63 @@ gas depends on which path wins:
 **Recommended ongoing balance:** **30–50 0G** in executor wallet, monitored
 via Grafana / alerting. Topup whenever balance < 5 0G.
 
-## 2. Pre-deploy checks
+## 2. Pre-deploy checks (fresh full deploy)
 
-Before running the script, confirm:
+Before running `deploy-fresh-mainnet.js`, confirm:
 
-- [ ] `contracts/deployments-mainnet.json` has populated:
-  - `protocolTreasury`
-  - `sealedLibrary` (v2 SealedLib is reused — unchanged across v1 → v3)
+- [ ] `contracts/deployments-mainnet.json` has external references populated
+      (these aren't deployed by the script — they must already exist on chain):
+  - `pyth.address` and `pyth.feedBTC` / `feedETH` / `feedUSDC` / `feed0G`
   - `realTokens.USDCe`, `WETH`, `cbBTC`, `W0G`
-- [ ] Deployer wallet has ≥ 0.1 0G
-- [ ] `contracts/test/AegisVault_v3.test.js`, `AegisVaultFactoryV3.test.js`, `ExecutionRegistry.audit.test.js`, and `KhalaniVenueAdapter.test.js` are green locally (`npx hardhat test`)
+  - `jaine.router`, `jaine.factory`, `jaine.w0g`
+- [ ] Deployer wallet has ≥ 0.1 0G (recommended 0.2 for full headroom)
+- [ ] All tests green locally: `cd contracts && npx hardhat test` (255+
+      contract tests across `AegisVault_v3.test.js`, `AegisVaultFactoryV3.test.js`,
+      `ExecutionRegistry.audit.test.js`, `KhalaniVenueAdapter.test.js`)
 - [ ] Slither CI green on the latest commit
+- [ ] Governance owners + threshold decided (env vars `GOVERNOR_OWNERS`
+      comma-separated and `GOVERNOR_THRESHOLD`)
+- [ ] Orchestrator executor address ready (env `EXECUTOR_ADDRESS`; this
+      becomes the authorized recorder on `OperatorReputation`)
 
-The script deploys its own fresh `ExecLib`, `IOLib`, `CrossChainLib`,
-`ExecutionRegistry` (saved under `…V3` keys in the deployments file). v1/v2
-keys are not consulted or modified.
+The script writes ONLY V3 keys to the output deployments file. Legacy V1
+unsuffixed keys (`aegisVaultFactory`, `executionRegistry`, etc.) are
+intentionally dropped. `sync-frontend.js` still surfaces those keys in
+the frontend manifest by falling back through `V3 → V2 → V1`, so legacy
+frontend code that hasn't migrated to explicit `…V3` keys keeps working.
 
-## 3. Deploy sequence
+## 3. Deploy sequence (fresh full deploy)
 
 ```bash
 cd contracts
 
-# 1. Deploy V3 + KhalaniVenueAdapter + allowlist + register factory.
-DEPLOYER_PRIVATE_KEY=0x... npx hardhat run scripts/deploy-vault-factory-v3.js --network og_mainnet
+# 1. Run the full fresh deploy — 14 steps in one go.
+DEPLOYER_PRIVATE_KEY=0x... \
+GOVERNOR_OWNERS=0xaaa,0xbbb,0xccc \
+GOVERNOR_THRESHOLD=2 \
+EXECUTOR_ADDRESS=0x... \
+CONFIRM_MAINNET=1 \
+  npx hardhat run scripts/deploy-fresh-mainnet.js --network og_mainnet
 
-# 2. Sync addresses + ABIs to frontend.
+# 2. Sync addresses + ABIs to the frontend manifest.
 node scripts/sync-frontend.js deployments-mainnet.json
 
-# 3. Verify the new addresses in deployments-mainnet.json appear with
-#    crossChainLibrary, aegisVaultImplementationV3, aegisVaultFactoryV3,
-#    khalaniVenueAdapter populated.
+# 3. Verify the manifest in frontend/src/lib/deployments.generated.json
+#    contains the V3 addresses (aegisVaultFactoryV3, executionRegistryV3,
+#    khalaniVenueAdapter, operatorReputation, etc.). Legacy unsuffixed
+#    keys will be auto-populated with V3 fallbacks.
 
-# 4. Restart orchestrator so it picks up new factory + adapter env.
-pm2 restart aegis-orchestrator   # or systemd / docker compose restart
+# 4. Rebuild + restart frontend, restart orchestrator.
+cd ../frontend && npm run build
+cd ../orchestrator && pm2 restart aegis-orchestrator
+```
+
+**Incremental V3-only deploy** (alternative — keeps existing V2 stack):
+
+```bash
+DEPLOYER_PRIVATE_KEY=0x... \
+  npx hardhat run scripts/deploy-vault-factory-v3.js --network og_mainnet
+node scripts/sync-frontend.js deployments-mainnet.json
 ```
 
 After step 2, the frontend will route new vault creates through V3 factory
