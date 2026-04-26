@@ -85,6 +85,40 @@ async function isContract(provider, addr) {
   }
 }
 
+// ── Khalani route registry config ──
+//
+//   Initial allowlist seeded into KhalaniVenueAdapter at deploy time. Editable
+//   post-deploy via adapter.setChainAllowed / setTokenAllowed (owner-only).
+//
+//   Chains: every Khalani-supported origin we want vaults to accept fills
+//   from. Add entries as Khalani expands chain coverage.
+//
+//   Tokens: pulled from `realTokens` in deployments. We allowlist only assets
+//   we want vaults to receive as `assetOut` on 0G — base assets the AI may
+//   buy or sell. SealedLib + acceptCrossChainFill will reject any other
+//   destination token even if Khalani would route it.
+//
+//   `defaultMaxFeeBps` is the protocol-wide ceiling the orchestrator uses as
+//   a default `intent.maxFeeBps`. Per-vault `maxCrossChainFeeBps` overrides
+//   this in the stricter direction; neither can exceed 200 bps (vault hard
+//   cap).
+const KHALANI_ALLOWED_CHAIN_IDS = [
+  16661n, // 0G mainnet — destination, but also useful for 0G-to-0G routing
+  1n,     // Ethereum mainnet
+  42161n, // Arbitrum One
+  8453n,  // Base
+];
+
+const KHALANI_ALLOWED_TOKEN_KEYS = [
+  "USDCe",
+  "WETH",
+  "cbBTC",
+  "W0G",
+  // WBTC + USDT can be added later via setTokenAllowed if needed.
+];
+
+const KHALANI_DEFAULT_MAX_FEE_BPS = 50; // 0.5%
+
 // ── Main ──────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -159,7 +193,7 @@ async function main() {
   }
 
   // ── 1. CrossChainLib ──
-  console.log("\n[1/3] CrossChainLib");
+  console.log("\n[1/4] CrossChainLib");
   let crossChainLibAddr = deployments.crossChainLibrary;
   if (crossChainLibAddr && (await isContract(ethers.provider, crossChainLibAddr))) {
     crossChainLibAddr = checksum(crossChainLibAddr);
@@ -173,7 +207,7 @@ async function main() {
   }
 
   // ── 2. AegisVault_v3 implementation ──
-  console.log("\n[2/3] AegisVault_v3 implementation");
+  console.log("\n[2/4] AegisVault_v3 implementation");
   let implV3Addr = deployments.aegisVaultImplementationV3;
   if (implV3Addr && (await isContract(ethers.provider, implV3Addr))) {
     implV3Addr = checksum(implV3Addr);
@@ -194,7 +228,7 @@ async function main() {
   }
 
   // ── 3. AegisVaultFactoryV3 ──
-  console.log("\n[3/3] AegisVaultFactoryV3");
+  console.log("\n[3/4] AegisVaultFactoryV3");
   let factoryV3Addr = deployments.aegisVaultFactoryV3;
   let factoryAlreadyDeployed = false;
   if (factoryV3Addr && (await isContract(ethers.provider, factoryV3Addr))) {
@@ -219,7 +253,79 @@ async function main() {
     console.log("      deployed :", factoryV3Addr);
   }
 
-  // ── 4. Registry authorization ──
+  // ── 4. KhalaniVenueAdapter ──
+  //
+  //   Route registry for cross-chain intents. Vault contract does NOT call
+  //   this adapter at execution time (acceptCrossChainFill is venue-less);
+  //   the orchestrator queries `isRouteAllowed(chainId, tokenIn, tokenOut)`
+  //   before publishing a Khalani intent. Adapter is owned by the deployer
+  //   initially — production should rotate ownership to AegisGovernor or a
+  //   protocol multisig once the initial allowlist is verified.
+  console.log("\n[4/4] KhalaniVenueAdapter");
+  let khalaniAdapterAddr = deployments.khalaniVenueAdapter;
+  let khalaniAdapter;
+  if (khalaniAdapterAddr && (await isContract(ethers.provider, khalaniAdapterAddr))) {
+    khalaniAdapterAddr = checksum(khalaniAdapterAddr);
+    khalaniAdapter = await ethers.getContractAt("KhalaniVenueAdapter", khalaniAdapterAddr);
+    console.log("      reused   :", khalaniAdapterAddr);
+  } else {
+    const KhalaniAdapter = await ethers.getContractFactory("KhalaniVenueAdapter");
+    khalaniAdapter = await KhalaniAdapter.deploy(KHALANI_DEFAULT_MAX_FEE_BPS);
+    await khalaniAdapter.waitForDeployment();
+    khalaniAdapterAddr = checksum(await khalaniAdapter.getAddress());
+    console.log("      deployed :", khalaniAdapterAddr);
+    console.log("      defaultMaxFeeBps:", KHALANI_DEFAULT_MAX_FEE_BPS);
+  }
+
+  // Initial allowlist — only run when deployer still holds adapter ownership.
+  // (If governance has already rotated owner, skip silently and print the
+  //  manual coordination note.)
+  const adapterOwner = checksum(await khalaniAdapter.owner());
+  if (adapterOwner === checksum(deployer.address)) {
+    console.log("\nKhalani allowlist:");
+    console.log("  Chains:");
+    for (const cid of KHALANI_ALLOWED_CHAIN_IDS) {
+      const already = await khalaniAdapter.allowedChains(cid);
+      if (already) {
+        console.log(`    chainId ${cid.toString().padStart(6)}  → already allowed ✓`);
+      } else {
+        await (await khalaniAdapter.setChainAllowed(cid, true)).wait();
+        console.log(`    chainId ${cid.toString().padStart(6)}  → set ✓`);
+      }
+    }
+
+    const realTokens = deployments.realTokens || {};
+    console.log("  Tokens:");
+    for (const key of KHALANI_ALLOWED_TOKEN_KEYS) {
+      const addr = realTokens[key];
+      if (!addr) {
+        console.log(`    ${key.padEnd(8)} → SKIPPED (not in deployments.realTokens)`);
+        continue;
+      }
+      const cs = checksum(addr);
+      const already = await khalaniAdapter.allowedTokens(cs);
+      if (already) {
+        console.log(`    ${key.padEnd(8)} ${cs} → already allowed ✓`);
+      } else {
+        await (await khalaniAdapter.setTokenAllowed(cs, true)).wait();
+        console.log(`    ${key.padEnd(8)} ${cs} → set ✓`);
+      }
+    }
+  } else {
+    console.log("\nKhalani allowlist:");
+    console.log("  ⚠  Adapter owner =", adapterOwner, "(not deployer)");
+    console.log("     Skipping inline allowlist setup. Coordinate the following from owner:");
+    for (const cid of KHALANI_ALLOWED_CHAIN_IDS) {
+      console.log(`       adapter.setChainAllowed(${cid}, true)`);
+    }
+    const realTokens = deployments.realTokens || {};
+    for (const key of KHALANI_ALLOWED_TOKEN_KEYS) {
+      const addr = realTokens[key];
+      if (addr) console.log(`       adapter.setTokenAllowed(${checksum(addr)}, true)  // ${key}`);
+    }
+  }
+
+  // ── 5. Registry authorization ──
   //
   //   ExecutionRegistry now exposes a multi-factory authorization set
   //   (`authorizedFactories`) so v1, v2 and v3 factories can coexist on the
@@ -265,6 +371,7 @@ async function main() {
     crossChainLibrary:           crossChainLibAddr,
     aegisVaultImplementationV3:  implV3Addr,
     aegisVaultFactoryV3:         factoryV3Addr,
+    khalaniVenueAdapter:         khalaniAdapterAddr,
     v3DeployedAt:                deployments.v3DeployedAt || new Date().toISOString(),
     v3Deployer:                  deployments.v3Deployer || deployer.address,
   };
@@ -283,12 +390,15 @@ async function main() {
   console.log("crossChainLibrary           :", crossChainLibAddr);
   console.log("aegisVaultImplementationV3  :", implV3Addr);
   console.log("aegisVaultFactoryV3         :", factoryV3Addr);
+  console.log("khalaniVenueAdapter         :", khalaniAdapterAddr);
   console.log("\nDeployments written:", deployFile);
   console.log("\nNext steps:");
-  console.log("  1. node scripts/sync-frontend.js");
+  console.log("  1. node scripts/sync-frontend.js   (publishes new ABIs + addresses)");
   console.log("  2. Frontend: wire aegisVaultFactoryV3 into /create for cross-chain vaults.");
   console.log("     Pass the user-requested _maxCrossChainFeeBps as the last arg to");
   console.log("     factory.createVault(...) — v3 seals the cap at init, no follow-up tx needed.");
+  console.log("  3. Orchestrator: set KHALANI_VENUE_ADAPTER env / config to the address above");
+  console.log("     so quoteRouter can reach `isRouteAllowed` (governance metadata).");
 }
 
 main()

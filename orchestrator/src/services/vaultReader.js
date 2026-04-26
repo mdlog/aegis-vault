@@ -28,6 +28,19 @@ export async function readVaultState(vaultAddress) {
     let venue = ethers.ZeroAddress;
     try { venue = await vault.venue(); } catch { /* pre-venue vault */ }
 
+    // Detect V3 by probing the `version()` view added in AegisVault_v3. V1/V2
+    // vaults don't expose this — call reverts and we treat as non-V3. Used
+    // by the orchestrator to gate the Khalani submission path: only V3 has
+    // `acceptCrossChainFill`, so V1/V2 vaults always route through Jaine even
+    // when chooseRoute prefers Khalani.
+    let vaultVersion = null;
+    let isV3 = false;
+    try {
+      const v = await vault.version();
+      vaultVersion = String(v);
+      isV3 = vaultVersion === 'v3';
+    } catch { /* v1/v2 vault — leave nulls */ }
+
     // Parse the summary tuple
     const [
       owner,
@@ -78,6 +91,8 @@ export async function readVaultState(vaultAddress) {
       executor,
       baseAsset,
       venue,
+      version: vaultVersion,
+      isV3,
       baseDecimals: Number(baseDecimals),
       nav: totalNav,
       navSource: navData?.source || 'base-asset-balance',

@@ -94,6 +94,13 @@ function buildManifestEntry(targetChainId, source) {
       insurancePoolV2:            source.insurancePoolV2 || '',
       operatorStakingV2:          source.operatorStakingV2 || '',
       operatorRegistryV2:         source.operatorRegistryV2 || '',
+      // v3 stack — V3 adds cross-chain (Khalani) acceptance to vaults. Frontend
+      // routes new creates through factoryV3 to expose maxCrossChainFeeBps;
+      // existing v2 vaults stay queryable via the v2 keys above.
+      crossChainLibrary:           source.crossChainLibrary || '',
+      aegisVaultImplementationV3:  source.aegisVaultImplementationV3 || '',
+      aegisVaultFactoryV3:         source.aegisVaultFactoryV3 || '',
+      khalaniVenueAdapter:         source.khalaniVenueAdapter || '',
       USDCe: USDC_E,
       WETH:  WETH_REAL,
       WBTC:  WBTC_REAL,

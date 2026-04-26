@@ -1,7 +1,7 @@
 import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { parseUnits, formatUnits, decodeEventLog } from 'viem';
 import { toast } from 'sonner';
-import { AegisVaultABI, AegisVaultFactoryABI, MockERC20ABI, getDeployments } from '../lib/contracts.js';
+import { AegisVaultABI, AegisVaultFactoryABI, AegisVaultFactoryV3ABI, MockERC20ABI, getDeployments } from '../lib/contracts.js';
 
 /**
  * Slim AegisVault (the build currently deployed on 0G mainnet) exposes only:
@@ -545,16 +545,38 @@ export function useCreateVault() {
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
 
-  // Cutover: new vaults always go to factoryV2 when it's deployed on this
-  // chain (gets rescueToken / withdrawAllNonBase support). Falls back to v1
-  // factory on chains where v2 hasn't shipped (Arbitrum execution layer,
-  // local hardhat, etc).
-  const activeFactory = deployments.aegisVaultFactoryV2 || deployments.aegisVaultFactory;
+  // Cutover priority: V3 factory > V2 factory > V1 factory.
+  //   V3 unlocks Khalani cross-chain fills (acceptCrossChainFill) and seals
+  //   maxCrossChainFeeBps at vault creation. V2 added rescueToken /
+  //   withdrawAllNonBase. V1 is the original on-chain swap-only stack.
+  const useV3 = !!deployments.aegisVaultFactoryV3;
+  const activeFactory =
+    deployments.aegisVaultFactoryV3
+    || deployments.aegisVaultFactoryV2
+    || deployments.aegisVaultFactory;
+  const activeFactoryAbi = useV3 ? AegisVaultFactoryV3ABI : AegisVaultFactoryABI;
 
-  const createVault = (baseAsset, executor, venue, policy, allowedAssets) => {
+  // V3 factory signature:
+  //   createVault(operator, baseAsset, venue, policy, allowedAssets, maxCrossChainFeeBps)
+  // V1/V2 factory signature:
+  //   createVault(baseAsset, executor, venue, policy, allowedAssets)
+  // The wrapper accepts both modern (V3) and legacy (V1/V2) call shapes; UI
+  // callers pass `maxCrossChainFeeBps` (0–200) for V3 vaults — ignored on V1/V2.
+  const createVault = (baseAsset, executor, venue, policy, allowedAssets, maxCrossChainFeeBps) => {
+    if (useV3) {
+      const cap = Number.isFinite(maxCrossChainFeeBps) ? Number(maxCrossChainFeeBps) : 50;
+      writeContract({
+        address: activeFactory,
+        abi: activeFactoryAbi,
+        functionName: 'createVault',
+        // V3: _operator first, _baseAsset second — caller (msg.sender) becomes owner.
+        args: [executor, baseAsset, venue, policy, allowedAssets, cap],
+      });
+      return;
+    }
     writeContract({
       address: activeFactory,
-      abi: AegisVaultFactoryABI,
+      abi: activeFactoryAbi,
       functionName: 'createVault',
       args: [baseAsset, executor, venue, policy, allowedAssets],
     });
@@ -571,7 +593,7 @@ export function useCreateVault() {
     for (const log of receipt.logs) {
       if (factoryAddr && log.address?.toLowerCase() !== factoryAddr) continue;
       try {
-        const decoded = decodeEventLog({ abi: AegisVaultFactoryABI, data: log.data, topics: log.topics });
+        const decoded = decodeEventLog({ abi: activeFactoryAbi, data: log.data, topics: log.topics });
         if (decoded.eventName === 'VaultDeployed' && decoded.args?.vault) {
           deployedVaultAddresses.push(decoded.args.vault);
         }

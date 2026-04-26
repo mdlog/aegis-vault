@@ -164,6 +164,44 @@ export function computeIntentHash(intent) {
 
 export { EXECUTION_INTENT_TYPES };
 
+// EIP-712 typed data for V3 cross-chain (Khalani) intents — matches
+// CrossChainLib.CROSS_CHAIN_INTENT_TYPEHASH in CrossChainLib.sol. Field
+// order MUST stay byte-for-byte aligned or signature recovery breaks.
+const CROSS_CHAIN_INTENT_TYPES = {
+  CrossChainIntent: [
+    { name: 'vault',                 type: 'address' },
+    { name: 'assetIn',               type: 'address' },
+    { name: 'assetOut',              type: 'address' },
+    { name: 'amountIn',              type: 'uint256' },
+    { name: 'minAmountOut',          type: 'uint256' },
+    { name: 'createdAt',             type: 'uint256' },
+    { name: 'expiresAt',             type: 'uint256' },
+    { name: 'confidenceBps',         type: 'uint16'  },
+    { name: 'riskScoreBps',          type: 'uint16'  },
+    { name: 'attestationReportHash', type: 'bytes32' },
+    { name: 'routeChainId',          type: 'uint64'  },
+    { name: 'maxFeeBps',             type: 'uint16'  },
+    { name: 'routePolicyHash',       type: 'bytes32' },
+    { name: 'khalaniIntentId',       type: 'bytes32' },
+    { name: 'prevBalance',           type: 'uint256' },
+  ],
+};
+
+export { CROSS_CHAIN_INTENT_TYPES };
+
+/// @notice Compute EIP-712 digest for a CrossChainIntent.
+///         Domain mirrors ExecutionIntent (`AegisVault` v `1`) so the same
+///         attested-signer key is reused across both intent surfaces.
+export function computeCrossChainIntentHash(intent, vaultAddr) {
+  const domain = {
+    name: 'AegisVault',
+    version: '1',
+    chainId: config.chainId,
+    verifyingContract: vaultAddr,
+  };
+  return ethers.TypedDataEncoder.hash(domain, CROSS_CHAIN_INTENT_TYPES, intent);
+}
+
 // Track 2: commit hash binds intent + attestation. Used for sealed-mode commit-reveal.
 export function computeCommitHash(intentHash, attestationReportHash) {
   return ethers.keccak256(

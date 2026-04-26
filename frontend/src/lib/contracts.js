@@ -1,5 +1,8 @@
 import AegisVaultABI from './abi/AegisVault.json';
 import AegisVaultFactoryABI from './abi/AegisVaultFactory.json';
+import AegisVault_v3ABI from './abi/AegisVault_v3.json';
+import AegisVaultFactoryV3ABI from './abi/AegisVaultFactoryV3.json';
+import KhalaniVenueAdapterABI from './abi/KhalaniVenueAdapter.json';
 import ExecutionRegistryABI from './abi/ExecutionRegistry.json';
 import OperatorRegistryABI from './abi/OperatorRegistry.json';
 import ProtocolTreasuryABI from './abi/ProtocolTreasury.json';
@@ -13,6 +16,9 @@ import generatedDeployments from './deployments.generated.json';
 export {
   AegisVaultABI,
   AegisVaultFactoryABI,
+  AegisVault_v3ABI,
+  AegisVaultFactoryV3ABI,
+  KhalaniVenueAdapterABI,
   ExecutionRegistryABI,
   OperatorRegistryABI,
   ProtocolTreasuryABI,
@@ -218,6 +224,21 @@ export const ORCHESTRATOR_URL =
 export function getDeployments(chainId) {
   const key = String(chainId || 31337);
   return DEPLOYMENTS[key] || DEPLOYMENTS['31337'];
+}
+
+// Scan deployments to find the chain where `addressKey` is populated. Used by
+// NetworkWarning to know where to ask the user to switch when they're on the
+// wrong chain, without hardcoding a testnet ID in each page.
+export function findDeploymentChainId(addressKey) {
+  const preferred = ['16661', '42161']; // prefer production chains
+  const all = [...preferred, ...Object.keys(DEPLOYMENTS).filter((k) => !preferred.includes(k))];
+  for (const k of all) {
+    const d = DEPLOYMENTS[k];
+    if (d && isConfiguredAddress(d[addressKey])) {
+      return Number(k);
+    }
+  }
+  return null;
 }
 
 export function getDefaultVaultAddress(chainId) {

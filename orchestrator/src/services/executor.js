@@ -1,8 +1,9 @@
 import { ethers } from 'ethers';
-import { ABIs, getVaultContract, getShardedVaultContract, computeIntentHash, computeCommitHash, getProvider, getSigner, EXECUTION_INTENT_TYPES } from '../config/contracts.js';
+import { ABIs, getVaultContract, getShardedVaultContract, computeIntentHash, computeCommitHash, getProvider, getSigner, EXECUTION_INTENT_TYPES, CROSS_CHAIN_INTENT_TYPES, computeCrossChainIntentHash } from '../config/contracts.js';
 import { buildAssetAddressMap, getTrackedAsset, normalizeTradeSymbol } from './assets.js';
 import { withRetry } from '../utils/retry.js';
 import { chooseRoute } from './quoteRouter.js';
+import { buildDeposit as khalaniBuildDeposit, submitDeposit as khalaniSubmitDeposit, getOrderStatus as khalaniGetOrderStatus } from './khalani.js';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
@@ -241,6 +242,13 @@ export async function buildExecutionIntent(decision, vaultState, oraclePrices = 
 
   // Compute intent hash (now binds attestationReportHash on-chain)
   intent.intentHash = computeIntentHash(intent);
+
+  // Attach the chosen route so the orchestrator can dispatch to either the
+  // Jaine submission path (executeIntent) or the Khalani path
+  // (submitCrossChainIntent → vault.acceptCrossChainFill). Read with care:
+  // `intent.routeChoice` is orchestrator-only metadata; the on-chain
+  // `ExecutionIntent` struct does NOT include it (typehash unchanged).
+  intent.routeChoice = routeChoice;
 
   return intent;
 }
@@ -486,6 +494,235 @@ export async function submitIntent(intent, opts = {}) {
  * @param {bigint|number} pnlUsd6     signed realized PnL (6-decimal); 0 on BUY
  * @param {boolean} success           whether the swap settled successfully
  */
+// ── Phase 3: Khalani cross-chain intent submission ─────────────────────────
+//
+//   Single-chain Khalani routing (fromChainId === toChainId === 0G mainnet).
+//   The vault holds USDC.e on 0G; the orchestrator wants cbBTC on 0G; Khalani
+//   solver sources cbBTC from wherever liquidity is deepest (Base, Arb, Eth)
+//   and delivers it to the vault on 0G in exchange for the vault's USDC.e.
+//
+//   From the executor's POV, the chain hop is invisible — the deposit tx
+//   broadcasts on 0G, the fill arrives on 0G. Multi-chain wallets are NOT
+//   required because the solver carries the cross-chain economics.
+//
+//   Flow:
+//     1. Snapshot vault.assetOut balance BEFORE submitting (prevBalance gate)
+//     2. Build CrossChainIntent + TEE-sign EIP-712 digest
+//     3. khalani.buildDeposit → broadcast deposit tx via vault's executor signer
+//     4. khalani.submitDeposit(txHash) → returns orderId
+//     5. Poll khalani.getOrderStatus until terminal state (filled/refunded/failed)
+//     6. On 'filled', call vault.acceptCrossChainFill(intent, sig, actualOut, actualFeeBps)
+//
+//   Errors at any step surface as { success: false, error: '<reason>' } so the
+//   cycle can fall back to Jaine without crashing the whole execution loop.
+
+const KHALANI_POLL_INTERVAL_MS = 5_000;
+const KHALANI_POLL_TIMEOUT_MS  = 5 * 60_000; // 5 minutes total
+const KHALANI_TERMINAL_STATES  = new Set(['filled', 'refunded', 'failed']);
+
+async function signCrossChainIntentTyped(intent, vaultAddr) {
+  const teeKey = process.env.TEE_SIGNER_PRIVATE_KEY;
+  if (!teeKey) {
+    throw new Error('TEE_SIGNER_PRIVATE_KEY missing — required for cross-chain fills');
+  }
+  const wallet = new ethers.Wallet(teeKey);
+  const domain = {
+    name: 'AegisVault',
+    version: '1',
+    chainId: config.chainId,
+    verifyingContract: vaultAddr,
+  };
+  const sig = await wallet.signTypedData(domain, CROSS_CHAIN_INTENT_TYPES, intent);
+  return { signer: wallet.address, signature: sig };
+}
+
+async function broadcastDepositTx(depositPlan, signer) {
+  // depositPlan from khalani.buildDeposit() returns { approvals?, tx }. Approvals
+  // (if any) must run first so the deposit contract has allowance over the
+  // executor's USDC.e. We chain them sequentially before the deposit tx.
+  const approvals = Array.isArray(depositPlan.approvals) ? depositPlan.approvals : [];
+  for (const a of approvals) {
+    const txReq = { to: a.to, data: a.data, value: a.value || 0n };
+    const apTx = await signer.sendTransaction(txReq);
+    await apTx.wait();
+    logger.info(`    Khalani approval mined: ${apTx.hash.substring(0, 18)}…`);
+  }
+  const dep = depositPlan.tx;
+  if (!dep || !dep.to || !dep.data) {
+    throw new Error('khalani.buildDeposit returned no `tx.to` / `tx.data` — cannot broadcast');
+  }
+  const tx = await signer.sendTransaction({
+    to: dep.to,
+    data: dep.data,
+    value: dep.value ? BigInt(dep.value) : 0n,
+  });
+  return tx;
+}
+
+async function pollOrderUntilTerminal(executorAddr, orderId, deadlineMs) {
+  const start = Date.now();
+  while (Date.now() - start < deadlineMs) {
+    const resp = await khalaniGetOrderStatus(executorAddr, orderId);
+    const order = Array.isArray(resp?.data) ? resp.data[0] : resp;
+    const status = (order?.status || order?.state || '').toLowerCase();
+    if (status && KHALANI_TERMINAL_STATES.has(status)) {
+      return order;
+    }
+    await new Promise((r) => setTimeout(r, KHALANI_POLL_INTERVAL_MS));
+  }
+  throw new Error(`Khalani order poll timeout after ${deadlineMs}ms`);
+}
+
+/**
+ * Phase 3 entry point — fully execute a Khalani-routed cross-chain trade.
+ *
+ * @param {object} params
+ *   - intent           internal ExecutionIntent built by buildExecutionIntent
+ *   - routeChoice      output of chooseRoute() — must have route='khalani'
+ *                      with quoteId, routeId, khalaniRoute populated
+ *   - vaultAddress     vault to call acceptCrossChainFill on
+ * @returns { success, txHash?, amountOut?, error? }
+ */
+export async function submitCrossChainIntent({ intent, routeChoice, vaultAddress, _deps }) {
+  if (!routeChoice || routeChoice.route !== 'khalani') {
+    return { success: false, error: 'route_not_khalani' };
+  }
+  if (!routeChoice.quoteId || !routeChoice.routeId) {
+    return { success: false, error: 'missing_quote_or_route_id' };
+  }
+
+  // Test seam — production callers never pass `_deps`. Lets unit tests stub
+  // contract handles + Khalani API calls without poking at ESM live bindings.
+  const buildDeposit_  = _deps?.buildDeposit  || khalaniBuildDeposit;
+  const submitDeposit_ = _deps?.submitDeposit || khalaniSubmitDeposit;
+  const pollOrder_     = _deps?.pollOrder     || pollOrderUntilTerminal;
+  const broadcast_     = _deps?.broadcast     || broadcastDepositTx;
+  const signCC_        = _deps?.signTyped     || signCrossChainIntentTyped;
+  const erc20Factory   = _deps?.erc20Factory  || ((token, signer) => new ethers.Contract(token, ['function balanceOf(address) view returns (uint256)'], signer));
+  const vault = _deps?.vault
+    || (await getShardedVaultContract(vaultAddress).catch(() => null))
+    || getVaultContract(vaultAddress);
+  const signer = _deps?.signer || getSigner();
+  const executorAddr = _deps?.executorAddr
+    || (typeof signer.getAddress === 'function'
+      ? await signer.getAddress()
+      : signer.signer?.address || signer.address);
+
+  // Step 1 — snapshot prevBalance of assetOut on the vault BEFORE deposit.
+  // The TEE signs over this; the vault re-checks at acceptCrossChainFill time
+  // that current balance grew by ≥ actualAmountOut since prevBalance.
+  const erc20 = erc20Factory(intent.assetOut, signer);
+  const prevBalance = await erc20.balanceOf(vaultAddress);
+
+  // Step 2 — build the CrossChainIntent struct that matches CrossChainLib's
+  // EIP-712 typehash. Field order MUST stay aligned with CROSS_CHAIN_INTENT_TYPES.
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  const ttlSec = BigInt(routeChoice?.khalaniRoute?.ttlSec || 600); // 10 min default
+  const routePolicyHash = ethers.keccak256(ethers.toUtf8Bytes(
+    `khalani:${routeChoice.routeId}:${routeChoice.quoteId}`
+  ));
+  const khalaniIntentId = routeChoice.khalaniRoute?.intentId
+    ? ethers.zeroPadValue(routeChoice.khalaniRoute.intentId, 32)
+    : ethers.keccak256(ethers.toUtf8Bytes(routeChoice.routeId));
+
+  const ccIntent = {
+    vault:                 vaultAddress,
+    assetIn:               intent.assetIn,
+    assetOut:              intent.assetOut,
+    amountIn:              BigInt(intent.amountIn),
+    minAmountOut:          BigInt(intent.minAmountOut),
+    createdAt:             now,
+    expiresAt:             now + ttlSec,
+    confidenceBps:         Number(intent.confidenceBps),
+    riskScoreBps:          Number(intent.riskScoreBps),
+    attestationReportHash: intent.attestationReportHash || ethers.ZeroHash,
+    routeChainId:          BigInt(config.chainId),
+    maxFeeBps:             Number(routeChoice.khalaniRoute?.maxFeeBps || 50),
+    routePolicyHash,
+    khalaniIntentId,
+    prevBalance,
+  };
+
+  // Step 3 — TEE-sign the typed-data digest. The vault recovers the signer
+  // and requires it to equal `policy.attestedSigner`.
+  const { signer: teeSigner, signature: teeSig } = await signCC_(ccIntent, vaultAddress);
+  logger.info(`  CC intent TEE-signed by ${teeSigner.substring(0, 10)}…`);
+
+  // Step 4 — get deposit plan from Khalani API.
+  let depositPlan;
+  try {
+    depositPlan = await buildDeposit_({
+      from: executorAddr,
+      quoteId: routeChoice.quoteId,
+      routeId: routeChoice.routeId,
+    });
+  } catch (err) {
+    return { success: false, error: `khalani.buildDeposit failed: ${err.message}` };
+  }
+
+  // Step 5 — broadcast deposit tx (with any required approvals) on 0G.
+  let depositTxHash;
+  try {
+    const depTx = await broadcast_(depositPlan, signer);
+    const depReceipt = await depTx.wait();
+    depositTxHash = depReceipt.hash;
+    logger.info(`  Khalani deposit broadcast: ${depositTxHash.substring(0, 18)}…`);
+  } catch (err) {
+    return { success: false, error: `deposit broadcast failed: ${err.shortMessage || err.message}` };
+  }
+
+  // Step 6 — register the deposit with Khalani so a solver picks it up.
+  let orderId;
+  try {
+    const submitResp = await submitDeposit_({
+      txHash: depositTxHash,
+      quoteId: routeChoice.quoteId,
+      routeId: routeChoice.routeId,
+    });
+    orderId = submitResp?.orderId;
+    if (!orderId) {
+      return { success: false, error: 'khalani.submitDeposit returned no orderId' };
+    }
+    logger.info(`  Khalani order accepted: ${orderId}`);
+  } catch (err) {
+    return { success: false, error: `khalani.submitDeposit failed: ${err.message}` };
+  }
+
+  // Step 7 — poll until order reaches a terminal state.
+  let order;
+  try {
+    order = await pollOrder_(executorAddr, orderId, KHALANI_POLL_TIMEOUT_MS);
+  } catch (err) {
+    return { success: false, error: `order poll: ${err.message}` };
+  }
+  const finalStatus = (order?.status || order?.state || '').toLowerCase();
+  if (finalStatus !== 'filled') {
+    return { success: false, error: `order terminal state: ${finalStatus}` };
+  }
+
+  // Step 8 — settle on the vault. Pull `actualAmountOut` and `actualFeeBps`
+  // from the order payload — fall back to intent.minAmountOut / route default
+  // when the API surface omits them.
+  const actualOutRaw = order.actualAmountOut || order.amountOut || order.fillAmount;
+  const actualAmountOut = actualOutRaw ? BigInt(actualOutRaw) : BigInt(intent.minAmountOut);
+  const actualFeeBpsNum = Number(order.actualFeeBps ?? order.feeBps ?? ccIntent.maxFeeBps);
+
+  try {
+    const tx = await vault.acceptCrossChainFill(ccIntent, teeSig, actualAmountOut, actualFeeBpsNum);
+    const receipt = await tx.wait();
+    logger.info(`  ✓ acceptCrossChainFill mined: ${receipt.hash.substring(0, 18)}…`);
+    return {
+      success: true,
+      txHash: receipt.hash,
+      amountOut: actualAmountOut.toString(),
+      khalaniOrderId: orderId,
+      khalaniDepositTx: depositTxHash,
+    };
+  } catch (err) {
+    return { success: false, error: `acceptCrossChainFill: ${err.shortMessage || err.message}` };
+  }
+}
+
 export async function recordExecutionToReputation(operator, volumeUsd6, pnlUsd6, success) {
   const reputationAddress = config.contracts.operatorReputation;
   if (!reputationAddress || reputationAddress === ethers.ZeroAddress) {

@@ -129,6 +129,10 @@ export default function CreateVaultPage() {
     confidenceThreshold: 60,
     stopLoss: 15,
     maxActionsPerDay: 20,
+    // V3-only field: cap on Khalani solver fee (cross-chain fills). Sealed at
+    // vault init, hard-capped on-chain at 200 bps. 0 effectively disables
+    // cross-chain acceptance (any fill reverts with FeeTooHigh).
+    maxCrossChainFeeBps: 50,
     allowedAssets: ['BTC', 'ETH', 'USDC', '0G'],
     sealedMode: false,
     autoExecution: true,
@@ -536,12 +540,19 @@ export default function CreateVaultPage() {
     const startedAt = Date.now();
     setDeployStartedAt(startedAt);
     setDeployPhase('creating');
+    // V3 factory takes maxCrossChainFeeBps as an extra arg (sealed at init).
+    // Pulled from `config.maxCrossChainFeeBps` if user moved the slider, else
+    // the contract-side default of 50 bps. Hard-capped at 200 by the vault.
+    const maxCrossChainFeeBps = Number.isFinite(config.maxCrossChainFeeBps)
+      ? Math.min(200, Math.max(0, Math.round(config.maxCrossChainFeeBps)))
+      : 50;
     createVault(
       baseAssetAddr,
       resolvedExecutor,
       venueAddr,
       policyStruct,
       assetAddrs,
+      maxCrossChainFeeBps,
     );
   };
 
@@ -993,6 +1004,21 @@ export default function CreateVaultPage() {
                     { label: 'Confidence Threshold', key: 'confidenceThreshold', min: 30, max: 95, suffix: '%', icon: <Zap className="w-3.5 h-3.5" />, desc: 'AI must be at least this confident to trade', enforcement: 'hard', enforceTitle: 'Hard cap: vault contract reverts when intent.confidenceBps < this value (also drives orchestrator engine thresholds).' },
                     { label: 'Global Stop-Loss', key: 'stopLoss', min: 5, max: 30, suffix: '%', icon: <Shield className="w-3.5 h-3.5" />, desc: 'Halt all trading if total loss exceeds this', enforcement: 'off-chain', enforceTitle: 'Off-chain: orchestrator risk veto halts trading past this NAV-relative threshold.' },
                     { label: 'Max Trades Per Day', key: 'maxActionsPerDay', min: 1, max: 50, suffix: '', icon: <Layers className="w-3.5 h-3.5" />, desc: 'Maximum number of trades per day', enforcement: 'hard', enforceTitle: 'Hard cap: vault contract reverts past this count over a rolling 24-hour window.' },
+                    // V3-only: Khalani solver fee cap. Only render when this
+                    // chain has a v3 factory deployed; on V1/V2 the field is a
+                    // no-op (factory.createVault doesn't take it).
+                    ...(deployments.aegisVaultFactoryV3 ? [{
+                      label: 'Cross-Chain Fee Cap',
+                      key: 'maxCrossChainFeeBps',
+                      min: 0,
+                      max: 200,
+                      step: 5,
+                      suffix: ' bps',
+                      icon: <Layers className="w-3.5 h-3.5" />,
+                      desc: 'Max Khalani solver fee on cross-chain fills (vault-level, sealed at init)',
+                      enforcement: 'hard',
+                      enforceTitle: 'Hard cap: vault.acceptCrossChainFill reverts when actualFeeBps exceeds this. Hard ceiling 200 bps; setting to 0 effectively disables cross-chain acceptance.',
+                    }] : []),
                   ].map((param) => {
                     const suggestedValue = operatorSuggestions?.[param.key];
                     const isSuggested =

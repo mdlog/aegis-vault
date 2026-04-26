@@ -2,7 +2,7 @@ import { buildMarketSummary } from './marketData.js';
 import { fetchPythPrices } from './pythPrice.js';
 import { requestInference } from './inference.js';
 import { preCheckPolicy } from './policyCheck.js';
-import { buildExecutionIntent, submitIntent, setAssetAddresses, recordExecutionToReputation } from './executor.js';
+import { buildExecutionIntent, submitIntent, submitCrossChainIntent, setAssetAddresses, recordExecutionToReputation } from './executor.js';
 import { readVaultState } from './vaultReader.js';
 import { readOperatorState, checkOperatorEligibility } from './operatorReader.js';
 import {
@@ -468,12 +468,33 @@ async function runVaultCycle(vaultAddress, marketSummary) {
       return vaultResult;
     }
 
-    // Track 2: forward sealed-mode policy state from on-chain vault to executor.
-    // When sealedMode=true, executor will run commit-reveal + TEE signature flow.
-    const execResult = await submitIntent(intent, {
-      sealedMode: vaultState.policy?.sealedMode === true,
-      attestedSigner: vaultState.policy?.attestedSigner,
-    });
+    // Phase 3 dispatch: Khalani path when (a) chooseRoute selected Khalani
+    // AND (b) vault is V3 (V1/V2 don't have acceptCrossChainFill). Anything
+    // else falls through to the on-chain Jaine submission via submitIntent.
+    const useKhalani = intent.routeChoice?.route === 'khalani' && vaultState.isV3;
+    let execResult;
+    if (useKhalani) {
+      logger.info(`    Routing via Khalani (V3 vault) — orderId pending`);
+      execResult = await submitCrossChainIntent({
+        intent,
+        routeChoice: intent.routeChoice,
+        vaultAddress,
+      });
+      if (!execResult.success) {
+        logger.warn(`    Khalani submission failed: ${execResult.error}. Falling back to Jaine.`);
+        execResult = await submitIntent(intent, {
+          sealedMode: vaultState.policy?.sealedMode === true,
+          attestedSigner: vaultState.policy?.attestedSigner,
+        });
+      }
+    } else {
+      // Track 2: forward sealed-mode policy state from on-chain vault to executor.
+      // When sealedMode=true, executor will run commit-reveal + TEE signature flow.
+      execResult = await submitIntent(intent, {
+        sealedMode: vaultState.policy?.sealedMode === true,
+        attestedSigner: vaultState.policy?.attestedSigner,
+      });
+    }
     vaultResult.executionResult = execResult;
     logExecution(intent, execResult, decision, { vault: vaultAddress });
     syncExecutionToOG(intent, execResult, decision).catch(() => {});
