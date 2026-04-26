@@ -10,6 +10,7 @@ import {
   Activity,
   Check,
   Circle,
+  Network,
 } from 'lucide-react';
 import {
   AegisLogo,
@@ -19,6 +20,75 @@ import {
   MonoKV,
 } from '../components/editorial';
 import Logo from '../components/ui/Logo';
+import { useChainId } from 'wagmi';
+import { getDeployments } from '../lib/contracts';
+import { useAllPlatformVaults } from '../hooks/useVault';
+import { useOperatorList } from '../hooks/useOperatorRegistry';
+import { useOrchestratorStatus, useDecisions, usePlatformTVL } from '../hooks/useOrchestrator';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Landing stats — all real, all from the same hooks the app already uses. Any
+// stat that has no data yet renders as "—" rather than a fake number, so the
+// landing page reflects the real state of the deployment.
+function useLandingStats() {
+  const chainId = useChainId();
+  const deployments = getDeployments(chainId);
+  // V3 → V2 → V1 chain mirrors useVault / orchestrator config. Functionally the
+  // hooks already aggregate across factory versions internally; we keep the
+  // priority order here for readability so the stats source matches the
+  // canonical V3 stack post-2026-04-27 fresh deploy.
+  const factory =
+    deployments.aegisVaultFactoryV3 ||
+    deployments.aegisVaultFactoryV2 ||
+    deployments.aegisVaultFactory;
+  const registry = deployments.operatorRegistryV2 || deployments.operatorRegistry;
+
+  const { vaults, total } = useAllPlatformVaults(factory);
+  const { operators } = useOperatorList(registry);
+  const { data: orchStatus } = useOrchestratorStatus();
+  const { data: decisions } = useDecisions(100);
+
+  const allVaultAddrs = (vaults || []).map((v) => v?.address).filter(Boolean);
+  const { tvl } = usePlatformTVL(allVaultAddrs);
+
+  const activeOperators = (operators || []).filter((op) => op?.loaded && op?.active).length;
+
+  // Veto rate = share of AI decisions that hit hard_veto. Only shown once we
+  // have enough decisions to be meaningful (≥10) — otherwise "—".
+  const decisionSample = Array.isArray(decisions) ? decisions : [];
+  const vetoCount = decisionSample.filter((d) => d?.hard_veto).length;
+  const vetoRatePct = decisionSample.length >= 10
+    ? (vetoCount / decisionSample.length) * 100
+    : null;
+
+  const executedActions = orchStatus?.totalExecutions ?? null;
+
+  return {
+    tvl,
+    totalVaults: total,
+    executedActions,
+    vetoRatePct,
+    activeOperators,
+  };
+}
+
+function formatTvl(n) {
+  if (!n || n <= 0) return '—';
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}K`;
+  return `$${n.toFixed(0)}`;
+}
+
+function formatCount(n) {
+  if (n == null) return '—';
+  if (n === 0) return '0';
+  return n.toLocaleString();
+}
+
+function formatPct(p) {
+  if (p == null) return '—';
+  return `${p.toFixed(1)}%`;
+}
 
 export default function LandingPage() {
   return (
@@ -90,6 +160,7 @@ function LandingNav() {
 
 // ────────────── HERO ──────────────
 function LandingHero() {
+  const stats = useLandingStats();
   return (
     <section className="relative overflow-hidden">
       <div
@@ -162,22 +233,23 @@ function LandingHero() {
               <Link to="/create" className="ed-btn ed-btn-gold" style={{ padding: '14px 22px', fontSize: 14 }}>
                 Open a vault <ArrowRight size={16} />
               </Link>
-              <a className="ed-btn ed-btn-ghost" style={{ padding: '14px 22px', fontSize: 14, cursor: 'pointer' }}>
-                Watch 90-second demo
-              </a>
+              <Link to="/whitepaper" className="ed-btn ed-btn-ghost" style={{ padding: '14px 22px', fontSize: 14 }}>
+                Read whitepaper
+              </Link>
               <div className="ed-vhairline h-[26px] ml-2" />
               <div className="flex flex-col leading-tight">
                 <span
                   className="ed-mono"
                   style={{ fontSize: 10, color: 'var(--ed-steel-500)', letterSpacing: '0.2em' }}
                 >
-                  TVL TODAY
+                  TVL · LIVE
                 </span>
                 <span
                   className="ed-display"
                   style={{ fontSize: 18, color: 'var(--ed-steel-100)', fontWeight: 600 }}
+                  title="Sum of NAV across all on-chain vaults, priced via Pyth"
                 >
-                  $ 47.2M
+                  {formatTvl(stats.tvl)}
                 </span>
               </div>
             </div>
@@ -193,10 +265,10 @@ function LandingHero() {
               }}
             >
               {[
-                { k: 'Sealed vaults', v: '12' },
-                { k: 'Executed actions', v: '3,481' },
-                { k: 'Veto rate', v: '4.2%' },
-                { k: 'Active operators', v: '9' },
+                { k: 'Vaults', v: formatCount(stats.totalVaults) },
+                { k: 'Executed actions', v: formatCount(stats.executedActions) },
+                { k: 'Veto rate', v: formatPct(stats.vetoRatePct) },
+                { k: 'Active operators', v: formatCount(stats.activeOperators) },
               ].map((m, i) => (
                 <div
                   key={i}
@@ -562,7 +634,7 @@ function LandingHowItWorks() {
                 {i === 0 && (
                   <>
                     <MonoKV k="INPUTS" v="OHLC · volume · funding" />
-                    <MonoKV k="MODEL" v="gpt-ag-v4.2" color="var(--ed-cyan)" />
+                    <MonoKV k="MODEL" v="GLM-5-FP8" color="var(--ed-cyan)" />
                     <MonoKV k="ATTEST" v="0g-compute · TEE" />
                   </>
                 )}
@@ -593,9 +665,10 @@ function LandingHowItWorks() {
 function LandingCapabilities() {
   const caps = [
     { icon: <Lock size={16} />, t: 'Sealed mode', body: 'Private reasoning, public proof. Model inputs stay encrypted; verification layer still holds.' },
-    { icon: <Vote size={16} />, t: 'Operator marketplace', body: 'Stake-weighted registry of model providers. Reputation is on-chain, slashable, permissionless to join.' },
+    { icon: <Network size={16} />, t: 'Cross-chain via Khalani', body: 'V3 vaults accept solver-fulfilled fills from Ethereum, Arbitrum, Base + native 0G — single-chain wallet, multi-chain liquidity. Per-vault fee cap sealed at create.' },
+    { icon: <Vote size={16} />, t: 'Operator marketplace', body: 'Stake-weighted registry of model providers. Reputation is on-chain, bonded, permissionless to join. Slashing enforcement ships in Phase 2.' },
     { icon: <Cpu size={16} />, t: '0G Compute runtime', body: 'Distributed GPU inference with verifiable output. Every action references its compute receipt.' },
-    { icon: <Shield size={16} />, t: 'Multi-sig governance', body: 'Treasury, insurance, and slashing controls sit behind a k-of-n council with cooldown windows.' },
+    { icon: <Shield size={16} />, t: 'Multi-sig governance', body: 'Treasury, insurance, and operator-freeze controls sit behind a k-of-n council with cooldown windows.' },
     { icon: <Target size={16} />, t: 'Policy presets', body: 'Conservative, Balanced, Tactical — or compose your own. Caps compile directly to the vault contract.' },
     { icon: <Activity size={16} />, t: 'Live execution ledger', body: "Every signal, veto, and trade is indexable. Bring your own observability; we don't hide the tape." },
   ];
@@ -980,9 +1053,9 @@ function LandingCTA() {
             <Link to="/create" className="ed-btn ed-btn-gold" style={{ padding: '16px 28px', fontSize: 15 }}>
               Open a vault <ArrowRight size={16} />
             </Link>
-            <a className="ed-btn ed-btn-ghost cursor-pointer" style={{ padding: '16px 28px', fontSize: 15 }}>
+            <Link to="/docs" className="ed-btn ed-btn-ghost" style={{ padding: '16px 28px', fontSize: 15 }}>
               Read the policy primer
-            </a>
+            </Link>
           </div>
         </div>
 
@@ -1034,24 +1107,47 @@ function LandingFooter() {
             Verifiable AI risk management on 0G. The AI proposes. The vault decides. Everything else is evidence.
           </p>
           <div className="flex gap-2 mt-4">
-            {['GH', 'TW', 'DC', 'TG'].map((x, i) => (
-              <div
-                key={i}
-                className="ed-mono flex items-center justify-center"
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 8,
-                  background: 'var(--ed-surface-1)',
-                  boxShadow: 'var(--ed-ghost-border)',
-                  fontSize: 10,
-                  color: 'var(--ed-steel-300)',
-                  cursor: 'pointer',
-                }}
-              >
-                {x}
-              </div>
-            ))}
+            {[
+              { label: 'GH', href: 'https://github.com/mdlog/aegis-vault', title: 'GitHub' },
+              { label: 'TW', href: null, title: 'X / Twitter · coming soon' },
+              { label: 'DC', href: null, title: 'Discord · coming soon' },
+              { label: 'TG', href: null, title: 'Telegram · coming soon' },
+            ].map((s) => {
+              const base = {
+                width: 30,
+                height: 30,
+                borderRadius: 8,
+                background: 'var(--ed-surface-1)',
+                boxShadow: 'var(--ed-ghost-border)',
+                fontSize: 10,
+                color: s.href ? 'var(--ed-steel-300)' : 'var(--ed-steel-600)',
+                cursor: s.href ? 'pointer' : 'default',
+                opacity: s.href ? 1 : 0.5,
+                textDecoration: 'none',
+              };
+              return s.href ? (
+                <a
+                  key={s.label}
+                  href={s.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={s.title}
+                  className="ed-mono flex items-center justify-center"
+                  style={base}
+                >
+                  {s.label}
+                </a>
+              ) : (
+                <span
+                  key={s.label}
+                  title={s.title}
+                  className="ed-mono flex items-center justify-center"
+                  style={base}
+                >
+                  {s.label}
+                </span>
+              );
+            })}
           </div>
         </div>
         {[
