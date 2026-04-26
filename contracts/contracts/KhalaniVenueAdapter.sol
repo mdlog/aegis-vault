@@ -60,6 +60,7 @@ contract KhalaniVenueAdapter {
     error OnlyOwner();
     error ZeroAddress();
     error FeeBpsTooHigh();
+    error LengthMismatch();
 
     // ── Modifiers ──
 
@@ -102,6 +103,33 @@ contract KhalaniVenueAdapter {
         if (token == address(0)) revert ZeroAddress();
         allowedTokens[token] = allowed;
         emit TokenAllowed(token, allowed);
+    }
+
+    /**
+     * @notice Batch version of {setChainAllowed}. Saves ~50% gas vs one-tx-
+     *         per-chain when seeding the initial allowlist (4-8 chains).
+     *         `chainIds` and `allowed` MUST be the same length.
+     */
+    function setChainsAllowed(uint64[] calldata chainIds, bool[] calldata allowed) external onlyOwner {
+        if (chainIds.length != allowed.length) revert LengthMismatch();
+        for (uint256 i = 0; i < chainIds.length; i++) {
+            allowedChains[chainIds[i]] = allowed[i];
+            emit ChainAllowed(chainIds[i], allowed[i]);
+        }
+    }
+
+    /**
+     * @notice Batch version of {setTokenAllowed}. Same length-pairing rule
+     *         as {setChainsAllowed}. Reverts on any zero-address element so
+     *         a bad item doesn't silently succeed mid-batch.
+     */
+    function setTokensAllowed(address[] calldata tokens, bool[] calldata allowed) external onlyOwner {
+        if (tokens.length != allowed.length) revert LengthMismatch();
+        for (uint256 i = 0; i < tokens.length; i++) {
+            if (tokens[i] == address(0)) revert ZeroAddress();
+            allowedTokens[tokens[i]] = allowed[i];
+            emit TokenAllowed(tokens[i], allowed[i]);
+        }
     }
 
     /**

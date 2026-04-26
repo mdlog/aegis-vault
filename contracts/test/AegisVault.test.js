@@ -177,8 +177,10 @@ describe("AegisVault (slim build)", function () {
     );
     await factory.waitForDeployment();
 
-    // Transfer registry admin to factory so it can authorize vaults
-    await registry.transferAdmin(await factory.getAddress());
+    // Multi-factory path: deployer stays as registry admin, factory is added
+    // to authorizedFactories. (Legacy admin-rotation pattern is now 2-step
+    // via Ownable2Step and isn't suited for in-test setup.)
+    await registry.authorizeFactory(await factory.getAddress());
 
     // ── MockDEX ──
     const MockDEX = await ethers.getContractFactory("MockDEX");

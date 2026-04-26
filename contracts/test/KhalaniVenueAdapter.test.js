@@ -230,4 +230,71 @@ describe("KhalaniVenueAdapter", function () {
       expect(await adapter.khalaniApiBase()).to.equal(KHALANI_API_BASE);
     });
   });
+
+  describe("Batch setters (audit LOW #4)", function () {
+    it("setChainsAllowed sets every chainId and emits per-entry events", async function () {
+      const { adapter } = await deployFixture();
+      const ids = [1n, 42161n, 8453n];
+      const flags = [true, true, true];
+      const tx = await adapter.setChainsAllowed(ids, flags);
+      const rcpt = await tx.wait();
+      const emitted = rcpt.logs
+        .map((l) => { try { return adapter.interface.parseLog(l); } catch { return null; } })
+        .filter((p) => p && p.name === "ChainAllowed");
+      expect(emitted.length).to.equal(3);
+      for (const id of ids) {
+        expect(await adapter.allowedChains(id)).to.equal(true);
+      }
+    });
+
+    it("setChainsAllowed reverts on length mismatch", async function () {
+      const { adapter } = await deployFixture();
+      await expect(
+        adapter.setChainsAllowed([1n, 2n], [true])
+      ).to.be.revertedWithCustomError(adapter, "LengthMismatch");
+    });
+
+    it("setChainsAllowed is owner-only", async function () {
+      const { adapter, alice } = await deployFixture();
+      await expect(
+        adapter.connect(alice).setChainsAllowed([1n], [true])
+      ).to.be.revertedWithCustomError(adapter, "OnlyOwner");
+    });
+
+    it("setTokensAllowed sets every token and emits per-entry events", async function () {
+      const { adapter } = await deployFixture();
+      const tokens = [
+        '0x0000000000000000000000000000000000000111',
+        '0x0000000000000000000000000000000000000222',
+      ];
+      const tx = await adapter.setTokensAllowed(tokens, [true, true]);
+      const rcpt = await tx.wait();
+      const emitted = rcpt.logs
+        .map((l) => { try { return adapter.interface.parseLog(l); } catch { return null; } })
+        .filter((p) => p && p.name === "TokenAllowed");
+      expect(emitted.length).to.equal(2);
+      expect(await adapter.allowedTokens(tokens[0])).to.equal(true);
+      expect(await adapter.allowedTokens(tokens[1])).to.equal(true);
+    });
+
+    it("setTokensAllowed reverts on length mismatch", async function () {
+      const { adapter } = await deployFixture();
+      await expect(
+        adapter.setTokensAllowed(['0x0000000000000000000000000000000000000111'], [true, true])
+      ).to.be.revertedWithCustomError(adapter, "LengthMismatch");
+    });
+
+    it("setTokensAllowed reverts on zero-address element (no silent partial-success)", async function () {
+      const { adapter } = await deployFixture();
+      const tokens = [
+        '0x0000000000000000000000000000000000000111',
+        ethers.ZeroAddress,
+      ];
+      await expect(
+        adapter.setTokensAllowed(tokens, [true, true])
+      ).to.be.revertedWithCustomError(adapter, "ZeroAddress");
+      // First element must NOT have been persisted because the whole tx reverted.
+      expect(await adapter.allowedTokens(tokens[0])).to.equal(false);
+    });
+  });
 });

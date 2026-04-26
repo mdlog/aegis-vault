@@ -71,8 +71,9 @@ async function deployStack() {
   );
   await factory.waitForDeployment();
 
-  // Factory must be registry admin to authorize new clones.
-  await registry.transferAdmin(await factory.getAddress());
+  // Multi-factory path: deployer remains registry admin, factory is added
+  // to authorizedFactories so its createVault can call registry.authorizeVault.
+  await registry.authorizeFactory(await factory.getAddress());
 
   return { admin, depositor, operator, treasury, usdc, registry, factory, VaultV3 };
 }

@@ -149,51 +149,83 @@ async function main() {
 
   const { path: deployFile, data: deployments } = loadDeployments(chainId);
 
-  // ── Pre-flight: required reused fields ──
+  // ── Pre-flight: which artefacts are V3-private vs reusable ──
+  //
+  //   v3 needs FRESH copies of:
+  //     - ExecLib            (audit Fix #3 added `totalDeposited` arg —
+  //                           old library bytecode has incompatible signature)
+  //     - IOLib              (audit Fix #8 added doDepositV3/doWithdrawV3 —
+  //                           v1/v2 only call doDeposit/doWithdraw, but v3 uses
+  //                           the new entrypoints)
+  //     - CrossChainLib      (V3-only)
+  //     - ExecutionRegistry  (audit Fix #6 added authorizedFactories — old
+  //                           on-chain instance has no such function, would
+  //                           revert v3 factory's pre-flight check)
+  //
+  //   v3 REUSES from existing v2 deployment when present:
+  //     - SealedLib          (unchanged across v1 → v3)
+  //     - protocolTreasury   (no behavioural change)
+  //
+  //   The fresh ExecutionRegistry is private to v3 — v1/v2 vaults stay on the
+  //   old `executionRegistryV2`. Cross-version replay is impossible regardless
+  //   because intent hashes are vault-bound (vault address in EIP-712 domain).
   const treasury =
     deployments.protocolTreasury &&
     checksum(requireField(deployments, "protocolTreasury", "deploy phase 1 first"));
 
-  const registryV2 = checksum(
-    requireField(
-      deployments,
-      "executionRegistryV2",
-      "deploy v2 stack first (scripts/deploy-v2.js)"
-    )
-  );
-
-  const execLibAddr = checksum(
-    requireField(deployments, "execLibrary", "deploy v1/v2 stack first")
-  );
   const sealedLibAddr = checksum(
     requireField(deployments, "sealedLibrary", "deploy v1/v2 stack first")
-  );
-  const ioLibAddr = checksum(
-    requireField(deployments, "ioLibrary", "deploy v1/v2 stack first")
   );
 
   console.log("\nReused inputs:");
   console.log("  protocolTreasury    :", treasury);
-  console.log("  executionRegistryV2 :", registryV2);
-  console.log("  execLibrary         :", execLibAddr);
   console.log("  sealedLibrary       :", sealedLibAddr);
-  console.log("  ioLibrary           :", ioLibAddr);
 
-  // Sanity: every reused contract must actually exist on-chain (no typo / wrong file)
+  // Sanity: reused contracts must actually exist on-chain.
   for (const [label, addr] of [
     ["protocolTreasury", treasury],
-    ["executionRegistryV2", registryV2],
-    ["execLibrary", execLibAddr],
     ["sealedLibrary", sealedLibAddr],
-    ["ioLibrary", ioLibAddr],
   ]) {
     if (!(await isContract(ethers.provider, addr))) {
       throw new Error(`${label} (${addr}) has no code on chain ${chainId} — wrong deployments file?`);
     }
   }
 
-  // ── 1. CrossChainLib ──
-  console.log("\n[1/4] CrossChainLib");
+  // ── 1. ExecLib (v3) ──
+  // V3 uses the post-audit-Fix-#3 ExecLib (param `totalDeposited`).
+  // Idempotent: keyed under `execLibraryV3` to avoid clobbering the v1/v2
+  // library address (`execLibrary`) which existing vaults still link to.
+  console.log("\n[1/7] ExecLib (v3)");
+  let execLibV3Addr = deployments.execLibraryV3;
+  if (execLibV3Addr && (await isContract(ethers.provider, execLibV3Addr))) {
+    execLibV3Addr = checksum(execLibV3Addr);
+    console.log("      reused   :", execLibV3Addr);
+  } else {
+    const ExecLib = await ethers.getContractFactory("ExecLib");
+    const lib = await ExecLib.deploy();
+    await lib.waitForDeployment();
+    execLibV3Addr = checksum(await lib.getAddress());
+    console.log("      deployed :", execLibV3Addr);
+  }
+
+  // ── 2. IOLib (v3) ──
+  // V3 uses post-audit-Fix-#8 IOLib (adds doDepositV3/doWithdrawV3 with
+  // 80/20 fee split). v1/v2 keep their own IOLib at `ioLibrary`.
+  console.log("\n[2/7] IOLib (v3)");
+  let ioLibV3Addr = deployments.ioLibraryV3;
+  if (ioLibV3Addr && (await isContract(ethers.provider, ioLibV3Addr))) {
+    ioLibV3Addr = checksum(ioLibV3Addr);
+    console.log("      reused   :", ioLibV3Addr);
+  } else {
+    const IOLib = await ethers.getContractFactory("IOLib");
+    const lib = await IOLib.deploy();
+    await lib.waitForDeployment();
+    ioLibV3Addr = checksum(await lib.getAddress());
+    console.log("      deployed :", ioLibV3Addr);
+  }
+
+  // ── 3. CrossChainLib ──
+  console.log("\n[3/7] CrossChainLib");
   let crossChainLibAddr = deployments.crossChainLibrary;
   if (crossChainLibAddr && (await isContract(ethers.provider, crossChainLibAddr))) {
     crossChainLibAddr = checksum(crossChainLibAddr);
@@ -206,8 +238,26 @@ async function main() {
     console.log("      deployed :", crossChainLibAddr);
   }
 
-  // ── 2. AegisVault_v3 implementation ──
-  console.log("\n[2/4] AegisVault_v3 implementation");
+  // ── 4. ExecutionRegistry (v3) ──
+  // V3 uses the post-audit-Fix-#6 registry (adds authorizedFactories +
+  // events + Ownable2Step admin). v1/v2 vaults stay on the old registry.
+  // Cross-version intent collision is impossible because intent hashes
+  // bind the vault address into the EIP-712 domain.
+  console.log("\n[4/7] ExecutionRegistry (v3)");
+  let registryV3Addr = deployments.executionRegistryV3;
+  if (registryV3Addr && (await isContract(ethers.provider, registryV3Addr))) {
+    registryV3Addr = checksum(registryV3Addr);
+    console.log("      reused   :", registryV3Addr);
+  } else {
+    const Registry = await ethers.getContractFactory("ExecutionRegistry");
+    const reg = await Registry.deploy();
+    await reg.waitForDeployment();
+    registryV3Addr = checksum(await reg.getAddress());
+    console.log("      deployed :", registryV3Addr);
+  }
+
+  // ── 5. AegisVault_v3 implementation ──
+  console.log("\n[5/7] AegisVault_v3 implementation");
   let implV3Addr = deployments.aegisVaultImplementationV3;
   if (implV3Addr && (await isContract(ethers.provider, implV3Addr))) {
     implV3Addr = checksum(implV3Addr);
@@ -215,9 +265,9 @@ async function main() {
   } else {
     const VaultV3 = await ethers.getContractFactory("AegisVault_v3", {
       libraries: {
-        ExecLib: execLibAddr,
+        ExecLib: execLibV3Addr,
         SealedLib: sealedLibAddr,
-        IOLib: ioLibAddr,
+        IOLib: ioLibV3Addr,
         CrossChainLib: crossChainLibAddr,
       },
     });
@@ -227,8 +277,8 @@ async function main() {
     console.log("      deployed :", implV3Addr);
   }
 
-  // ── 3. AegisVaultFactoryV3 ──
-  console.log("\n[3/4] AegisVaultFactoryV3");
+  // ── 6. AegisVaultFactoryV3 ──
+  console.log("\n[6/7] AegisVaultFactoryV3");
   let factoryV3Addr = deployments.aegisVaultFactoryV3;
   let factoryAlreadyDeployed = false;
   if (factoryV3Addr && (await isContract(ethers.provider, factoryV3Addr))) {
@@ -247,13 +297,13 @@ async function main() {
     }
   } else {
     const FactoryV3 = await ethers.getContractFactory("AegisVaultFactoryV3");
-    const factory = await FactoryV3.deploy(implV3Addr, registryV2, treasury || ethers.ZeroAddress);
+    const factory = await FactoryV3.deploy(implV3Addr, registryV3Addr, treasury || ethers.ZeroAddress);
     await factory.waitForDeployment();
     factoryV3Addr = checksum(await factory.getAddress());
     console.log("      deployed :", factoryV3Addr);
   }
 
-  // ── 4. KhalaniVenueAdapter ──
+  // ── 7. KhalaniVenueAdapter ──
   //
   //   Route registry for cross-chain intents. Vault contract does NOT call
   //   this adapter at execution time (acceptCrossChainFill is venue-less);
@@ -261,7 +311,7 @@ async function main() {
   //   before publishing a Khalani intent. Adapter is owned by the deployer
   //   initially — production should rotate ownership to AegisGovernor or a
   //   protocol multisig once the initial allowlist is verified.
-  console.log("\n[4/4] KhalaniVenueAdapter");
+  console.log("\n[7/7] KhalaniVenueAdapter");
   let khalaniAdapterAddr = deployments.khalaniVenueAdapter;
   let khalaniAdapter;
   if (khalaniAdapterAddr && (await isContract(ethers.provider, khalaniAdapterAddr))) {
@@ -283,19 +333,28 @@ async function main() {
   const adapterOwner = checksum(await khalaniAdapter.owner());
   if (adapterOwner === checksum(deployer.address)) {
     console.log("\nKhalani allowlist:");
+    // Filter out chains/tokens that are already allowed so re-runs don't burn
+    // gas re-emitting events. Whatever is missing is set in a single batched
+    // tx via the audit-LOW-#4 setChainsAllowed/setTokensAllowed helpers.
     console.log("  Chains:");
+    const chainsToSet = [];
     for (const cid of KHALANI_ALLOWED_CHAIN_IDS) {
-      const already = await khalaniAdapter.allowedChains(cid);
-      if (already) {
+      if (await khalaniAdapter.allowedChains(cid)) {
         console.log(`    chainId ${cid.toString().padStart(6)}  → already allowed ✓`);
       } else {
-        await (await khalaniAdapter.setChainAllowed(cid, true)).wait();
-        console.log(`    chainId ${cid.toString().padStart(6)}  → set ✓`);
+        chainsToSet.push(cid);
       }
+    }
+    if (chainsToSet.length > 0) {
+      const flags = chainsToSet.map(() => true);
+      await (await khalaniAdapter.setChainsAllowed(chainsToSet, flags)).wait();
+      for (const cid of chainsToSet) console.log(`    chainId ${cid.toString().padStart(6)}  → set ✓`);
     }
 
     const realTokens = deployments.realTokens || {};
     console.log("  Tokens:");
+    const tokensToSet = [];
+    const tokenLabels = [];
     for (const key of KHALANI_ALLOWED_TOKEN_KEYS) {
       const addr = realTokens[key];
       if (!addr) {
@@ -303,12 +362,18 @@ async function main() {
         continue;
       }
       const cs = checksum(addr);
-      const already = await khalaniAdapter.allowedTokens(cs);
-      if (already) {
+      if (await khalaniAdapter.allowedTokens(cs)) {
         console.log(`    ${key.padEnd(8)} ${cs} → already allowed ✓`);
       } else {
-        await (await khalaniAdapter.setTokenAllowed(cs, true)).wait();
-        console.log(`    ${key.padEnd(8)} ${cs} → set ✓`);
+        tokensToSet.push(cs);
+        tokenLabels.push(key);
+      }
+    }
+    if (tokensToSet.length > 0) {
+      const flags = tokensToSet.map(() => true);
+      await (await khalaniAdapter.setTokensAllowed(tokensToSet, flags)).wait();
+      for (let i = 0; i < tokensToSet.length; i++) {
+        console.log(`    ${tokenLabels[i].padEnd(8)} ${tokensToSet[i]} → set ✓`);
       }
     }
   } else {
@@ -325,22 +390,19 @@ async function main() {
     }
   }
 
-  // ── 5. Registry authorization ──
+  // ── Registry authorization ──
   //
-  //   ExecutionRegistry now exposes a multi-factory authorization set
-  //   (`authorizedFactories`) so v1, v2 and v3 factories can coexist on the
-  //   same registry without rotating `admin` away from any of them. Order of
-  //   preference for getting the v3 factory authorized:
-  //     1. Already authorized (via legacy admin slot OR authorizedFactories)
-  //        → no-op.
-  //     2. Deployer holds registry admin → call authorizeFactory(v3) inline.
-  //        Cheap, single tx, leaves v1/v2 factories' authorizations intact.
-  //     3. Some other account holds admin → print the manual step the
-  //        operator needs to coordinate with that signer.
+  //   The fresh v3 ExecutionRegistry was deployed in step [4/7] with the
+  //   deployer as admin (audit Fix #1: Ownable2Step admin transfer). The
+  //   deployer adds the v3 factory to `authorizedFactories` so the factory's
+  //   pre-flight check passes and `authorizeVault(...)` succeeds inside
+  //   `createVault`. v1/v2 factories are NOT in this registry — they keep
+  //   running against the original v2 registry untouched.
   console.log("\nRegistry authorization:");
-  const registry = await ethers.getContractAt("ExecutionRegistry", registryV2);
+  const registry = await ethers.getContractAt("ExecutionRegistry", registryV3Addr);
   const currentAdmin = checksum(await registry.admin());
   const alreadyAuthorized = await registry.authorizedFactories(factoryV3Addr);
+  console.log("  registry (v3)           :", registryV3Addr);
   console.log("  current admin           :", currentAdmin);
   console.log("  v3 factory              :", factoryV3Addr);
   console.log("  authorizedFactories[v3] :", alreadyAuthorized);
@@ -368,7 +430,10 @@ async function main() {
 
   // ── Persist ──
   const patch = {
+    execLibraryV3:               execLibV3Addr,
+    ioLibraryV3:                 ioLibV3Addr,
     crossChainLibrary:           crossChainLibAddr,
+    executionRegistryV3:         registryV3Addr,
     aegisVaultImplementationV3:  implV3Addr,
     aegisVaultFactoryV3:         factoryV3Addr,
     khalaniVenueAdapter:         khalaniAdapterAddr,
@@ -387,7 +452,10 @@ async function main() {
   console.log("\n" + "═".repeat(64));
   console.log("AegisVault v3 factory deploy complete");
   console.log("═".repeat(64));
+  console.log("execLibraryV3               :", execLibV3Addr);
+  console.log("ioLibraryV3                 :", ioLibV3Addr);
   console.log("crossChainLibrary           :", crossChainLibAddr);
+  console.log("executionRegistryV3         :", registryV3Addr);
   console.log("aegisVaultImplementationV3  :", implV3Addr);
   console.log("aegisVaultFactoryV3         :", factoryV3Addr);
   console.log("khalaniVenueAdapter         :", khalaniAdapterAddr);
@@ -399,6 +467,8 @@ async function main() {
   console.log("     factory.createVault(...) — v3 seals the cap at init, no follow-up tx needed.");
   console.log("  3. Orchestrator: set KHALANI_VENUE_ADAPTER env / config to the address above");
   console.log("     so quoteRouter can reach `isRouteAllowed` (governance metadata).");
+  console.log("  4. (Recommended) Rotate v3 registry admin to AegisGovernor multisig:");
+  console.log(`       registry.transferAdmin(<multisig>); then multisig calls acceptAdmin().`);
 }
 
 main()

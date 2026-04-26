@@ -18,18 +18,29 @@ gas. Solvers carry the cross-chain economics.
 
 | Phase | Gas | 0G @ 3 gwei |
 |---|---|---|
-| ExecLib + IOLib redeploy (audit Fix #3, #8) | 1.5M | 0.0045 |
+| ExecLib v3 (audit Fix #3) | 1.0M | 0.0030 |
+| IOLib v3 (audit Fix #8) | 0.5M | 0.0015 |
 | CrossChainLib | 0.3M | 0.0009 |
+| ExecutionRegistry v3 (audit Fix #6 + Ownable2Step + events) | 0.7M | 0.0021 |
 | AegisVault_v3 implementation | 2.1M | 0.0063 |
 | AegisVaultFactoryV3 | 0.7M | 0.0021 |
-| KhalaniVenueAdapter | 0.6M | 0.0018 |
-| Adapter allowlist seed (4 chains + 4 tokens, 8 txs) | 0.4M | 0.0012 |
-| `registry.authorizeFactory(v3)` | 0.05M | 0.0002 |
-| **Total** | **~5.7M** | **~0.017 0G** |
+| KhalaniVenueAdapter | 0.7M | 0.0021 |
+| Adapter allowlist seed (1 batch chains tx + 1 batch tokens tx — audit LOW #4) | 0.2M | 0.0006 |
+| `registry.authorizeFactory(v3)` | 0.07M | 0.0002 |
+| **Total** | **~6.3M** | **~0.019 0G** |
 
 **Recommended balance:** **0.1 0G** in deployer wallet (3-5x headroom for
 gas-price surge or retries). Top up before running
 `scripts/deploy-vault-factory-v3.js`.
+
+**Why v3 deploys its own ExecLib + IOLib + ExecutionRegistry:**
+post-audit-fix surfaces aren't backwards compatible (ExecLib added a
+`totalDeposited` arg, IOLib added v3-fee-split functions, ExecutionRegistry
+added `authorizedFactories` + Ownable2Step). v1/v2 vaults already deployed
+on-chain link to the OLD library + registry addresses and keep working
+untouched. v3 vaults link to the new ones. Cross-version intent collision
+is impossible because intent hashes bind the vault address into the
+EIP-712 domain.
 
 ### Orchestrator wallet (ongoing, post-deploy)
 
@@ -53,14 +64,16 @@ via Grafana / alerting. Topup whenever balance < 5 0G.
 Before running the script, confirm:
 
 - [ ] `contracts/deployments-mainnet.json` has populated:
-  - `executionRegistryV2` (V2 stack registry — V3 attaches to this via `authorizeFactory`)
   - `protocolTreasury`
-  - `execLibrary`, `sealedLibrary`, `ioLibrary` (V2 versions; script will redeploy ExecLib + IOLib for V3 due to audit-fix surface changes — **but it does not** in the current script; verify whether you want shared libraries or v3-private ones)
+  - `sealedLibrary` (v2 SealedLib is reused — unchanged across v1 → v3)
   - `realTokens.USDCe`, `WETH`, `cbBTC`, `W0G`
 - [ ] Deployer wallet has ≥ 0.1 0G
-- [ ] Deployer holds `executionRegistryV2.admin()` slot (so `authorizeFactory(v3)` runs inline). If admin sits elsewhere, the script prints the manual coordination call.
-- [ ] `contracts/test/AegisVault_v3.test.js` and `AegisVaultFactoryV3.test.js` are green locally (`npx hardhat test`)
+- [ ] `contracts/test/AegisVault_v3.test.js`, `AegisVaultFactoryV3.test.js`, `ExecutionRegistry.audit.test.js`, and `KhalaniVenueAdapter.test.js` are green locally (`npx hardhat test`)
 - [ ] Slither CI green on the latest commit
+
+The script deploys its own fresh `ExecLib`, `IOLib`, `CrossChainLib`,
+`ExecutionRegistry` (saved under `…V3` keys in the deployments file). v1/v2
+keys are not consulted or modified.
 
 ## 3. Deploy sequence
 

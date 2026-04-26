@@ -86,8 +86,11 @@ describe("AegisVault_v2 rescue paths", function () {
     );
     await factory.waitForDeployment();
 
-    // Registry admin must be the factory so createVault can authorize.
-    await registry.transferAdmin(await factory.getAddress());
+    // Multi-factory path: deployer remains registry admin, factory is added
+    // to the authorizedFactories set. Avoids the legacy admin-rotation pattern
+    // which became 2-step (Ownable2Step) and would otherwise need an
+    // intermediate `acceptAdmin()` call from the factory.
+    await registry.authorizeFactory(await factory.getAddress());
 
     // Create a v2 vault, USDC-base, with WBTC/WETH/W0G as allowed assets.
     const allowed = [await usdc.getAddress(), await wbtc.getAddress(), await weth.getAddress(), await w0g.getAddress()];

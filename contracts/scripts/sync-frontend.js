@@ -96,8 +96,13 @@ function buildManifestEntry(targetChainId, source) {
       operatorRegistryV2:         source.operatorRegistryV2 || '',
       // v3 stack — V3 adds cross-chain (Khalani) acceptance to vaults. Frontend
       // routes new creates through factoryV3 to expose maxCrossChainFeeBps;
-      // existing v2 vaults stay queryable via the v2 keys above.
+      // existing v2 vaults stay queryable via the v2 keys above. v3 uses its
+      // own ExecutionRegistry / ExecLib / IOLib (audit fixes added incompatible
+      // surfaces) so v1/v2 vault references continue working unchanged.
+      execLibraryV3:               source.execLibraryV3 || '',
+      ioLibraryV3:                 source.ioLibraryV3 || '',
       crossChainLibrary:           source.crossChainLibrary || '',
+      executionRegistryV3:         source.executionRegistryV3 || '',
       aegisVaultImplementationV3:  source.aegisVaultImplementationV3 || '',
       aegisVaultFactoryV3:         source.aegisVaultFactoryV3 || '',
       khalaniVenueAdapter:         source.khalaniVenueAdapter || '',
