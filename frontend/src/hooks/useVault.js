@@ -251,31 +251,65 @@ export function useOwnerVaults(factoryAddress, ownerAddress) {
 }
 
 // ── Read: Full Vault List for Owner (addresses + summaries) ──
+//
+// Multi-factory policy: queries every factory generation present on the
+// current chain (V3, then V2, then the V1 fallback the caller passed) and
+// merges the results. Post-fresh-deploy this means the dashboard shows V3
+// vaults the user just created, while existing V2 vaults stay visible
+// (their funds are still accessible). V1 vaults remain accessible only
+// via direct URL navigation.
 
 export function useVaultList(factoryAddress, ownerAddress) {
-  // v2-only policy: on chains where factoryV2 is deployed, ONLY query v2.
-  // Vault v1 instances exist on-chain but are hidden from the dashboard —
-  // their funds are accessible only by navigating directly to
-  // /app/vault/<v1-address>. On chains that don't have v2 yet (Arbitrum,
-  // hardhat, older testnets), fall back to v1 so the app still works.
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
-  const factoryV2 = deployments.aegisVaultFactoryV2;
-  const activeFactory = factoryV2 || factoryAddress;
-  const activeVersion = factoryV2 ? 'v2' : 'v1';
+  const factoryV3 = deployments.aegisVaultFactoryV3 || '';
+  const factoryV2 = deployments.aegisVaultFactoryV2 || '';
+  const factoryV1 = (factoryAddress && factoryAddress !== factoryV3 && factoryAddress !== factoryV2)
+    ? factoryAddress
+    : '';
 
-  const { data: addrsResult, isLoading: addrsLoading } = useReadContract({
-    address: activeFactory,
-    abi: AegisVaultFactoryABI,
-    functionName: 'getOwnerVaults',
-    args: [ownerAddress],
-    query: { enabled: !!activeFactory && !!ownerAddress, refetchInterval: 30000 },
+  const { data: ownerListsRaw, isLoading: addrsLoading } = useReadContracts({
+    contracts: [
+      factoryV3 && { address: factoryV3, abi: AegisVaultFactoryABI, functionName: 'getOwnerVaults', args: [ownerAddress] },
+      factoryV2 && { address: factoryV2, abi: AegisVaultFactoryABI, functionName: 'getOwnerVaults', args: [ownerAddress] },
+      factoryV1 && { address: factoryV1, abi: AegisVaultFactoryABI, functionName: 'getOwnerVaults', args: [ownerAddress] },
+    ].filter(Boolean),
+    query: { enabled: !!ownerAddress && !!(factoryV3 || factoryV2 || factoryV1), refetchInterval: 30000 },
   });
 
-  const vaultAddrs = addrsResult || [];
-  const vaultVersions = vaultAddrs.map(() => activeVersion);
+  // Stitch addresses from each factory back to a version label.
+  const versionedAddrs = [];
+  if (factoryV3 && ownerListsRaw?.[0]?.result) {
+    for (const addr of ownerListsRaw[0].result) versionedAddrs.push({ addr, version: 'v3' });
+  }
+  if (factoryV2) {
+    const idx = factoryV3 ? 1 : 0;
+    if (ownerListsRaw?.[idx]?.result) {
+      for (const addr of ownerListsRaw[idx].result) versionedAddrs.push({ addr, version: 'v2' });
+    }
+  }
+  if (factoryV1) {
+    let idx = 0;
+    if (factoryV3) idx++;
+    if (factoryV2) idx++;
+    if (ownerListsRaw?.[idx]?.result) {
+      for (const addr of ownerListsRaw[idx].result) versionedAddrs.push({ addr, version: 'v1' });
+    }
+  }
+  // De-dupe in case a vault somehow shows up under multiple factories.
+  const seen = new Set();
+  const dedupedVersionedAddrs = versionedAddrs.filter(({ addr }) => {
+    const key = (addr || '').toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const vaultAddrs = dedupedVersionedAddrs.map((v) => v.addr);
+  const vaultVersions = dedupedVersionedAddrs.map((v) => v.version);
 
-  // Step 2: batch-read getVaultSummary for each vault
+  // Step 2: batch-read getVaultSummary for each vault. AegisVault V1, V2,
+  // and V3 all expose getVaultSummary with the same ABI shape; safe to
+  // re-use the V1 ABI here for the summary read regardless of version.
   const summaryContracts = vaultAddrs.map((addr) => ({
     address: addr,
     abi: AegisVaultABI,
@@ -287,7 +321,6 @@ export function useVaultList(factoryAddress, ownerAddress) {
     query: { enabled: vaultAddrs.length > 0, refetchInterval: 15000 },
   });
 
-  // Step 3: merge into a usable list
   const vaults = vaultAddrs.map((addr, i) => {
     const raw = summaries?.[i]?.result;
     const version = vaultVersions[i] || 'v1';
@@ -324,44 +357,54 @@ export function useVaultList(factoryAddress, ownerAddress) {
 
 // ── Read: ALL Platform Vaults (from factory.allVaults) ──
 //
-// v2-only policy: mirror the same rule as useVaultList — when a v2 factory
-// exists on the current chain, we read from it and ignore the v1 factory
-// the caller passed. Keeps platform-wide lists consistent with per-owner
-// lists (no v1 vaults surfacing in marketplace / dashboard / stats).
+// Multi-factory: mirror useVaultList — sum totals across V3 + V2 (+ V1
+// when chain has no V2/V3) so platform stats reflect every vault that
+// can be interacted with through the app.
 
 export function useAllPlatformVaults(factoryAddress) {
   const chainIdLocal = useChainId();
   const deploymentsLocal = getDeployments(chainIdLocal);
-  const activeFactory = deploymentsLocal.aegisVaultFactoryV2 || factoryAddress;
+  const factoryV3 = deploymentsLocal.aegisVaultFactoryV3 || '';
+  const factoryV2 = deploymentsLocal.aegisVaultFactoryV2 || '';
+  const factoryV1 = (factoryAddress && factoryAddress !== factoryV3 && factoryAddress !== factoryV2)
+    ? factoryAddress
+    : '';
 
-  // Step 1: get total vault count
-  const { data: totalRaw, isLoading: countLoading } = useReadContract({
-    address: activeFactory,
-    abi: AegisVaultFactoryABI,
-    functionName: 'totalVaults',
-    query: { enabled: !!activeFactory, refetchInterval: 30000 },
+  // Step 1: per-factory totalVaults() count.
+  const { data: totalsRaw, isLoading: countLoading } = useReadContracts({
+    contracts: [
+      factoryV3 && { address: factoryV3, abi: AegisVaultFactoryABI, functionName: 'totalVaults' },
+      factoryV2 && { address: factoryV2, abi: AegisVaultFactoryABI, functionName: 'totalVaults' },
+      factoryV1 && { address: factoryV1, abi: AegisVaultFactoryABI, functionName: 'totalVaults' },
+    ].filter(Boolean),
+    query: { enabled: !!(factoryV3 || factoryV2 || factoryV1), refetchInterval: 30000 },
   });
 
-  const total = totalRaw ? Number(totalRaw) : 0;
+  const factoryTotals = [];
+  let i = 0;
+  if (factoryV3) factoryTotals.push({ factory: factoryV3, total: Number(totalsRaw?.[i++]?.result || 0n) });
+  if (factoryV2) factoryTotals.push({ factory: factoryV2, total: Number(totalsRaw?.[i++]?.result || 0n) });
+  if (factoryV1) factoryTotals.push({ factory: factoryV1, total: Number(totalsRaw?.[i++]?.result || 0n) });
 
-  // Step 2: batch-read getVaultAt(i) for each index
-  const indexContracts = Array.from({ length: total }, (_, i) => ({
-    address: activeFactory,
-    abi: AegisVaultFactoryABI,
-    functionName: 'getVaultAt',
-    args: [BigInt(i)],
-  }));
+  // Step 2: build flat (factory, index) tuples and batch-read getVaultAt.
+  const indexContracts = factoryTotals.flatMap((ft) =>
+    Array.from({ length: ft.total }, (_, idx) => ({
+      address: ft.factory,
+      abi: AegisVaultFactoryABI,
+      functionName: 'getVaultAt',
+      args: [BigInt(idx)],
+    }))
+  );
+  const grandTotal = factoryTotals.reduce((acc, ft) => acc + ft.total, 0);
 
   const { data: addrResults, isLoading: addrsLoading } = useReadContracts({
     contracts: indexContracts,
-    query: { enabled: total > 0, refetchInterval: 30000 },
+    query: { enabled: indexContracts.length > 0, refetchInterval: 30000 },
   });
 
-  const allAddrs = addrResults
-    ? addrResults.map(r => r.result).filter(Boolean)
-    : [];
+  const allAddrs = addrResults ? addrResults.map((r) => r.result).filter(Boolean) : [];
 
-  // Step 3: batch-read getVaultSummary for each vault
+  // Step 3: batch-read summaries (ABI shape consistent across versions).
   const summaryContracts = allAddrs.map((addr) => ({
     address: addr,
     abi: AegisVaultABI,
@@ -373,8 +416,8 @@ export function useAllPlatformVaults(factoryAddress) {
     query: { enabled: allAddrs.length > 0, refetchInterval: 15000 },
   });
 
-  const vaults = allAddrs.map((addr, i) => {
-    const raw = summaries?.[i]?.result;
+  const vaults = allAddrs.map((addr, idx) => {
+    const raw = summaries?.[idx]?.result;
     if (!raw) return { address: addr, loaded: false };
     const [owner, executor, baseAsset, balance, totalDeposited, lastExecution, dailyActions, paused, autoExecution] = raw;
     return {
@@ -383,8 +426,6 @@ export function useAllPlatformVaults(factoryAddress) {
       owner,
       executor,
       baseAsset,
-      // NOTE: hardcoded 6 — caller should resolve actual decimals if base
-      // asset isn't USDC. Use balanceRaw + useTokenDecimals to format correctly.
       balance: formatUnits(balance, 6),
       balanceRaw: balance,
       totalDeposited: formatUnits(totalDeposited, 6),
@@ -399,7 +440,7 @@ export function useAllPlatformVaults(factoryAddress) {
   return {
     vaults,
     isLoading: countLoading || addrsLoading || summariesLoading,
-    total,
+    total: grandTotal,
   };
 }
 

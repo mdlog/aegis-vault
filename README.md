@@ -135,11 +135,38 @@ sdk/             @aegis-vault/sdk v0.3.0 — ethers v6 clients + orchestrator HT
 docker-compose.yml  one-command local bring-up (orchestrator + frontend)
 ```
 
+## V3 + Khalani — live on 0G mainnet (deployed 2026-04-27)
+
+V3 vault + factory and the KhalaniVenueAdapter shipped after audit-pass hardening (235 contract tests). New vault creates route through V3; the V2 stack stays operational for existing vaults.
+
+| Contract | Address |
+|---|---|
+| AegisVaultFactoryV3 | [`0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3`](https://chainscan.0g.ai/address/0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3) |
+| AegisVault impl (V3) | [`0x0c78257550802bF2fFD201106Fe8096A5211397e`](https://chainscan.0g.ai/address/0x0c78257550802bF2fFD201106Fe8096A5211397e) |
+| ExecutionRegistry (V3) | [`0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9`](https://chainscan.0g.ai/address/0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9) |
+| KhalaniVenueAdapter | [`0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4`](https://chainscan.0g.ai/address/0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4) |
+| JaineVenueAdapterV2 (multi-hop) | [`0x261244010A6D87e043b3489D93fA573cdc2274B6`](https://chainscan.0g.ai/address/0x261244010A6D87e043b3489D93fA573cdc2274B6) |
+| CrossChainLib | [`0x505C1C76520C6a47a1C0Bf8819359c786E3c8aB3`](https://chainscan.0g.ai/address/0x505C1C76520C6a47a1C0Bf8819359c786E3c8aB3) |
+
+V3 audit-pass surface: factory role separation (depositor/owner ≠ executor), owner emergency controls (`pause`/`unpause`/`setExecutor`/`setVenue`), on-chain `maxPositionBps` trade-size cap, `consumedKhalaniIds` double-credit guard, multi-factory `ExecutionRegistry` (`authorizedFactories` + Ownable2Step admin), Pyth confidence-band check in `OracleGuardLib`, 80/20 protocol fee split. Full address book: [`contracts/deployments-mainnet.json`](contracts/deployments-mainnet.json). Deploy procedure: [`docs/V3_KHALANI_ROLLOUT.md`](docs/V3_KHALANI_ROLLOUT.md).
+
+## What's next (roadmap)
+
+- **Arbitrum V2/V3 parity** — port `OperatorRegistry`, `Staking`, `Reputation`, `Governor`, `InsurancePool`, then V3 vault + Khalani onto Arbitrum One.
+- **External operator onboarding** — open `OperatorRegistry` to the first wave of third-party operators using [`OPERATOR_REGISTRATION_KIT.md`](OPERATOR_REGISTRATION_KIT.md).
+- **Phase 3 Khalani auto-execution end-to-end** — orchestrator submission flow ready (`submitCrossChainIntent`), gated by per-vault `maxCrossChainFeeBps` ≥ Khalani solver fee.
+- **Pyth deviation guard re-enable** on Jaine adapter once 0G push cadence is acceptable.
+
+See [`docs/PRODUCT_VALUE_AND_MARKET_POTENTIAL.md`](docs/PRODUCT_VALUE_AND_MARKET_POTENTIAL.md) for the full phased roadmap (Phase 0 → Phase 5).
+
 ## Docs
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — economic model, state diagrams, threat analysis
 - [CONTRACTS.md](CONTRACTS.md) — per-contract reference
 - [WHITEPAPER.md](WHITEPAPER.md) — full protocol design
+- [docs/PRODUCT_VALUE_AND_MARKET_POTENTIAL.md](docs/PRODUCT_VALUE_AND_MARKET_POTENTIAL.md) — market fit, problem-solving, roadmap
+- [docs/ARBITRUM_BRINGUP.md](docs/ARBITRUM_BRINGUP.md) — Arbitrum deployment status & V2 parity plan
+- [OPERATOR_REGISTRATION_KIT.md](OPERATOR_REGISTRATION_KIT.md) — onboarding kit for third-party AI operators
 - [sdk/README.md](sdk/README.md) — SDK API surface with examples
 
 ## License

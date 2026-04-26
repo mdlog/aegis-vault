@@ -112,18 +112,31 @@ Every vault deployed grows native TVL, compute usage, storage usage, and gas dem
   - `AegisVaultFactoryV2` at `0x9450ac911D06c81a54007a768d4278929d87A17e`
   - `OperatorRegistry` at `0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5`
   - `OperatorReputation` at `0xc270c579400a45975B2EBff05A2fF80f620080CA`
+- ✅ **V3 stack + KhalaniVenueAdapter deployed 2026-04-27 (canonical for new vaults):**
+  - `AegisVaultFactoryV3` at `0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3`
+  - `ExecutionRegistryV3` at `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9`
+  - `KhalaniVenueAdapter` at `0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4`
+  - V2 vaults remain operational at original addresses; new vaults route through V3
+- ✅ Audit-pass fixes 1–8 merged + round-2 hardening (255 contract tests):
+  factory role separation (Fix #1), owner emergency controls (Fix #2),
+  on-chain `maxPositionBps` cap (Fix #3), `consumedKhalaniIds` double-credit
+  guard (Fix #4), reentrancy/CEI on `executeIntent` (Fix #5), multi-factory
+  `ExecutionRegistry` (Fix #6), Pyth confidence-band check (Fix #7),
+  80/20 fee split (Fix #8), plus Ownable2Step admin transfer + extcodesize
+  check on `authorizeFactory` + audit events on every admin mutation
 - ✅ Orchestrator + Decision Engine + Risk Veto live, using **0G Compute** (GLM-5-FP8) for inference
 - ✅ First on-chain AI-driven execution: BUY 0G on 2026-04-24 (tx `0x7efe51ac…`)
 - ✅ cbBTC live on 0G with Jaine USDC.e/cbBTC pool active (pool TVL via Jaine analytics)
-- ✅ V1 contracts deployed on Arbitrum One (Chain ID 42161) — V2 stack not yet ported
-- ✅ Audit-pass fixes 1–8 merged (pre-deploy hardening)
+- ✅ Khalani route registry seeded with chains (0G, Ethereum, Arbitrum, Base)
+  and tokens (USDC.e, WETH, cbBTC, W0G)
+- ✅ Cross-chain deposit UI live in production frontend (`CrossChainDepositCard`)
+- ✅ V1 contracts deployed on Arbitrum One (Chain ID 42161) — V2/V3 stack not yet ported
 - ✅ Operator onboarding kit (`OPERATOR_REGISTRATION_KIT.md`) production-ready
 - ✅ Pyth-anchored NAV used in `VaultNAVCalculator` for share pricing; `OracleGuardLib` deviation check shipped (currently bypassed on Jaine adapter due to Pyth-on-0G push frequency, with `maxSlippageBps` as the active protection)
 
-### Phase 1 — V3 Rollout & Operator Onboarding (Q2–Q3 2026)
-- Deploy `AegisVaultFactoryV3` + V3 vault implementation on 0G mainnet (contracts written, awaiting mainnet deploy)
-- Activate Khalani cross-chain venue adapter (`KhalaniVenueAdapter.sol` ready; mainnet wiring pending)
-- Tier 2A multi-hop quote router live in production UI
+### Phase 1 — Khalani auto-execution + Operator Onboarding (Q2–Q3 2026)
+- Phase 3 orchestrator submission flow is wired (`submitCrossChainIntent`); per-cycle Khalani routing requires V3 vaults with `maxCrossChainFeeBps > 0`
+- Tier 2A multi-hop quote router (`quoteRouter.js`) compares Jaine vs Khalani per cycle and dispatches the winner
 - Onboard first 3–5 external operators via `OperatorRegistry` and `OperatorStaking`
 - Public deposit cap raised in stages: $50K → $250K → $1M
 - Re-enable on-chain Pyth deviation guard once Hermes pusher cadence on 0G is acceptable (or migrate guard to a pull-based push at swap time)

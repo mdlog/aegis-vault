@@ -15,31 +15,48 @@ Aegis Vault integrates with the 0G stack at four levels:
 
 ---
 
-## 2. 0G mainnet contract addresses (for form submission)
+## 2. 0G mainnet contract addresses (canonical: V3 stack, deployed 2026-04-27)
+
+The V3 stack is the **canonical** deployment for new vaults. V2 is operational and listed in §2.1 below — existing V2 vaults stay live, but new vault creates SHOULD route through `AegisVaultFactoryV3`.
 
 | Contract | Address | 0G Explorer link |
 |---|---|---|
-| **AegisVaultFactory** (entrypoint) | `0x9450ac911D06c81a54007a768d4278929d87A17e` | [View on chainscan.0g.ai](https://chainscan.0g.ai/address/0x9450ac911D06c81a54007a768d4278929d87A17e) |
-| AegisVault (implementation) | `0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181` | [View](https://chainscan.0g.ai/address/0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181) |
-| ExecutionRegistry | `0x3a8a59865546e99c8377aFd2d02736e25Ac5d04E` | [View](https://chainscan.0g.ai/address/0x3a8a59865546e99c8377aFd2d02736e25Ac5d04E) |
-| OperatorRegistry | `0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5` | [View](https://chainscan.0g.ai/address/0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5) |
-| OperatorStaking (USDC.e stake) | `0xAABC708aA3d5e9a37A90ff675EdBD681C204a376` | [View](https://chainscan.0g.ai/address/0xAABC708aA3d5e9a37A90ff675EdBD681C204a376) |
-| InsurancePool | `0x0CaCfc2a5a47C315343f20A8841EE29133AD1598` | [View](https://chainscan.0g.ai/address/0x0CaCfc2a5a47C315343f20A8841EE29133AD1598) |
+| **AegisVaultFactoryV3** (entrypoint) | `0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3` | [View](https://chainscan.0g.ai/address/0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3) |
+| AegisVault impl (V3) | `0x0c78257550802bF2fFD201106Fe8096A5211397e` | [View](https://chainscan.0g.ai/address/0x0c78257550802bF2fFD201106Fe8096A5211397e) |
+| ExecutionRegistry (V3) | `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9` | [View](https://chainscan.0g.ai/address/0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9) |
+| **KhalaniVenueAdapter** (cross-chain) | `0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4` | [View](https://chainscan.0g.ai/address/0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4) |
+| JaineVenueAdapterV2 (multi-hop) | `0x261244010A6D87e043b3489D93fA573cdc2274B6` | [View](https://chainscan.0g.ai/address/0x261244010A6D87e043b3489D93fA573cdc2274B6) |
+| OperatorRegistry V2 | `0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5` | [View](https://chainscan.0g.ai/address/0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5) |
+| OperatorStaking V2 (USDC.e stake) | `0xAABC708aA3d5e9a37A90ff675EdBD681C204a376` | [View](https://chainscan.0g.ai/address/0xAABC708aA3d5e9a37A90ff675EdBD681C204a376) |
+| InsurancePool V2 | `0x0CaCfc2a5a47C315343f20A8841EE29133AD1598` | [View](https://chainscan.0g.ai/address/0x0CaCfc2a5a47C315343f20A8841EE29133AD1598) |
 | OperatorReputation | `0xc270c579400a45975B2EBff05A2fF80f620080CA` | [View](https://chainscan.0g.ai/address/0xc270c579400a45975B2EBff05A2fF80f620080CA) |
 | AegisGovernor | `0x023EC4a54435f94E9395460e4835e75E429D5A2e` | [View](https://chainscan.0g.ai/address/0x023EC4a54435f94E9395460e4835e75E429D5A2e) |
 | ProtocolTreasury | `0xCDc5D994590D0BF407E5be390A62A8d1eBbf0dF4` | [View](https://chainscan.0g.ai/address/0xCDc5D994590D0BF407E5be390A62A8d1eBbf0dF4) |
 | VaultNAVCalculator (Pyth-backed) | `0xBd21bfd62a11e1F8d04e7bE42D2cbDB6C51C4Ae1` | [View](https://chainscan.0g.ai/address/0xBd21bfd62a11e1F8d04e7bE42D2cbDB6C51C4Ae1) |
-| **JaineVenueAdapter** (swap venue) | `0x0F8B269368925Fd55C62560B6f818173A8cB25eD` | [View](https://chainscan.0g.ai/address/0x0F8B269368925Fd55C62560B6f818173A8cB25eD) |
 
-**Shared DELEGATECALL libraries** (live, linked by every vault clone):
+**Shared DELEGATECALL libraries** (V3-linked):
 
 | Library | Address | Explorer |
 |---|---|---|
-| ExecLib | `0x1F2110aE2E7280455Da63517942cBee7ecdB3045` | [View](https://chainscan.0g.ai/address/0x1F2110aE2E7280455Da63517942cBee7ecdB3045) |
-| SealedLib | `0x9dD28eE7d9B7D3e913D23dD1Fc3f4FB36b0F9063` | [View](https://chainscan.0g.ai/address/0x9dD28eE7d9B7D3e913D23dD1Fc3f4FB36b0F9063) |
-| IOLib | `0x0e60443Ee2c939f8cE19Fa5909c063B35a3baF7a` | [View](https://chainscan.0g.ai/address/0x0e60443Ee2c939f8cE19Fa5909c063B35a3baF7a) |
+| ExecLib (V3) | `0x48594040AbEbFe3a24BbDFfA21Cb597FA6F60dE7` | [View](https://chainscan.0g.ai/address/0x48594040AbEbFe3a24BbDFfA21Cb597FA6F60dE7) |
+| IOLib (V3) | `0x49b201603ae393054eF9377f456eDDc827748f37` | [View](https://chainscan.0g.ai/address/0x49b201603ae393054eF9377f456eDDc827748f37) |
+| CrossChainLib | `0x505C1C76520C6a47a1C0Bf8819359c786E3c8aB3` | [View](https://chainscan.0g.ai/address/0x505C1C76520C6a47a1C0Bf8819359c786E3c8aB3) |
+| SealedLib (reused across V2 → V3) | `0x9dD28eE7d9B7D3e913D23dD1Fc3f4FB36b0F9063` | [View](https://chainscan.0g.ai/address/0x9dD28eE7d9B7D3e913D23dD1Fc3f4FB36b0F9063) |
 
-**Primary explorer link for the form**: [https://chainscan.0g.ai/address/0x9450ac911D06c81a54007a768d4278929d87A17e](https://chainscan.0g.ai/address/0x9450ac911D06c81a54007a768d4278929d87A17e) (AegisVaultFactory — the entrypoint judges can trace every vault clone from).
+**Primary explorer link for the form**: [https://chainscan.0g.ai/address/0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3](https://chainscan.0g.ai/address/0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3) (AegisVaultFactoryV3 — the canonical entrypoint judges can trace every new vault clone from).
+
+### 2.1 Legacy V2 stack (operational, NOT canonical for new vaults)
+
+V2 vaults already in production keep executing against their original registry + libraries. New deploys SHOULD use the V3 stack above.
+
+| Contract | Address |
+|---|---|
+| AegisVaultFactory V2 | `0x9450ac911D06c81a54007a768d4278929d87A17e` |
+| AegisVault impl (V2) | `0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181` |
+| ExecutionRegistry V2 | `0x3a8a59865546e99c8377aFd2d02736e25Ac5d04E` |
+| ExecLib (V2) | `0x1F2110aE2E7280455Da63517942cBee7ecdB3045` |
+| IOLib (V2) | `0x0e60443Ee2c939f8cE19Fa5909c063B35a3baF7a` |
+| JaineVenueAdapter (V1, single-hop) | `0x0F8B269368925Fd55C62560B6f818173A8cB25eD` |
 
 ---
 

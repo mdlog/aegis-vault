@@ -1,5 +1,17 @@
 # V3 + Khalani — production rollout checklist
 
+> **Status (as of 2026-04-27):** V3 + KhalaniVenueAdapter deployed on 0G
+> Aristotle Mainnet. V2 vaults remain operational. Live addresses:
+>
+> - `AegisVaultFactoryV3`     `0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3`
+> - `ExecutionRegistryV3`     `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9`
+> - `KhalaniVenueAdapter`     `0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4`
+> - `JaineVenueAdapterV2`     `0x261244010A6D87e043b3489D93fA573cdc2274B6`
+>
+> This document is now reference material for the deployment process — useful
+> when re-deploying after a contract change, deploying to a new chain, or
+> auditing what each step did.
+
 > Applies to deploying the V3 vault stack alongside Khalani as a second
 > execution venue, with V2 vaults left untouched and live.
 

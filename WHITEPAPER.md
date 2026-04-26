@@ -366,24 +366,42 @@ The user does not need to trust the operator beyond "will run the strategy their
 
 ## 9. Deployed Instances
 
-### 9.1 0G Aristotle Mainnet (chain 16661) — v2 stack deployed 2026-04-23 (v1 initial deploy 2026-04-21, kept on-chain as legacy)
+### 9.1 0G Aristotle Mainnet (chain 16661) — V3 + Khalani stack deployed 2026-04-27 (canonical for new vaults)
+
+V3 deploys post audit-pass hardening (255 contract tests covering audit fixes #1–#8 + the round-2 hardening on `ExecutionRegistry` and `KhalaniVenueAdapter`). New vault creates route through the V3 factory; existing V2 / V1 vaults stay on their original registries (cross-version intent collision is impossible because intent hashes bind the vault address into the EIP-712 domain).
 
 | Contract | Address |
 |---|---|
-| AegisVaultFactory | `0x9450ac911D06c81a54007a768d4278929d87A17e` |
-| AegisVault (implementation) | `0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181` |
-| ExecutionRegistry | `0x3a8a59865546e99c8377aFd2d02736e25Ac5d04E` |
-| SealedLib | `0x9dD28eE7d9B7D3e913D23dD1Fc3f4FB36b0F9063` |
-| ExecLib | `0x1F2110aE2E7280455Da63517942cBee7ecdB3045` |
-| IOLib | `0x0e60443Ee2c939f8cE19Fa5909c063B35a3baF7a` |
-| OperatorRegistry | `0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5` |
-| OperatorStaking (stake = USDC.e) | `0xAABC708aA3d5e9a37A90ff675EdBD681C204a376` |
+| **AegisVaultFactoryV3** (new vaults) | `0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3` |
+| AegisVault impl (V3) | `0x0c78257550802bF2fFD201106Fe8096A5211397e` |
+| ExecutionRegistry (V3) | `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9` |
+| **KhalaniVenueAdapter** (cross-chain route registry) | `0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4` |
+| JaineVenueAdapterV2 (multi-hop) | `0x261244010A6D87e043b3489D93fA573cdc2274B6` |
+| ExecLib (V3) | `0x48594040AbEbFe3a24BbDFfA21Cb597FA6F60dE7` |
+| IOLib (V3) | `0x49b201603ae393054eF9377f456eDDc827748f37` |
+| CrossChainLib | `0x505C1C76520C6a47a1C0Bf8819359c786E3c8aB3` |
+| SealedLib (reused) | `0x9dD28eE7d9B7D3e913D23dD1Fc3f4FB36b0F9063` |
+| OperatorRegistry V2 | `0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5` |
+| OperatorStaking V2 (stake = USDC.e) | `0xAABC708aA3d5e9a37A90ff675EdBD681C204a376` |
 | OperatorReputation | `0xc270c579400a45975B2EBff05A2fF80f620080CA` |
 | AegisGovernor (1-of-1 init) | `0x023EC4a54435f94E9395460e4835e75E429D5A2e` |
-| InsurancePool | `0x0CaCfc2a5a47C315343f20A8841EE29133AD1598` |
+| InsurancePool V2 | `0x0CaCfc2a5a47C315343f20A8841EE29133AD1598` |
 | ProtocolTreasury | `0xCDc5D994590D0BF407E5be390A62A8d1eBbf0dF4` |
-| JaineVenueAdapter | `0x0F8B269368925Fd55C62560B6f818173A8cB25eD` |
 | VaultNAVCalculator (Pyth-backed) | `0xBd21bfd62a11e1F8d04e7bE42D2cbDB6C51C4Ae1` |
+
+#### 9.1a Legacy V2 stack (still operational, NOT canonical for new vaults)
+
+The original V2 stack remains on chain — existing V2 vaults continue to execute against it. New vaults SHOULD use the V3 factory above.
+
+| Contract | Address |
+|---|---|
+| AegisVaultFactory V2 | `0x9450ac911D06c81a54007a768d4278929d87A17e` |
+| AegisVault impl (V2) | `0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181` |
+| ExecutionRegistry V2 | `0x3a8a59865546e99c8377aFd2d02736e25Ac5d04E` |
+| ExecLib (V2) | `0x1F2110aE2E7280455Da63517942cBee7ecdB3045` |
+| IOLib (V2) | `0x0e60443Ee2c939f8cE19Fa5909c063B35a3baF7a` |
+| AegisVaultFactory V1 (Arbitrum / 0G initial) | `0x49354460eAdE1C2E786E36B3B3e7A18Fb4283C45` |
+| JaineVenueAdapter V1 (single-hop) | `0x0F8B269368925Fd55C62560B6f818173A8cB25eD` |
 
 Canonical Jaine-pair tokens (verified via pool swap events):
 
