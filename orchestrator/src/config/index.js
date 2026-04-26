@@ -56,27 +56,43 @@ const config = {
   privateKey: process.env.PRIVATE_KEY || '',
   deploymentsFile: deploymentFile.path,
 
-  // Contract addresses — v2 stack (AegisVaultFactoryV2 / OperatorRegistryV2 /
-  // OperatorStakingV2 / InsurancePoolV2 / ExecutionRegistryV2) is preferred
-  // when present in the deployments file. v1 fields are kept as a fallback
-  // for chains/envs that haven't migrated yet. Env vars always win if set,
-  // so an operator can pin a specific version without editing config.
+  // Contract addresses — resolution priority: V3 → V2 → V1 (env override
+  // always wins). Post-`deploy-fresh-mainnet.js` runs only V3 keys are
+  // present and V1/V2 unsuffixed keys are absent from the deployments file;
+  // chains that haven't been re-deployed still get the legacy fallback.
   contracts: {
-    vaultFactory: firstNonEmpty(process.env.VAULT_FACTORY_ADDRESS, deploymentDefaults.aegisVaultFactoryV2, deploymentDefaults.aegisVaultFactory),
-    executionRegistry: firstNonEmpty(process.env.EXECUTION_REGISTRY_ADDRESS, deploymentDefaults.executionRegistryV2, deploymentDefaults.executionRegistry),
+    vaultFactory: firstNonEmpty(
+      process.env.VAULT_FACTORY_ADDRESS,
+      deploymentDefaults.aegisVaultFactoryV3,
+      deploymentDefaults.aegisVaultFactoryV2,
+      deploymentDefaults.aegisVaultFactory
+    ),
+    executionRegistry: firstNonEmpty(
+      process.env.EXECUTION_REGISTRY_ADDRESS,
+      deploymentDefaults.executionRegistryV3,
+      deploymentDefaults.executionRegistryV2,
+      deploymentDefaults.executionRegistry
+    ),
     vault: firstNonEmpty(process.env.VAULT_ADDRESS, deploymentDefaults.demoVault),
     usdc: firstNonEmpty(process.env.USDC_ADDRESS, deploymentDefaults.mockUSDC, deploymentDefaults.realTokens?.USDCe, deploymentDefaults.realTokens?.oUSDT, deploymentDefaults.canonical?.USDC),
     wbtc: firstNonEmpty(process.env.WBTC_ADDRESS, deploymentDefaults.mockWBTC, deploymentDefaults.realTokens?.WBTC, deploymentDefaults.canonical?.WBTC),
     cbbtc: firstNonEmpty(process.env.CBBTC_ADDRESS, deploymentDefaults.realTokens?.cbBTC),
     weth: firstNonEmpty(process.env.WETH_ADDRESS, deploymentDefaults.mockWETH, deploymentDefaults.realTokens?.WETH, deploymentDefaults.canonical?.WETH),
     w0g: firstNonEmpty(process.env.W0G_ADDRESS, deploymentDefaults.realTokens?.W0G, deploymentDefaults.jaine?.w0g),
-    // Phase 1-5 production stack — v2 preferred, v1 fallback
+    // Phase 1-5 production stack — V3 preferred, V2 fallback, V1 fallback.
+    // OperatorRegistry / Staking / InsurancePool keep their V2 surface in V3
+    // (no breaking change) so the cutover preserves existing operator data.
     protocolTreasury: firstNonEmpty(process.env.PROTOCOL_TREASURY_ADDRESS, deploymentDefaults.protocolTreasury),
     operatorRegistry: firstNonEmpty(process.env.OPERATOR_REGISTRY_ADDRESS, deploymentDefaults.operatorRegistryV2, deploymentDefaults.operatorRegistry),
     operatorStaking: firstNonEmpty(process.env.OPERATOR_STAKING_ADDRESS, deploymentDefaults.operatorStakingV2, deploymentDefaults.operatorStaking),
     insurancePool: firstNonEmpty(process.env.INSURANCE_POOL_ADDRESS, deploymentDefaults.insurancePoolV2, deploymentDefaults.insurancePool),
     operatorReputation: firstNonEmpty(process.env.OPERATOR_REPUTATION_ADDRESS, deploymentDefaults.operatorReputation),
     aegisGovernor: firstNonEmpty(process.env.AEGIS_GOVERNOR_ADDRESS, deploymentDefaults.aegisGovernor),
+    // V3 cross-chain venue + Khalani. Optional — only set when a V3 deploy
+    // has populated the keys. Used by quoteRouter to query route allowlist
+    // governance metadata before publishing intents.
+    khalaniVenueAdapter: firstNonEmpty(process.env.KHALANI_VENUE_ADAPTER, deploymentDefaults.khalaniVenueAdapter),
+    jaineVenueAdapter: firstNonEmpty(process.env.JAINE_VENUE_ADAPTER, deploymentDefaults.jaineVenueAdapterV2, deploymentDefaults.jaineVenueAdapter),
   },
 
   // 0G Compute (uses mainnet for inference — more models, better availability)

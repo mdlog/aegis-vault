@@ -188,5 +188,8 @@ fs.writeFileSync(generatedManifestPath, `${JSON.stringify(generatedManifest, nul
 console.log(`Frontend deployment manifest updated for chain ${chainId}`);
 console.log(`  Source:   ${deploymentsPath}`);
 console.log(`  Output:   ${generatedManifestPath}`);
-console.log(`  Factory:  ${deployments.aegisVaultFactory || '(not set)'}`);
-console.log(`  Registry: ${deployments.executionRegistry || '(not set)'}`);
+// Resolve via the same V3 → V2 → V1 chain that buildManifestEntry uses, so
+// post-fresh-deploy runs (where legacy V1 keys are intentionally absent)
+// don't print misleading "(not set)" lines.
+console.log(`  Factory:  ${deployments.aegisVaultFactoryV3 || deployments.aegisVaultFactoryV2 || deployments.aegisVaultFactory || '(not set)'}`);
+console.log(`  Registry: ${deployments.executionRegistryV3 || deployments.executionRegistryV2 || deployments.executionRegistry || '(not set)'}`);

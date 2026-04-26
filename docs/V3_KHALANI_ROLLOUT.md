@@ -143,6 +143,32 @@ After step 2, the frontend will route new vault creates through V3 factory
 automatically (see `useVault.js` cutover priority). Existing V2 vaults
 continue to operate against the V2 factory.
 
+## 3a. Reset orchestrator cycle to a fresh state
+
+After the fresh deploy, the orchestrator is still tracking V2-stack vault
+state in `orchestrator/data/`. Use the helper script to back up + clear
+the cycle state files so the next start re-indexes from the new V3 factory:
+
+```bash
+cd orchestrator
+./scripts/fresh-cycle.sh
+```
+
+The script removes (after backing up to `data/.fresh-cycle-backup-<ts>/`):
+- `data/kv-state.json` — last cycle snapshot
+- `data/vault-index.json` — vault list + lastIndexedBlock
+- `data/tmp/*` — scratch decision/execution files
+
+Preserved untouched:
+- `data/journal.json` — audit trail of past executions
+- `logs/orchestrator.jsonl` — structured log
+- `logs/orchestrator.stdout.log` — raw stdout
+
+After the reset, restart the orchestrator (`pm2 start aegis-orchestrator`
+or `npm start`). The first log line of interest is
+`Vault indexer ready — N cached vault(s)` where `N=0` immediately after
+reset, growing as new V3 factory events are indexed.
+
 ## 4. Post-deploy verification
 
 In order:
