@@ -53,13 +53,15 @@ export async function readOperatorState(operatorAddress) {
           entryBps: Number(op.entryFeeBps || 0),
           exitBps: Number(op.exitFeeBps || 0),
         };
-        state.recommendedPolicy = {
-          maxPositionBps: Number(op.recommendedMaxPositionBps || 0),
-          confidenceMinBps: Number(op.recommendedConfidenceMinBps || 0),
-          stopLossBps: Number(op.recommendedStopLossBps || 0),
-          cooldownSeconds: Number(op.recommendedCooldownSeconds || 0),
-          maxActionsPerDay: Number(op.recommendedMaxActionsPerDay || 0),
-        };
+        // Operator's recommended policy fields live in OperatorRegistry as a
+        // surface for the UI: CreateVaultPage reads them via useOperatorRegistry
+        // and pre-fills the policy form when the user picks an operator. The
+        // user accepts or overrides; whatever they confirm is sealed into the
+        // vault's on-chain VaultPolicy at create time. The orchestrator does
+        // NOT consume these recommendations at runtime — it reads policy
+        // from `vault.getPolicy()` which is the only authority for trade
+        // gating. We deliberately skip loading them here to keep the per-cycle
+        // operator read minimal.
       }
     }
   } catch (err) {

@@ -972,7 +972,7 @@ export default function CreateVaultPage() {
                   </h2>
                 </div>
                 <p className="text-[13px] mt-2 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
-                  These are <strong className="text-white/80">hard gates enforced on-chain</strong>. The vault contract reverts any trade that would breach these limits — the operator cannot override them. You can change the policy later via <code className="text-cyan/60 font-mono text-[11px]">setPolicy()</code>.
+                  Fields tagged <span className="inline-flex items-center rounded-full border border-amber-400/35 bg-amber-400/10 px-1.5 py-px text-[8.5px] font-mono uppercase tracking-[0.08em] text-amber-200/90 align-middle">hard cap</span> are <strong className="text-white/80">enforced on-chain</strong> — the vault contract reverts any trade that breaches them, and not even the operator can override them. Fields tagged <span className="inline-flex items-center rounded-full border border-cyan/30 bg-cyan/10 px-1.5 py-px text-[8.5px] font-mono uppercase tracking-[0.08em] text-cyan/85 align-middle">off-chain</span> are enforced by the orchestrator's risk veto, not the contract. Values are sealed at vault creation; pause/executor/venue can be rotated later but the policy itself is not mutable.
                 </p>
               </div>
               <GlassPanel className="p-6">
@@ -980,29 +980,40 @@ export default function CreateVaultPage() {
                   <div className="mb-5 p-3 rounded-md border border-gold/20 bg-gold/[0.04] flex items-start gap-2.5">
                     <Cpu className="w-3.5 h-3.5 text-gold/80 mt-0.5 flex-shrink-0" />
                     <div className="text-[11.5px] text-steel/65 leading-relaxed">
-                      Some values below are <strong className="text-gold/90">pre-filled from {operatorSuggestions.operatorName}</strong>'s suggested defaults. These are recommendations — you can override any of them, and the vault will enforce whatever you set.
+                      Some values below are <strong className="text-gold/90">pre-filled from {operatorSuggestions.operatorName}</strong>'s suggested defaults. You can override any of them — whatever you confirm is what gets sealed into the vault. The operator's later edits to their own profile will not migrate into this vault.
                     </div>
                   </div>
                 )}
                 <div className="space-y-5">
                   {[
-                    { label: 'Max Drawdown', key: 'maxDrawdown', min: 1, max: 30, suffix: '%', icon: <TrendingDown className="w-3.5 h-3.5" />, desc: 'Maximum allowed daily loss' },
-                    { label: 'Max Position Size', key: 'maxPosition', min: 10, max: 80, suffix: '%', icon: <Target className="w-3.5 h-3.5" />, desc: 'Maximum single trade size' },
-                    { label: 'Daily Loss Limit', key: 'dailyLossLimit', min: 1, max: 15, suffix: '%', icon: <AlertTriangle className="w-3.5 h-3.5" />, desc: 'Stop trading if daily loss exceeds this' },
-                    { label: 'Cooldown Period', key: 'cooldown', min: 1, max: 60, suffix: 'min', icon: <Clock className="w-3.5 h-3.5" />, desc: 'Minimum wait between trades' },
-                    { label: 'Confidence Threshold', key: 'confidenceThreshold', min: 30, max: 95, suffix: '%', icon: <Zap className="w-3.5 h-3.5" />, desc: 'AI must be at least this confident to trade' },
-                    { label: 'Global Stop-Loss', key: 'stopLoss', min: 5, max: 30, suffix: '%', icon: <Shield className="w-3.5 h-3.5" />, desc: 'Halt all trading if total loss exceeds this' },
-                    { label: 'Max Trades Per Day', key: 'maxActionsPerDay', min: 1, max: 50, suffix: '', icon: <Layers className="w-3.5 h-3.5" />, desc: 'Maximum number of trades per day' },
+                    { label: 'Max Drawdown', key: 'maxDrawdown', min: 1, max: 30, suffix: '%', icon: <TrendingDown className="w-3.5 h-3.5" />, desc: 'Maximum allowed daily loss', enforcement: 'off-chain', enforceTitle: 'Stored in policy.maxDailyLossBps but currently enforced only by the orchestrator risk veto.' },
+                    { label: 'Max Position Size', key: 'maxPosition', min: 10, max: 80, suffix: '%', icon: <Target className="w-3.5 h-3.5" />, desc: 'Maximum single trade size', enforcement: 'hard', enforceTitle: 'Hard cap: vault contract reverts when intent.amountIn > totalDeposited × this %.' },
+                    { label: 'Daily Loss Limit', key: 'dailyLossLimit', min: 1, max: 15, suffix: '%', icon: <AlertTriangle className="w-3.5 h-3.5" />, desc: 'Stop trading if daily loss exceeds this', enforcement: 'off-chain', enforceTitle: 'Off-chain: orchestrator risk veto halts execution past this threshold.' },
+                    { label: 'Cooldown Period', key: 'cooldown', min: 1, max: 60, suffix: 'min', icon: <Clock className="w-3.5 h-3.5" />, desc: 'Minimum wait between trades', enforcement: 'hard', enforceTitle: 'Hard cap: vault contract reverts until block.timestamp ≥ lastExecutionTime + cooldown.' },
+                    { label: 'Confidence Threshold', key: 'confidenceThreshold', min: 30, max: 95, suffix: '%', icon: <Zap className="w-3.5 h-3.5" />, desc: 'AI must be at least this confident to trade', enforcement: 'hard', enforceTitle: 'Hard cap: vault contract reverts when intent.confidenceBps < this value (also drives orchestrator engine thresholds).' },
+                    { label: 'Global Stop-Loss', key: 'stopLoss', min: 5, max: 30, suffix: '%', icon: <Shield className="w-3.5 h-3.5" />, desc: 'Halt all trading if total loss exceeds this', enforcement: 'off-chain', enforceTitle: 'Off-chain: orchestrator risk veto halts trading past this NAV-relative threshold.' },
+                    { label: 'Max Trades Per Day', key: 'maxActionsPerDay', min: 1, max: 50, suffix: '', icon: <Layers className="w-3.5 h-3.5" />, desc: 'Maximum number of trades per day', enforcement: 'hard', enforceTitle: 'Hard cap: vault contract reverts past this count over a rolling 24-hour window.' },
                   ].map((param) => {
                     const suggestedValue = operatorSuggestions?.[param.key];
                     const isSuggested =
                       suggestedValue != null && suggestedValue === config[param.key];
+                    const enforcementClass =
+                      param.enforcement === 'hard'
+                        ? 'border-amber-400/35 bg-amber-400/10 text-amber-200/90'
+                        : 'border-cyan/30 bg-cyan/10 text-cyan/85';
+                    const enforcementLabel = param.enforcement === 'hard' ? 'hard cap' : 'off-chain';
                     return (
                       <div key={param.key}>
                         <div className="flex items-center justify-between mb-1">
                           <div className="flex items-center gap-2 text-xs text-steel/70">
                             <span className="text-steel/40">{param.icon}</span>
                             {param.label}
+                            <span
+                              className={`text-[8.5px] font-mono uppercase tracking-[0.08em] px-1.5 py-px rounded-full border ${enforcementClass}`}
+                              title={param.enforceTitle}
+                            >
+                              {enforcementLabel}
+                            </span>
                             {isSuggested && (
                               <span
                                 className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-gold/25 text-gold/80 bg-gold/[0.04]"
