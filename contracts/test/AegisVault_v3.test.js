@@ -356,6 +356,53 @@ describe("AegisVault_v3 — acceptCrossChainFill", function () {
       ).to.be.revertedWithCustomError(vault, "CrossChain_AlreadyFinalized");
     });
 
+    it("reverts with CrossChain_FillReused when a second DIFFERENT intent claims the same khalaniIntentId", async function () {
+      const ctx = await setupV3();
+      const { vault, usdc, executorSigner, teeWallet } = ctx;
+      const vaultAddr = await vault.getAddress();
+
+      // Two intents with disjoint metadata (different `createdAt`) but the
+      // SAME khalaniIntentId. The registry replay guard cannot catch this
+      // because it keys on intentHash (which differs) — only the per-fill
+      // map closes the gap.
+      const sharedKhalaniId = ethers.keccak256(ethers.toUtf8Bytes("shared-khalani"));
+      const { intent: a } = await buildCrossChainIntent(vaultAddr, {
+        assetOut: await usdc.getAddress(),
+        minAmountOut: 0n,
+        khalaniIntentId: sharedKhalaniId,
+      });
+      const { intent: b } = await buildCrossChainIntent(vaultAddr, {
+        assetOut: await usdc.getAddress(),
+        minAmountOut: 0n,
+        khalaniIntentId: sharedKhalaniId,
+        createdAt: BigInt(a.createdAt) + 1n,
+      });
+      const sigA = await signIntent(teeWallet, vaultAddr, a);
+      const sigB = await signIntent(teeWallet, vaultAddr, b);
+
+      await vault.connect(executorSigner).acceptCrossChainFill(a, sigA, 0, 0);
+
+      await expect(
+        vault.connect(executorSigner).acceptCrossChainFill(b, sigB, 0, 0)
+      ).to.be.revertedWithCustomError(vault, "CrossChain_FillReused");
+    });
+
+    it("reverts with CrossChain_MissingKhalaniId when khalaniIntentId is zero", async function () {
+      const ctx = await setupV3();
+      const { vault, usdc, executorSigner, teeWallet } = ctx;
+      const vaultAddr = await vault.getAddress();
+      const { intent } = await buildCrossChainIntent(vaultAddr, {
+        assetOut: await usdc.getAddress(),
+        minAmountOut: 0n,
+        khalaniIntentId: ethers.ZeroHash,
+      });
+      const sig = await signIntent(teeWallet, vaultAddr, intent);
+
+      await expect(
+        vault.connect(executorSigner).acceptCrossChainFill(intent, sig, 0, 0)
+      ).to.be.revertedWithCustomError(vault, "CrossChain_MissingKhalaniId");
+    });
+
     it("reverts with CrossChain_FeeTooHigh when actualFeeBps > intent.maxFeeBps", async function () {
       const ctx = await setupV3();
       const { vault, usdc, executorSigner, teeWallet } = ctx;
@@ -468,6 +515,100 @@ describe("AegisVault_v3 — acceptCrossChainFill", function () {
       ).to.be.revertedWith("x");
     });
 
+    it("reverts with CrossChain_AutoExecOff when policy.autoExecution is false", async function () {
+      // Re-init via setupV3 then patch autoExecution off using the new
+      // emergency-controls surface — there's no policy setter yet, but
+      // the cross-chain intent rides on the same policy slot, so we test
+      // the gate by initialising with autoExecution=false.
+      const [deployer, owner, executorSigner] = await ethers.getSigners();
+      const MockERC20 = await ethers.getContractFactory("MockERC20");
+      const usdc = await MockERC20.deploy("USDC", "USDC", 6);
+      const Registry = await ethers.getContractFactory("ExecutionRegistry");
+      const registry = await Registry.deploy();
+      const { impl: vault } = await deployV3Impl();
+      const teeWallet = ethers.Wallet.createRandom().connect(ethers.provider);
+      const policy = v3Policy(teeWallet.address, { autoExecution: false });
+      await vault.initialize(
+        owner.address, await usdc.getAddress(), executorSigner.address,
+        await registry.getAddress(), ethers.ZeroAddress,
+        policy, [await usdc.getAddress()], deployer.address, 50
+      );
+      await registry.authorizeVault(await vault.getAddress());
+
+      const vaultAddr = await vault.getAddress();
+      const amountOut = ethers.parseUnits("100", 6);
+      const { intent } = await buildCrossChainIntent(vaultAddr, {
+        assetOut: await usdc.getAddress(), minAmountOut: amountOut,
+      });
+      const sig = await signIntent(teeWallet, vaultAddr, intent);
+      await deliverTokens(usdc, vaultAddr, amountOut);
+
+      await expect(
+        vault.connect(executorSigner).acceptCrossChainFill(intent, sig, amountOut, 0)
+      ).to.be.revertedWithCustomError(vault, "CrossChain_AutoExecOff");
+    });
+
+    it("reverts with CrossChain_LowConfidence when intent.confidenceBps < policy threshold", async function () {
+      const ctx = await setupV3();
+      const { vault, usdc, executorSigner, teeWallet } = ctx;
+      const vaultAddr = await vault.getAddress();
+      const amountOut = ethers.parseUnits("100", 6);
+      const { intent } = await buildCrossChainIntent(vaultAddr, {
+        assetOut: await usdc.getAddress(),
+        minAmountOut: amountOut,
+        confidenceBps: 100, // policy threshold defaults to 6000
+      });
+      const sig = await signIntent(teeWallet, vaultAddr, intent);
+      await deliverTokens(usdc, vaultAddr, amountOut);
+
+      await expect(
+        vault.connect(executorSigner).acceptCrossChainFill(intent, sig, amountOut, 0)
+      ).to.be.revertedWithCustomError(vault, "CrossChain_LowConfidence");
+    });
+
+    it("reverts with CrossChain_AssetNotWhitelisted when assetOut is not in allowed list", async function () {
+      const ctx = await setupV3();
+      const { vault, executorSigner, teeWallet } = ctx;
+      const MockERC20 = await ethers.getContractFactory("MockERC20");
+      const stranger = await MockERC20.deploy("Stranger", "STR", 18);
+      const vaultAddr = await vault.getAddress();
+      const amountOut = ethers.parseUnits("1", 18);
+      const { intent } = await buildCrossChainIntent(vaultAddr, {
+        assetOut: await stranger.getAddress(),
+        minAmountOut: amountOut,
+      });
+      const sig = await signIntent(teeWallet, vaultAddr, intent);
+      await stranger.mint(vaultAddr, amountOut);
+
+      await expect(
+        vault.connect(executorSigner).acceptCrossChainFill(intent, sig, amountOut, 0)
+      ).to.be.revertedWithCustomError(vault, "CrossChain_AssetNotWhitelisted");
+    });
+
+    it("reverts with CrossChain_PositionTooLarge when intent.amountIn > totalDeposited * maxPositionBps / 10000", async function () {
+      const ctx = await setupV3();
+      const { vault, usdc, owner, executorSigner, teeWallet } = ctx;
+      const vaultAddr = await vault.getAddress();
+
+      // Seed totalDeposited so the cap kicks in (cap = 50% of 1000 = 500).
+      await usdc.mint(owner.address, ethers.parseUnits("1000", 6));
+      await usdc.connect(owner).approve(vaultAddr, ethers.parseUnits("1000", 6));
+      await vault.connect(owner).deposit(ethers.parseUnits("1000", 6));
+
+      const amountOut = ethers.parseUnits("100", 6);
+      const { intent } = await buildCrossChainIntent(vaultAddr, {
+        assetOut: await usdc.getAddress(),
+        amountIn: ethers.parseUnits("600", 6), // > 500 cap
+        minAmountOut: amountOut,
+      });
+      const sig = await signIntent(teeWallet, vaultAddr, intent);
+      await deliverTokens(usdc, vaultAddr, amountOut);
+
+      await expect(
+        vault.connect(executorSigner).acceptCrossChainFill(intent, sig, amountOut, 0)
+      ).to.be.revertedWithCustomError(vault, "CrossChain_PositionTooLarge");
+    });
+
     it("reverts with CrossChain_Paused when the vault policy is paused", async function () {
       // Initialize the vault with paused: true. (V3 has no public pause()
       // setter — pause is set at init only, mirroring the v1/v2 design.)
@@ -578,6 +719,190 @@ describe("AegisVault_v3 — acceptCrossChainFill", function () {
       await expect(
         vault.connect(attacker).setMaxCrossChainFeeBps(20)
       ).to.be.revertedWith("owner");
+    });
+
+    it("entry fee splits 80/20 between operator and protocolTreasury", async function () {
+      // Re-init with non-zero entry fee + dedicated operator + treasury.
+      const [deployer, owner, executorSigner, , treasury, operator] =
+        await ethers.getSigners();
+      const MockERC20 = await ethers.getContractFactory("MockERC20");
+      const usdc = await MockERC20.deploy("USDC", "USDC", 6);
+      const Registry = await ethers.getContractFactory("ExecutionRegistry");
+      const registry = await Registry.deploy();
+      const { impl: vault } = await deployV3Impl();
+      const teeWallet = ethers.Wallet.createRandom().connect(ethers.provider);
+      const policy = v3Policy(teeWallet.address, {
+        entryFeeBps: 100, // 1%
+        feeRecipient: operator.address,
+      });
+      await vault.initialize(
+        owner.address,
+        await usdc.getAddress(),
+        executorSigner.address,
+        await registry.getAddress(),
+        ethers.ZeroAddress,
+        policy,
+        [await usdc.getAddress()],
+        treasury.address, // protocolTreasury
+        50
+      );
+      await registry.authorizeVault(await vault.getAddress());
+
+      const depositAmt = ethers.parseUnits("1000", 6); // 1000 USDC
+      await usdc.mint(owner.address, depositAmt);
+      await usdc.connect(owner).approve(await vault.getAddress(), depositAmt);
+
+      const opBefore  = await usdc.balanceOf(operator.address);
+      const trBefore  = await usdc.balanceOf(treasury.address);
+
+      await vault.connect(owner).deposit(depositAmt);
+
+      // 1% fee = 10 USDC. 80/20 split → operator 8, treasury 2.
+      const opGain = (await usdc.balanceOf(operator.address)) - opBefore;
+      const trGain = (await usdc.balanceOf(treasury.address))  - trBefore;
+      expect(opGain).to.equal(ethers.parseUnits("8", 6));
+      expect(trGain).to.equal(ethers.parseUnits("2", 6));
+
+      // Net deposit credited = 990.
+      expect(await vault.totalDeposited()).to.equal(ethers.parseUnits("990", 6));
+    });
+
+    it("entry fee falls back to 100% operator when protocolTreasury is zero", async function () {
+      const [deployer, owner, executorSigner, , , operator] = await ethers.getSigners();
+      const MockERC20 = await ethers.getContractFactory("MockERC20");
+      const usdc = await MockERC20.deploy("USDC", "USDC", 6);
+      const Registry = await ethers.getContractFactory("ExecutionRegistry");
+      const registry = await Registry.deploy();
+      const { impl: vault } = await deployV3Impl();
+      const teeWallet = ethers.Wallet.createRandom().connect(ethers.provider);
+      const policy = v3Policy(teeWallet.address, {
+        entryFeeBps: 100,
+        feeRecipient: operator.address,
+      });
+      await vault.initialize(
+        owner.address, await usdc.getAddress(), executorSigner.address,
+        await registry.getAddress(), ethers.ZeroAddress,
+        policy, [await usdc.getAddress()],
+        ethers.ZeroAddress, // no protocolTreasury
+        50
+      );
+      await registry.authorizeVault(await vault.getAddress());
+
+      const depositAmt = ethers.parseUnits("1000", 6);
+      await usdc.mint(owner.address, depositAmt);
+      await usdc.connect(owner).approve(await vault.getAddress(), depositAmt);
+
+      const opBefore = await usdc.balanceOf(operator.address);
+      await vault.connect(owner).deposit(depositAmt);
+
+      const opGain = (await usdc.balanceOf(operator.address)) - opBefore;
+      expect(opGain).to.equal(ethers.parseUnits("10", 6)); // full 1%
+    });
+  });
+
+  describe("Owner emergency controls", function () {
+    it("setExecutor rotates executor and blocks the previous one", async function () {
+      const ctx = await setupV3();
+      const { vault, owner, executorSigner, attacker } = ctx;
+
+      // Old executor can call commitIntent in sealed mode? Just sanity-check
+      // the executor slot moves and the old wallet is no longer authorised.
+      const newExecutor = ethers.Wallet.createRandom().address;
+      await vault.connect(owner).setExecutor(newExecutor);
+      expect(await vault.executor()).to.equal(newExecutor);
+
+      // Previous executor must no longer pass the executor gate.
+      const usdcAddr = await ctx.usdc.getAddress();
+      const fakeIntent = {
+        intentHash: ethers.ZeroHash,
+        vault: await vault.getAddress(),
+        assetIn: usdcAddr,
+        assetOut: usdcAddr,
+        amountIn: 0n,
+        minAmountOut: 0n,
+        createdAt: 0n,
+        expiresAt: 0n,
+        confidenceBps: 0n,
+        riskScoreBps: 0n,
+        attestationReportHash: ethers.ZeroHash,
+        reasonSummary: "",
+      };
+      await expect(
+        vault.connect(executorSigner).executeIntent(fakeIntent, "0x")
+      ).to.be.revertedWith("x");
+    });
+
+    it("setExecutor rejects zero address", async function () {
+      const { vault, owner } = await setupV3();
+      await expect(
+        vault.connect(owner).setExecutor(ethers.ZeroAddress)
+      ).to.be.revertedWith("0");
+    });
+
+    it("setExecutor reverts when caller is not owner", async function () {
+      const { vault, attacker } = await setupV3();
+      await expect(
+        vault.connect(attacker).setExecutor(attacker.address)
+      ).to.be.revertedWith("owner");
+    });
+
+    it("setVenue rotates venue and emits VenueUpdated", async function () {
+      const { vault, owner } = await setupV3();
+      const newVenue = ethers.Wallet.createRandom().address;
+      await expect(vault.connect(owner).setVenue(newVenue))
+        .to.emit(vault, "VenueUpdated");
+      expect(await vault.venue()).to.equal(newVenue);
+    });
+
+    it("setVenue rejects zero address and non-owner callers", async function () {
+      const { vault, owner, attacker } = await setupV3();
+      await expect(
+        vault.connect(owner).setVenue(ethers.ZeroAddress)
+      ).to.be.revertedWith("0");
+      await expect(
+        vault.connect(attacker).setVenue(attacker.address)
+      ).to.be.revertedWith("owner");
+    });
+
+    it("pause halts deposits and unpause restores them", async function () {
+      const ctx = await setupV3();
+      const { vault, owner, usdc } = ctx;
+      const vaultAddr = await vault.getAddress();
+
+      await usdc.mint(owner.address, ethers.parseUnits("100", 6));
+      await usdc.connect(owner).approve(vaultAddr, ethers.parseUnits("100", 6));
+
+      await vault.connect(owner).pause();
+      const policyAfterPause = await vault.getPolicy();
+      expect(policyAfterPause.paused).to.equal(true);
+
+      await expect(
+        vault.connect(owner).deposit(ethers.parseUnits("10", 6))
+      ).to.be.revertedWith("d");
+
+      await vault.connect(owner).unpause();
+      const policyAfterUnpause = await vault.getPolicy();
+      expect(policyAfterUnpause.paused).to.equal(false);
+
+      await vault.connect(owner).deposit(ethers.parseUnits("10", 6));
+    });
+
+    it("pause/unpause are owner-only", async function () {
+      const { vault, attacker } = await setupV3();
+      await expect(vault.connect(attacker).pause()).to.be.revertedWith("owner");
+      await expect(vault.connect(attacker).unpause()).to.be.revertedWith("owner");
+    });
+
+    it("pause is idempotent (re-pausing is a no-op, no event)", async function () {
+      const { vault, owner } = await setupV3();
+      await vault.connect(owner).pause();
+      const tx2 = await vault.connect(owner).pause();
+      const receipt = await tx2.wait();
+      // Second pause must NOT re-emit VaultPaused.
+      const reEmitted = receipt.logs
+        .map((l) => { try { return vault.interface.parseLog(l); } catch { return null; } })
+        .find((p) => p && p.name === "VaultPaused");
+      expect(reEmitted, "VaultPaused should not re-emit on idempotent pause").to.equal(undefined);
     });
   });
 });

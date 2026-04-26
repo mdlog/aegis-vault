@@ -17,6 +17,9 @@ library ExecLib {
 
     error SwapOutputMismatch();
     error SlippageTooHigh(uint256 minRequired, uint256 actual);
+    error PositionTooLarge(uint256 amountIn, uint256 capBps);
+
+    uint256 internal constant BPS_DENOM = 10_000;
 
     // ── EIP-712 ──
     bytes32 internal constant EXECUTION_INTENT_TYPEHASH = keccak256(
@@ -48,6 +51,25 @@ library ExecLib {
     /// @dev allowedAssets is passed from vault storage (_allowedAssets) so the
     ///      whitelist check runs against the exact policy-committed list, not
     ///      against any list the caller could control.
+    ///
+    ///      Policy enforcement scope (on-chain, here):
+    ///        - expiresAt              : intent expiry
+    ///        - cooldownSeconds        : min time between executions
+    ///        - confidenceThresholdBps : min AI confidence
+    ///        - maxActionsPerDay       : per-24h action cap
+    ///        - allowedAssets          : whitelist for both legs of the swap
+    ///        - maxPositionBps         : single-trade size cap as a fraction of
+    ///                                    totalDeposited (defensive trade-size
+    ///                                    cap; full allocation enforcement
+    ///                                    requires a NAV oracle and is the
+    ///                                    orchestrator risk-veto's job).
+    ///
+    ///      Off-chain enforced (orchestrator risk veto + emergency `pause()`):
+    ///        - maxDailyLossBps : 24h drawdown halt
+    ///        - stopLossBps     : NAV-relative stop-loss
+    ///      These fields are exposed in policy for transparency / governance
+    ///      but their on-chain enforcement requires per-vault PnL state that
+    ///      the v3 storage layout does not yet carry.
     function runExecution(
         ExecutionIntent calldata intent,
         VaultPolicy memory _policy,
@@ -56,7 +78,8 @@ library ExecLib {
         address baseAssetAddr,
         address registryAddr,
         uint256 lastExecutionTime,
-        uint256 dailyActionCount
+        uint256 dailyActionCount,
+        uint256 totalDeposited
     ) external returns (uint256 amountOut, bool success) {
         // EIP-712 hash check
         require(computeIntentHash(intent) == intent.intentHash, "hash");
@@ -67,6 +90,17 @@ library ExecLib {
         require(intent.confidenceBps >= _policy.confidenceThresholdBps, "conf");
         require(dailyActionCount < _policy.maxActionsPerDay, "actions");
         require(IERC20(intent.assetIn).balanceOf(address(this)) >= intent.amountIn, "tokIn");
+
+        // maxPositionBps as defensive trade-size cap. We treat this as a
+        // ceiling on `intent.amountIn` relative to the vault's principal
+        // (`totalDeposited`). Skipped when totalDeposited == 0 (a vault that
+        // hasn't received its first deposit cannot meaningfully bound trade
+        // size yet). The orchestrator risk veto enforces the more accurate
+        // NAV-relative variant off-chain.
+        if (_policy.maxPositionBps != 0 && totalDeposited != 0) {
+            uint256 cap = (totalDeposited * _policy.maxPositionBps) / BPS_DENOM;
+            if (intent.amountIn > cap) revert PositionTooLarge(intent.amountIn, _policy.maxPositionBps);
+        }
 
         // Asset whitelist enforcement (Finding 1 fix — both sides of the swap
         // must appear in the vault's policy-committed allowedAssets list).

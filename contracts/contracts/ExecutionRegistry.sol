@@ -17,6 +17,16 @@ contract ExecutionRegistry {
 
     address public admin;
 
+    /// @notice Factories that can authorize new vaults via `authorizeVault`.
+    ///         Multiple factories (e.g. v1, v2, v3) coexist on a single
+    ///         registry: the admin controls the membership of this set, and
+    ///         each member is allowed to register its own clones. Without
+    ///         this, deploying a v3 factory required transferring `admin`
+    ///         away from the v1 factory, which would brick v1's ability to
+    ///         authorize future v1 vaults — incompatible with running both
+    ///         tracks side by side.
+    mapping(address => bool) public authorizedFactories;
+
     /// @notice Authorized vault addresses that can register/finalize intents
     mapping(address => bool) public authorizedVaults;
 
@@ -34,6 +44,7 @@ contract ExecutionRegistry {
     error IntentNotSubmitted(bytes32 intentHash);
     error IntentAlreadyFinalized(bytes32 intentHash);
     error NotAuthorizedVault();
+    error NotAuthorizedFactoryOrAdmin();
     error OnlyAdmin();
     error IntentOwnerMismatch();
 
@@ -49,6 +60,18 @@ contract ExecutionRegistry {
         _;
     }
 
+    /// @dev Allows either the admin OR any authorized factory through. Used
+    ///      on `authorizeVault` so multiple factories can register their
+    ///      clones without the admin being the sole entry point. Backwards
+    ///      compatible: the existing v1 deploy script transfers admin to the
+    ///      factory, which still satisfies this gate.
+    modifier onlyFactoryOrAdmin() {
+        if (msg.sender != admin && !authorizedFactories[msg.sender]) {
+            revert NotAuthorizedFactoryOrAdmin();
+        }
+        _;
+    }
+
     // ── Constructor ──
 
     constructor() {
@@ -57,14 +80,28 @@ contract ExecutionRegistry {
 
     // ── Admin Functions ──
 
-    /// @notice Authorize a vault address to use the registry
-    function authorizeVault(address vault) external onlyAdmin {
+    /// @notice Authorize a vault address to use the registry. Callable by
+    ///         the admin OR any factory in `authorizedFactories`.
+    function authorizeVault(address vault) external onlyFactoryOrAdmin {
         authorizedVaults[vault] = true;
     }
 
-    /// @notice Revoke vault authorization
+    /// @notice Revoke vault authorization. Admin-only — factories cannot
+    ///         deauthorize each other's clones.
     function revokeVault(address vault) external onlyAdmin {
         authorizedVaults[vault] = false;
+    }
+
+    /// @notice Add a factory to the multi-factory authorization set. Admin
+    ///         only. Callers added here can register vault clones via
+    ///         `authorizeVault` without holding the registry's `admin` slot.
+    function authorizeFactory(address factory) external onlyAdmin {
+        authorizedFactories[factory] = true;
+    }
+
+    /// @notice Remove a factory from the authorization set. Admin only.
+    function revokeFactory(address factory) external onlyAdmin {
+        authorizedFactories[factory] = false;
     }
 
     /// @notice Transfer admin role

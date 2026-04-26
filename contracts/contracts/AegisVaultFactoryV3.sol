@@ -17,32 +17,32 @@ import "./VaultEvents.sol";
  *         vault can register + finalize intents (both Jaine on-chain swaps and
  *         Khalani cross-chain fills go through the same replay-guard map).
  *
+ *         **Trust model — owner vs operator**
+ *
+ *         AegisVault_v3 separates two trusted roles:
+ *           - `owner`    : the depositor, who can deposit/withdraw and rotate
+ *                          policy fields.
+ *           - `executor` : the operator's orchestrator wallet, the only
+ *                          address allowed to submit signed intents and
+ *                          accept Khalani fills on behalf of the vault.
+ *
+ *         The factory mirrors v1's canonical mapping: `msg.sender` (the user
+ *         calling createVault) becomes the vault's `owner`, and the
+ *         `_operator` argument — the chosen operator's executor wallet —
+ *         becomes the vault's `executor`. Inverting these two would let the
+ *         operator drain the vault via `withdraw`, which is why this factory
+ *         takes them as distinct values rather than collapsing both onto
+ *         `msg.sender`.
+ *
  *         **`maxCrossChainFeeBps` wiring**
  *
- *         AegisVault_v3.initialize() does NOT take `maxCrossChainFeeBps` as a
- *         parameter — the field is seeded to `DEFAULT_MAX_CROSS_CHAIN_FEE_BPS`
- *         (50 bps) by the initializer and may only be changed afterwards via
- *         `setMaxCrossChainFeeBps`, which is `owner`-gated.
- *
- *         Because the factory passes `msg.sender` (the user, not the factory)
- *         as `_owner` to `initialize`, the factory itself has no authority to
- *         call `setMaxCrossChainFeeBps` post-init. We therefore:
- *           1. Validate the requested cap at factory level (`<= 200` bps)
- *              against the same hard cap the vault enforces, so a bad value
- *              fails fast at vault creation rather than on the follow-up call.
- *           2. Persist the requested cap in `requestedMaxCrossChainFeeBps[vault]`
- *              and emit it in `VaultDeployed` so off-chain consumers (frontend,
- *              orchestrator) can read the user's intended cap before they
- *              follow up with their own `vault.setMaxCrossChainFeeBps(...)` tx.
- *           3. Leave the actual on-chain value at the v3 default until the
- *              owner submits that follow-up call. Clones created with the
- *              default (50 bps) are immediately usable for cross-chain fills.
- *
- *         If a future v3.x adds either an `initialize` overload that accepts
- *         the cap, or a `transferOwnership` (so the factory can briefly own
- *         the clone, set the cap, then hand it off), this factory can be
- *         updated to set the cap atomically. Until then, the two-tx pattern
- *         is the only path consistent with the v3 contract's owner gate.
+ *         AegisVault_v3.initialize() takes `_maxCrossChainFeeBps` directly so
+ *         the user's requested cap is sealed at vault creation in a single
+ *         transaction. The factory still validates the cap against the same
+ *         hard ceiling the vault enforces (`<= 200` bps) so a bad value
+ *         fails fast at the factory boundary, and persists the value in
+ *         `requestedMaxCrossChainFeeBps[vault]` for off-chain consumers to
+ *         read without a vault round-trip.
  */
 contract AegisVaultFactoryV3 {
     using Clones for address;
@@ -85,6 +85,7 @@ contract AegisVaultFactoryV3 {
     event VaultDeployed(
         address indexed vault,
         address indexed owner,
+        address indexed operator,
         address baseAsset,
         address venue,
         uint16  requestedMaxCrossChainFeeBps,
@@ -129,14 +130,18 @@ contract AegisVaultFactoryV3 {
      * @notice Deploy a new AegisVault_v3 clone, authorize it in the registry,
      *         and record the user's requested cross-chain fee cap.
      *
-     * @dev    The caller becomes the vault's `owner`. After this tx returns,
-     *         the new owner SHOULD send a follow-up tx
-     *         `IAegisVaultV3(vault).setMaxCrossChainFeeBps(_maxCrossChainFeeBps)`
-     *         if `_maxCrossChainFeeBps != DEFAULT_MAX_CROSS_CHAIN_FEE_BPS`
-     *         (50 bps). Until then the clone enforces the v3 default.
+     * @dev    `msg.sender` becomes the vault's `owner` (depositor). The
+     *         `_operator` parameter — the chosen operator's orchestrator
+     *         wallet — becomes the vault's `executor`. These two roles are
+     *         intentionally distinct: the owner controls deposits/withdrawals,
+     *         the executor signs intents and accepts cross-chain fills.
+     *         Conflating them (e.g. by sourcing both from `msg.sender`) would
+     *         allow whichever wallet held the executor role to also drain
+     *         deposited funds via `withdraw`.
      *
-     * @param _operator               Address that becomes the vault's owner
-     *                                (passes through to `initialize._owner`).
+     * @param _operator               Operator's orchestrator wallet — becomes
+     *                                the vault's `executor`. The depositor
+     *                                (`msg.sender`) becomes the `owner`.
      * @param _baseAsset              ERC-20 base asset (e.g. USDC.e on 0G).
      * @param _venue                  Either JaineVenueAdapterV2 (on-chain swap
      *                                path) or KhalaniVenueAdapter (cross-chain
@@ -163,8 +168,11 @@ contract AegisVaultFactoryV3 {
             revert CrossChainFeeCapTooHigh();
         }
 
-        // Fail early if the registry admin slot has drifted (mirrors v1/v2).
-        if (ExecutionRegistry(executionRegistry).admin() != address(this)) {
+        // Fail early if this factory cannot register clones — accepts either
+        // legacy admin-style ownership OR membership in the registry's
+        // multi-factory authorization set so v1/v2/v3 can coexist.
+        ExecutionRegistry reg = ExecutionRegistry(executionRegistry);
+        if (reg.admin() != address(this) && !reg.authorizedFactories(address(this))) {
             revert FactoryNotRegistryAdmin();
         }
 
@@ -172,18 +180,14 @@ contract AegisVaultFactoryV3 {
         address vaultAddr = vaultImplementation.clone();
         AegisVault_v3 newVault = AegisVault_v3(vaultAddr);
 
-        // v3.initialize() takes the cross-chain fee cap directly so the
-        // factory can persist the operator's requested value at vault
-        // creation, in one transaction. (v2 had no such slot.)
+        // Canonical role mapping (matches v1 factory): caller is the depositor
+        // (owner), `_operator` is the orchestrator wallet (executor). v3's
+        // initialize seals `_maxCrossChainFeeBps` in the same call so the cap
+        // is bound atomically with deployment.
         newVault.initialize(
-            _operator,
+            msg.sender,
             _baseAsset,
-            msg.sender, // executor — v1/v2 used a separate `_executor` arg;
-                        // we keep parity by sourcing it from msg.sender so
-                        // the deployer-of-record is the off-chain orchestrator
-                        // wallet that submitted this tx. If a third-party
-                        // admin needs to deploy on behalf of an operator, use
-                        // a meta-tx relayer or call from the operator wallet.
+            _operator,
             executionRegistry,
             _venue,
             _policy,
@@ -199,12 +203,13 @@ contract AegisVaultFactoryV3 {
         ExecutionRegistry(executionRegistry).authorizeVault(vault);
 
         allVaults.push(vault);
-        ownerVaults[_operator].push(vault);
+        ownerVaults[msg.sender].push(vault);
         isVault[vault] = true;
         requestedMaxCrossChainFeeBps[vault] = _maxCrossChainFeeBps;
 
         emit VaultDeployed(
             vault,
+            msg.sender,
             _operator,
             _baseAsset,
             _venue,

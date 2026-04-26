@@ -97,7 +97,7 @@ contract AegisVault {
             dailyActionResetTime = block.timestamp + 1 days;
         }
 
-        ExecLib.runExecution(intent, policy, _allowedAssets, venue, address(baseAsset), registry, lastExecutionTime, dailyActionCount);
+        ExecLib.runExecution(intent, policy, _allowedAssets, venue, address(baseAsset), registry, lastExecutionTime, dailyActionCount, totalDeposited);
 
         lastExecutionTime = block.timestamp;
         dailyActionCount += 1;

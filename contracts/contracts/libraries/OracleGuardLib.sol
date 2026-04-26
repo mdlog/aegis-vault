@@ -17,9 +17,19 @@ library OracleGuardLib {
     uint256 internal constant BPS_DENOM = 10_000;
     uint256 internal constant MAX_PRICE_AGE = 300; // 5 minutes
 
+    /// @notice Reject Pyth quotes whose 1-sigma confidence band exceeds this
+    ///         fraction of the price. 500 = 5% — matches VaultNAVCalculator.
+    ///         A degraded feed (wide band) cannot be used to bound slippage:
+    ///         the "fair" value is itself uncertain, so an AI minAmountOut
+    ///         that looked safe against the midpoint could in reality clear a
+    ///         price several percent away. Failing closed here is the
+    ///         expected production behaviour — venues catch it and abort.
+    uint256 internal constant MAX_CONF_BPS = 500;
+
     error OracleDeviationExceeded(uint256 fairMin, uint256 claimed);
     error OracleExpoMismatch(int32 expoIn, int32 expoOut);
     error OraclePriceNonPositive();
+    error OracleLowConfidence(bytes32 feedId, uint64 conf, uint256 price);
 
     /// @notice Revert if minAmountOut is below fair oracle output by more than maxSlippageBps.
     /// @dev Assumes feedIn/feedOut share a common denomination (typically USD) so the
@@ -43,6 +53,15 @@ library OracleGuardLib {
 
         uint256 priceInAbs  = uint256(uint64(pIn.price));
         uint256 priceOutAbs = uint256(uint64(pOut.price));
+
+        // Reject feeds whose confidence interval exceeds MAX_CONF_BPS of price.
+        // Pyth `conf` is the 1-sigma uncertainty around `price`; a wide band
+        // means the "fair" value is itself unknowable to the precision we
+        // need for a slippage decision. Both sides must pass.
+        uint256 confInLimit  = (priceInAbs  * MAX_CONF_BPS) / BPS_DENOM;
+        uint256 confOutLimit = (priceOutAbs * MAX_CONF_BPS) / BPS_DENOM;
+        if (uint256(pIn.conf)  > confInLimit)  revert OracleLowConfidence(feedIn,  pIn.conf,  priceInAbs);
+        if (uint256(pOut.conf) > confOutLimit) revert OracleLowConfidence(feedOut, pOut.conf, priceOutAbs);
 
         // fairOut = amountIn * (priceIn / priceOut) * 10^(decimalsOut - decimalsIn)
         // Expos cancel because we required pIn.expo == pOut.expo.

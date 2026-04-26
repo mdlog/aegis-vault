@@ -78,6 +78,23 @@ contract AegisVault_v3 is ReentrancyGuard {
     //   via `setMaxCrossChainFeeBps`, hard-capped at MAX_CROSS_CHAIN_FEE_BPS_CAP.
     uint16 public maxCrossChainFeeBps;
 
+    /// @notice Marks each Khalani off-chain fill identifier as consumed once
+    ///         this vault credits the matching delivery. Prevents an
+    ///         orchestrator (or a stolen TEE key) from authoring two
+    ///         separate signed intents that both point at the same physical
+    ///         Khalani fill: the registry replay guard only blocks re-runs
+    ///         of the SAME intent hash, but two distinct intents over the
+    ///         same `khalaniIntentId` would each produce a fresh hash. This
+    ///         per-fill guard closes that gap.
+    mapping(bytes32 => bool) public consumedKhalaniIds;
+
+    /// @notice Protocol treasury for the FeeLib 80/20 fee split on entry/exit
+    ///         fees. Set at init from `AegisVaultFactoryV3.protocolTreasury`.
+    ///         When zero, the operator (`policy.feeRecipient`) keeps the full
+    ///         fee — preserves backwards compat with v1/v2 deployments that
+    ///         were configured without a treasury.
+    address public protocolTreasury;
+
     // ── Errors (cross-chain path only — v2 inline strings retained for the
     //    rest of the surface to keep the diff readable) ──
     error CrossChain_Expired();
@@ -89,6 +106,14 @@ contract AegisVault_v3 is ReentrancyGuard {
     error CrossChain_BadVault();
     error CrossChain_Paused();
     error CrossChain_FeeCapTooHigh();
+    error CrossChain_AutoExecOff();
+    error CrossChain_Cooldown();
+    error CrossChain_LowConfidence();
+    error CrossChain_DailyActionsExceeded();
+    error CrossChain_AssetNotWhitelisted();
+    error CrossChain_PositionTooLarge();
+    error CrossChain_FillReused();
+    error CrossChain_MissingKhalaniId();
 
     // ── Events ──
     event CrossChainFillAccepted(
@@ -110,7 +135,7 @@ contract AegisVault_v3 is ReentrancyGuard {
         address _venue,
         VaultPolicy calldata _policy,
         address[] calldata assets_,
-        address /*_protocolTreasury*/,
+        address _protocolTreasury,
         uint16 _maxCrossChainFeeBps
     ) external {
         require(owner == address(0), "init");
@@ -132,6 +157,7 @@ contract AegisVault_v3 is ReentrancyGuard {
         for (uint256 i = 0; i < assets_.length; i++) _allowedAssets.push(assets_[i]);
         dailyActionResetTime = block.timestamp + 1 days;
         maxCrossChainFeeBps = _maxCrossChainFeeBps;
+        protocolTreasury = _protocolTreasury;
 
         emit VaultEvents.VaultCreated(address(this), _owner, _baseAsset);
     }
@@ -140,13 +166,27 @@ contract AegisVault_v3 is ReentrancyGuard {
 
     function deposit(uint256 amount) external {
         require(msg.sender == owner && !policy.paused, "d");
-        uint256 net = IOLib.doDeposit(address(baseAsset), msg.sender, amount, policy.feeRecipient, policy.entryFeeBps);
+        uint256 net = IOLib.doDepositV3(
+            address(baseAsset),
+            msg.sender,
+            amount,
+            policy.feeRecipient,
+            protocolTreasury,
+            policy.entryFeeBps
+        );
         totalDeposited += net;
     }
 
     function withdraw(uint256 amount) external {
         require(msg.sender == owner && !policy.paused, "w");
-        IOLib.doWithdraw(address(baseAsset), owner, amount, policy.feeRecipient, policy.exitFeeBps);
+        IOLib.doWithdrawV3(
+            address(baseAsset),
+            owner,
+            amount,
+            policy.feeRecipient,
+            protocolTreasury,
+            policy.exitFeeBps
+        );
     }
 
     function withdrawToken(address token, uint256 amount) external {
@@ -176,7 +216,7 @@ contract AegisVault_v3 is ReentrancyGuard {
         emit VaultEvents.IntentCommitted(address(this), commitHash, block.number);
     }
 
-    function executeIntent(ExecutionIntent calldata intent, bytes calldata sig) external {
+    function executeIntent(ExecutionIntent calldata intent, bytes calldata sig) external nonReentrant {
         require(msg.sender == executor && !policy.paused && policy.autoExecution, "x");
         require(intent.vault == address(this), "v");
 
@@ -197,10 +237,67 @@ contract AegisVault_v3 is ReentrancyGuard {
             dailyActionResetTime = block.timestamp + 1 days;
         }
 
-        ExecLib.runExecution(intent, policy, _allowedAssets, venue, address(baseAsset), registry, lastExecutionTime, dailyActionCount);
+        // CEI: snapshot the values runExecution needs to enforce cooldown +
+        // per-day caps, then commit state updates BEFORE the external venue
+        // call inside runExecution. ReentrancyGuard already blocks re-entry
+        // through `nonReentrant`; the early state update here is defense in
+        // depth so even a delegatecall path that bypassed the guard would
+        // still see the cooldown clock advanced.
+        uint256 lastExec   = lastExecutionTime;
+        uint256 dailyCount = dailyActionCount;
+        lastExecutionTime  = block.timestamp;
+        dailyActionCount   = dailyCount + 1;
 
-        lastExecutionTime = block.timestamp;
-        dailyActionCount += 1;
+        ExecLib.runExecution(intent, policy, _allowedAssets, venue, address(baseAsset), registry, lastExec, dailyCount, totalDeposited);
+    }
+
+    // ── Owner-only emergency controls ──
+    //
+    //   v1/v2 vaults shipped without these setters: a compromised executor
+    //   key, a buggy venue, or a need to halt activity could only be
+    //   resolved by redeploying the vault. v3 adds the missing surface so
+    //   the depositor can rotate the orchestrator wallet, halt activity,
+    //   or migrate venues without losing the vault's history.
+
+    /// @notice Rotate the executor (orchestrator wallet). Only callable by
+    ///         the depositor (vault owner). Useful when the orchestrator
+    ///         hot-wallet is rotated or believed compromised.
+    function setExecutor(address newExecutor) external {
+        require(msg.sender == owner, "owner");
+        require(newExecutor != address(0), "0");
+        address old = executor;
+        executor = newExecutor;
+        emit VaultEvents.ExecutorUpdated(address(this), old, newExecutor);
+    }
+
+    /// @notice Migrate the on-chain venue used by `executeIntent` (e.g.
+    ///         JaineVenueAdapterV2 → a new V3 adapter). Owner-only. Does NOT
+    ///         affect the cross-chain (Khalani) path, which is venue-less.
+    function setVenue(address newVenue) external {
+        require(msg.sender == owner, "owner");
+        require(newVenue != address(0), "0");
+        address old = venue;
+        venue = newVenue;
+        emit VaultEvents.VenueUpdated(address(this), old, newVenue);
+    }
+
+    /// @notice Halt deposits / withdrawals / executions. Sets the policy's
+    ///         `paused` flag. Idempotent — re-pausing is a no-op.
+    function pause() external {
+        require(msg.sender == owner, "owner");
+        if (!policy.paused) {
+            policy.paused = true;
+            emit VaultEvents.VaultPaused(address(this), msg.sender);
+        }
+    }
+
+    /// @notice Resume vault activity. Owner-only. Idempotent.
+    function unpause() external {
+        require(msg.sender == owner, "owner");
+        if (policy.paused) {
+            policy.paused = false;
+            emit VaultEvents.VaultUnpaused(address(this), msg.sender);
+        }
     }
 
     // ── v3-only: cross-chain fill acceptance ──
@@ -260,6 +357,7 @@ contract AegisVault_v3 is ReentrancyGuard {
         //  leaked signed intent could replay it before the legitimate caller.)
         require(msg.sender == executor, "x");
         if (policy.paused) revert CrossChain_Paused();
+        if (!policy.autoExecution) revert CrossChain_AutoExecOff();
 
         // 1. Vault binding
         if (intent.vault != address(this)) revert CrossChain_BadVault();
@@ -279,9 +377,55 @@ contract AegisVault_v3 is ReentrancyGuard {
         // The vault's own CrossChain_BadSig error is reserved for cases where
         // the signer config is missing (caught by CrossChainLib internally).
 
-        // 5. Replay guard (registry-level)
+        // 5. Replay guard (registry-level). Checked BEFORE policy gates so a
+        //    replay always fails fast with the most informative error — even
+        //    for an intent that would otherwise trip cooldown.
         ExecutionRegistry reg = ExecutionRegistry(registry);
         if (reg.isFinalized(intentHash)) revert CrossChain_AlreadyFinalized();
+
+        // 5b. Per-fill replay guard. The registry guard protects against the
+        //     SAME intent hash being settled twice; this map protects against
+        //     two DIFFERENT signed intents claiming the same Khalani delivery
+        //     (whose unique ID is `khalaniIntentId`). Without this an
+        //     orchestrator (or a stolen TEE key) could double-credit a single
+        //     physical fill by authoring two intents with disjoint metadata
+        //     pointing at the same `khalaniIntentId`.
+        if (intent.khalaniIntentId == bytes32(0)) revert CrossChain_MissingKhalaniId();
+        if (consumedKhalaniIds[intent.khalaniIntentId]) revert CrossChain_FillReused();
+
+        // 5a. Policy gates ported from `executeIntent` so cross-chain fills go
+        //     through the same risk checks as on-chain swaps. Otherwise an
+        //     attacker who compromised the TEE's signing key (or any signed
+        //     intent) could bypass cooldown / confidence / per-day caps that
+        //     bound the on-chain path.
+        if (block.timestamp < lastExecutionTime + policy.cooldownSeconds) revert CrossChain_Cooldown();
+        if (uint256(intent.confidenceBps) < policy.confidenceThresholdBps) revert CrossChain_LowConfidence();
+
+        // Daily action accounting: same rolling 24h window as executeIntent.
+        if (block.timestamp >= dailyActionResetTime) {
+            dailyActionCount = 0;
+            dailyActionResetTime = block.timestamp + 1 days;
+        }
+        if (dailyActionCount >= policy.maxActionsPerDay) revert CrossChain_DailyActionsExceeded();
+
+        // Asset whitelist: only `assetOut` must be policy-committed because
+        // that is what physically lands in this vault. `assetIn` may legitimately
+        // live only on the origin chain (e.g. USDC on Ethereum delivered as
+        // cbBTC on 0G) — requiring it in the destination whitelist would
+        // forbid the canonical cross-chain rebalance flow. The TEE signs the
+        // pair so the orchestrator cannot freely substitute assetOut.
+        bool outOk;
+        for (uint256 i = 0; i < _allowedAssets.length; i++) {
+            if (_allowedAssets[i] == intent.assetOut) { outOk = true; break; }
+        }
+        if (!outOk) revert CrossChain_AssetNotWhitelisted();
+
+        // maxPositionBps trade-size cap, mirrored from ExecLib so the same
+        // policy field constrains both paths.
+        if (policy.maxPositionBps != 0 && totalDeposited != 0) {
+            uint256 cap = (totalDeposited * policy.maxPositionBps) / 10_000;
+            if (intent.amountIn > cap) revert CrossChain_PositionTooLarge();
+        }
 
         // 6. Fee caps (intent-level AND policy-level — whichever is tighter wins)
         if (
@@ -320,6 +464,11 @@ contract AegisVault_v3 is ReentrancyGuard {
             totalDeposited += actualAmountOut;
         }
 
+        // 10a. Mark the Khalani fill consumed BEFORE any external calls so a
+        //      reentrant path through the registry or token contract can't
+        //      sneak a second credit through with the same `khalaniIntentId`.
+        consumedKhalaniIds[intent.khalaniIntentId] = true;
+
         // 11. Registry finalize. We register-then-finalize in the same tx to
         //     consume one slot in the replay map. `intentOwner` is set to the
         //     vault (msg.sender of the registry call), and the result struct
@@ -335,6 +484,11 @@ contract AegisVault_v3 is ReentrancyGuard {
             success:   true
         });
         reg.finalizeIntent(result);
+
+        // 11a. Policy bookkeeping mirroring `executeIntent` so cooldown +
+        //      per-day caps roll together for both execution paths.
+        lastExecutionTime = block.timestamp;
+        dailyActionCount += 1;
 
         // 12. Event — indexed assetIn/assetOut allow off-chain accounting to
         //     filter by trading-pair without scanning the full log.

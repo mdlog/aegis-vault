@@ -78,8 +78,12 @@ contract AegisVaultFactory {
         if (_baseAsset == address(0)) revert ZeroAddress();
         if (_executor == address(0)) revert ZeroAddress();
 
-        // M-4: Fail early if factory is not the registry admin
-        if (ExecutionRegistry(executionRegistry).admin() != address(this)) {
+        // Fail early if this factory cannot register clones — accepts either
+        // legacy admin-style ownership OR membership in the registry's
+        // multi-factory authorization set, so v1/v3 can coexist on the same
+        // registry without rotating admin (which would brick the other side).
+        ExecutionRegistry reg = ExecutionRegistry(executionRegistry);
+        if (reg.admin() != address(this) && !reg.authorizedFactories(address(this))) {
             revert FactoryNotRegistryAdmin();
         }
 
