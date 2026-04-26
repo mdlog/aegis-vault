@@ -20,6 +20,15 @@ const TRACKED_ASSETS = [
     aliases: ['BTC', 'WBTC'],
   },
   {
+    tradeSymbol: 'BTC',
+    contractSymbol: 'cbBTC',
+    address: config.contracts.cbbtc,
+    decimals: 8,
+    coingeckoId: 'bitcoin',
+    isStablecoin: false,
+    aliases: ['cbBTC', 'BTC'],
+  },
+  {
     tradeSymbol: 'ETH',
     contractSymbol: 'WETH',
     address: config.contracts.weth,

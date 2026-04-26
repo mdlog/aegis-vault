@@ -57,6 +57,7 @@ export const CHAIN_PROFILES = {
       { symbol: 'USDC.e', depKey: 'USDCe', decimals: 6,  isStable: true,  canBaseAsset: true  },
       { symbol: 'WETH',   depKey: 'WETH',  decimals: 18, isStable: false, canBaseAsset: false },
       { symbol: 'WBTC',   depKey: 'WBTC',  decimals: 8,  isStable: false, canBaseAsset: false },
+      { symbol: 'cbBTC',  depKey: 'cbBTC', decimals: 8,  isStable: false, canBaseAsset: false },
     ],
     defaultBaseAsset: 'USDC.e',
   },

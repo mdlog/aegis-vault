@@ -70,6 +70,7 @@ function buildManifestEntry(targetChainId, source) {
     const WETH_REAL = source.realTokens?.WETH || '0x564770837Ef8bbF077cFe54E5f6106538c815B22';
     const WBTC_REAL = source.realTokens?.WBTC || '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c';
     const W0G = source.realTokens?.W0G || '0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c';
+    const CBBTC = source.realTokens?.cbBTC || '';
     return {
       operatorRegistry: source.operatorRegistry || '',
       operatorStaking: source.operatorStaking || '',
@@ -97,6 +98,7 @@ function buildManifestEntry(targetChainId, source) {
       WETH:  WETH_REAL,
       WBTC:  WBTC_REAL,
       W0G:   W0G,
+      cbBTC: CBBTC,
       // Back-compat aliases for CreateVaultPage's BTC/ETH/USDC asset map
       mockUSDC: USDC_E,
       mockWETH: WETH_REAL,

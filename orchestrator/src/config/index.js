@@ -67,6 +67,7 @@ const config = {
     vault: firstNonEmpty(process.env.VAULT_ADDRESS, deploymentDefaults.demoVault),
     usdc: firstNonEmpty(process.env.USDC_ADDRESS, deploymentDefaults.mockUSDC, deploymentDefaults.realTokens?.USDCe, deploymentDefaults.realTokens?.oUSDT, deploymentDefaults.canonical?.USDC),
     wbtc: firstNonEmpty(process.env.WBTC_ADDRESS, deploymentDefaults.mockWBTC, deploymentDefaults.realTokens?.WBTC, deploymentDefaults.canonical?.WBTC),
+    cbbtc: firstNonEmpty(process.env.CBBTC_ADDRESS, deploymentDefaults.realTokens?.cbBTC),
     weth: firstNonEmpty(process.env.WETH_ADDRESS, deploymentDefaults.mockWETH, deploymentDefaults.realTokens?.WETH, deploymentDefaults.canonical?.WETH),
     w0g: firstNonEmpty(process.env.W0G_ADDRESS, deploymentDefaults.realTokens?.W0G, deploymentDefaults.jaine?.w0g),
     // Phase 1-5 production stack — v2 preferred, v1 fallback
