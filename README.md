@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://chainscan.0g.ai/address/0x9450ac911D06c81a54007a768d4278929d87A17e"><img src="https://img.shields.io/badge/0G_Mainnet-live-brightgreen?style=for-the-badge" alt="0G mainnet" /></a>
-  <img src="https://img.shields.io/badge/Contracts-174_tests_passing-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="https://img.shields.io/badge/Contracts-235_tests_passing-brightgreen?style=for-the-badge" alt="Tests" />
   <img src="https://img.shields.io/badge/Slither-fail_on_high-blue?style=for-the-badge" alt="Slither" />
   <img src="https://img.shields.io/badge/SDK-%40aegis--vault%2Fsdk_v0.3.0-cyan?style=for-the-badge" alt="SDK" />
 </p>
@@ -81,7 +81,7 @@ Orchestrator (Node.js) ── 0G Compute (GLM-5-FP8) ── Pyth (multi-asset NA
 ```bash
 # 1. Contracts
 cd contracts && npm install
-npm run test:all                 # 174 passing, 0 pending
+npm run test:all                 # 235 passing
 
 # 2. Orchestrator
 cd ../orchestrator && npm install --legacy-peer-deps
