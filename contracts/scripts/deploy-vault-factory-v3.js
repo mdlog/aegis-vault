@@ -30,19 +30,20 @@
  *   v3Deployer
  *
  * Operational notes:
- *   - The v3 factory needs to be the executionRegistry's `admin` to call
- *     `authorizeVault` for each new clone. The v2 factory currently holds
- *     that role on `executionRegistryV2`. The script does NOT auto-rotate
- *     admin (that would brick the v2 factory's ability to authorize new v2
- *     clones). It detects the situation and prints the manual coordination
- *     step needed, OR — if the deployer still holds admin (fresh registry,
- *     post-rotation, etc) — transfers it to the v3 factory in-line.
+ *   - ExecutionRegistry now exposes `authorizedFactories` so v1, v2 and v3
+ *     factories can coexist on a single registry without rotating `admin`.
+ *     The script tries (in order): (a) check the v3 factory is already
+ *     authorized via legacy admin OR `authorizedFactories[v3]==true`; (b) if
+ *     the deployer still holds registry admin, call `authorizeFactory(v3)`
+ *     inline; (c) otherwise print the manual step the current admin signer
+ *     must run. v1/v2 authorizations are never touched.
  *
- *   - AegisVault_v3.initialize() does not take `maxCrossChainFeeBps` as an
- *     argument. The factory therefore stores the user-requested cap in its
- *     own mapping; the on-chain vault value stays at the v3 default
- *     (50 bps) until the new owner calls `setMaxCrossChainFeeBps` from
- *     their own wallet. See AegisVaultFactoryV3 NatSpec for details.
+ *   - AegisVault_v3.initialize() takes `_maxCrossChainFeeBps` directly so
+ *     the user-requested cap is sealed at creation time in a single tx.
+ *     The factory still records the value in `requestedMaxCrossChainFeeBps`
+ *     for off-chain consumers that want to read it without an additional
+ *     vault round-trip. No follow-up `setMaxCrossChainFeeBps` call is
+ *     required after createVault.
  */
 
 const { ethers, network } = require("hardhat");
@@ -218,45 +219,45 @@ async function main() {
     console.log("      deployed :", factoryV3Addr);
   }
 
-  // ── 4. Registry admin coordination ──
+  // ── 4. Registry authorization ──
   //
-  //   The v3 factory needs to be `executionRegistryV2.admin` to authorize
-  //   its clones. The v2 factory currently holds that role. We never auto-
-  //   rotate (that would break v2 vault creation). Instead:
-  //     - if deployer holds admin → transfer to v3 factory in-line
-  //     - if v2 factory holds admin → print the manual coordination step
-  //     - else → print whoever holds it for context
-  console.log("\nRegistry admin coordination:");
+  //   ExecutionRegistry now exposes a multi-factory authorization set
+  //   (`authorizedFactories`) so v1, v2 and v3 factories can coexist on the
+  //   same registry without rotating `admin` away from any of them. Order of
+  //   preference for getting the v3 factory authorized:
+  //     1. Already authorized (via legacy admin slot OR authorizedFactories)
+  //        → no-op.
+  //     2. Deployer holds registry admin → call authorizeFactory(v3) inline.
+  //        Cheap, single tx, leaves v1/v2 factories' authorizations intact.
+  //     3. Some other account holds admin → print the manual step the
+  //        operator needs to coordinate with that signer.
+  console.log("\nRegistry authorization:");
   const registry = await ethers.getContractAt("ExecutionRegistry", registryV2);
   const currentAdmin = checksum(await registry.admin());
-  console.log("  current admin       :", currentAdmin);
-  console.log("  v3 factory          :", factoryV3Addr);
+  const alreadyAuthorized = await registry.authorizedFactories(factoryV3Addr);
+  console.log("  current admin           :", currentAdmin);
+  console.log("  v3 factory              :", factoryV3Addr);
+  console.log("  authorizedFactories[v3] :", alreadyAuthorized);
 
   if (currentAdmin === factoryV3Addr) {
-    console.log("  → v3 factory already registry admin ✓");
+    console.log("  → v3 factory holds registry admin (legacy path) ✓");
+  } else if (alreadyAuthorized) {
+    console.log("  → v3 factory already in authorizedFactories ✓");
   } else if (currentAdmin === checksum(deployer.address)) {
-    console.log("  → deployer holds admin; transferring to v3 factory…");
-    await (await registry.transferAdmin(factoryV3Addr)).wait();
-    const post = checksum(await registry.admin());
-    if (post !== factoryV3Addr) {
-      throw new Error(`transferAdmin failed: post-state admin = ${post}`);
+    console.log("  → deployer holds admin; calling authorizeFactory(v3)…");
+    await (await registry.authorizeFactory(factoryV3Addr)).wait();
+    const post = await registry.authorizedFactories(factoryV3Addr);
+    if (!post) {
+      throw new Error("authorizeFactory failed: post-state still unauthorized");
     }
-    console.log("  → registry admin → v3 factory ✓");
+    console.log("  → v3 factory authorized via authorizedFactories ✓");
   } else {
-    const v2Factory = deployments.aegisVaultFactoryV2 ? checksum(deployments.aegisVaultFactoryV2) : null;
-    if (v2Factory && currentAdmin === v2Factory) {
-      console.log("  ⚠  v2 factory currently holds admin.");
-      console.log("     Rotating admin to v3 factory will brick v2 factory's ability to authorize");
-      console.log("     new v2 clones. To proceed, coordinate one of:");
-      console.log(`       a) v2Factory.transferAdmin(${factoryV3Addr})  (cuts v2 over to v3 only)`);
-      console.log("       b) Deploy a fresh ExecutionRegistry just for v3 and update the factory");
-      console.log("          constructor wiring before deploy.");
-      console.log("     Until rotated, v3 factory.createVault() will revert FactoryNotRegistryAdmin.");
-    } else {
-      console.log("  ⚠  Registry admin held by", currentAdmin);
-      console.log("     Coordinate transferAdmin(", factoryV3Addr + ") from that account before");
-      console.log("     calling v3 factory.createVault.");
-    }
+    console.log("  ⚠  Registry admin held by", currentAdmin);
+    console.log("     Coordinate the following call from that account before");
+    console.log("     v3 factory.createVault can succeed:");
+    console.log(`       registry.authorizeFactory(${factoryV3Addr})`);
+    console.log("     This adds v3 to the multi-factory set and leaves v1/v2");
+    console.log("     authorizations untouched.");
   }
 
   // ── Persist ──
@@ -285,10 +286,9 @@ async function main() {
   console.log("\nDeployments written:", deployFile);
   console.log("\nNext steps:");
   console.log("  1. node scripts/sync-frontend.js");
-  console.log("  2. Frontend: surface aegisVaultFactoryV3 on /create for cross-chain vaults");
-  console.log("  3. After createVault, owner must follow up with");
-  console.log("       vault.setMaxCrossChainFeeBps(<requested cap>)");
-  console.log("     unless the v3 default (50 bps) is acceptable.");
+  console.log("  2. Frontend: wire aegisVaultFactoryV3 into /create for cross-chain vaults.");
+  console.log("     Pass the user-requested _maxCrossChainFeeBps as the last arg to");
+  console.log("     factory.createVault(...) — v3 seals the cap at init, no follow-up tx needed.");
 }
 
 main()
