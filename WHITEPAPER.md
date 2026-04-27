@@ -2,7 +2,7 @@
 
 **AI-managed, risk-controlled trading vaults with contract-enforced guardrails and dual-chain real execution.**
 
-*Version 1.1 · 2026-04-23 (v2 stack: asset-rescue on vault, staking, insurance pool)*
+*Version 1.2 · 2026-04-27 (V3 stack: post-audit hardening, Khalani cross-chain adapter, fresh operator marketplace)*
 
 ---
 
@@ -45,7 +45,7 @@ The critical insight is that an AI vault protocol cannot be verifiable unless th
 
 ### 2.1 Contract topology
 
-The 0G mainnet deployment comprises twenty contracts — the full v2 stack (AegisVault V2, OperatorRegistry V2, OperatorStaking V2, InsurancePool V2, ExecutionRegistry V2, factory V2) plus shared infrastructure (treasury, reputation, governor, NAV calculator, JaineVenueAdapter, ExecLib / SealedLib / IOLib) plus legacy v1 implementations kept on-chain for existing vault holders. The Arbitrum mainnet deployment comprises eight contracts (v2 not yet ported). All addresses are enumerated in Section 9.
+The 0G mainnet deployment comprises sixteen live contracts — the V3 vault stack (AegisVault V3, AegisVaultFactory V3, ExecutionRegistry V3) plus the freshly redeployed operator marketplace (OperatorRegistry, OperatorStaking, OperatorReputation, InsurancePool — all rebased on 2026-04-27 to give the post-audit baseline a clean operator history) plus shared infrastructure (governor, treasury, NAV calculator) plus venue adapters (JaineVenueAdapter V2 for in-chain swaps and KhalaniVenueAdapter for cross-chain routing) plus the V3 supporting libraries (ExecLib / IOLib / CrossChainLib / SealedLib). The retired V2/V1 vault stack and the original operator marketplace are no longer surfaced in the SDK address book; their addresses remain queryable on-chain for historical reads only. The Arbitrum mainnet deployment comprises eight contracts (V3 not yet ported). All live addresses are enumerated in Section 9.
 
 ```
                     User
@@ -431,10 +431,10 @@ Post-deploy wiring verified by direct RPC calls:
 - `staking.stakeToken() == USDC.e` on 0G ✓
 - `nav.pyth()` points to canonical Pyth on both chains ✓
 
-### 9.4 First operator + vault on the fresh 0G deployment
+### 9.4 Historical artifact — first vault on the original V1 deployment
 
-- Operator `0x4E08B728087158a02aB458f03d833137b282eC5d` — name "Aegis Alpha bot", balanced mandate, AI model `zai-org/GLM-5-FP8`, bonded manifest hash `0xef462f339acbb414...ba21c79e`.
-- Vault (legacy v1) `0xAEDAc17B531d55b8Ac587691922DEAec6C273181` — sealed mode enabled, 0.999 USDC.e deposited (after 0.1% entry fee), allowed assets = WBTC / WETH / USDC.e. Kept on-chain as historical reference; vaults created post-2026-04-23 route through `AegisVaultFactory V2` with multi-asset rescue (`withdrawToken`, `withdrawAllNonBase`).
+- Operator `0x4E08B728087158a02aB458f03d833137b282eC5d` — name "Aegis Alpha bot", balanced mandate, AI model `zai-org/GLM-5-FP8`, bonded manifest hash `0xef462f339acbb414...ba21c79e`. Re-registered against the fresh 2026-04-27 `OperatorRegistry`.
+- Vault (legacy V1) `0xAEDAc17B531d55b8Ac587691922DEAec6C273181` — sealed mode enabled, 0.999 USDC.e deposited (after 0.1% entry fee), allowed assets = WBTC / WETH / USDC.e. Kept on-chain as historical reference for the original deploy. Vaults created from 2026-04-27 onward route through `AegisVaultFactory V3` (`0x75668Ca9...`) with the V3 multi-asset rescue surface (`withdrawToken`, `withdrawAllNonBase`), pause/unpause control, and the cross-chain fee cap (`setMaxCrossChainFeeBps`).
 
 ---
 
@@ -446,7 +446,7 @@ The following are known gaps or roadmapped items, disclosed here so that judges 
 - **0G Storage KV** — the public KV endpoints were unstable during the hackathon window. The orchestrator uses local JSON journal as a fallback. In `STRICT_MODE`, this fallback is permitted only when `OG_INDEXER_RPC` is explicitly set to empty (an opt-out acknowledgment by the operator); otherwise strict mode fails closed.
 - **TEE hardware-grade attestation** — sealed mode currently binds AI inference to execution via ECDSA commitment + commit-reveal. Hardware-grade SGX / TDX attestation depends on 0G Compute provider hardware being exposed in the attestation envelope. The architecture is designed for that transition; the additional work is configuration rather than redesign.
 - **Governance** — fresh deployments initialize with a 1-of-1 governor (the deployer). Rotating to a real multisig with external cosigners is a post-deploy operational step, not an automated part of the deployment script.
-- **Fee accrual + HWM in the slim vault** — the current slim vault on both 0G and Arbitrum does not expose `accrueFees`, `claimFees`, `queueFeeChange`, `setNavCalculator`, `pause`, or `updatePolicy`. The frontend hooks for these functions show a user-facing "not available in this build" toast. A full fee-bearing vault can be deployed on gas-plentiful chains (Arbitrum) in a follow-up release.
+- **Fee accrual + HWM in the slim vault** — the V3 slim vault on 0G adds `pause` / `unpause` and the cross-chain fee cap (`setMaxCrossChainFeeBps`), but still does not expose `accrueFees`, `claimFees`, `queueFeeChange`, `applyFeeChange`, `setNavCalculator`, or `updatePolicy`; the Arbitrum slim vault is unchanged from the original deploy and exposes none of these. The frontend hooks for the unimplemented functions show a user-facing "not available in this build" toast. A full fee-bearing vault can be deployed on gas-plentiful chains (Arbitrum) in a follow-up release.
 - **Multichain orchestrator** — the orchestrator currently runs in single-chain mode per process. Running parallel cycles across 0G and Arbitrum from a single process is a scaffolded but not activated feature (see `orchestrator/src/config/chains.js`).
 
 ---

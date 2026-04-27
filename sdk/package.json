@@ -47,6 +47,9 @@
       "optional": true
     }
   },
+  "devDependencies": {
+    "ethers": "^6.16.0"
+  },
   "engines": {
     "node": ">=18"
   }
