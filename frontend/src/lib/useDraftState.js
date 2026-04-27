@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Persist state to localStorage under a namespaced key so long multi-step
 // forms survive reloads. Returns [state, setState, { clearDraft, hasDraft }].
@@ -41,13 +41,20 @@ export function useDraftState(key, initial, { serialize, deserialize, debounceMs
     return () => clearTimeout(timerRef.current);
   }, [key, state, serialize, debounceMs]);
 
-  const clearDraft = () => {
+  // Memoise clearDraft — otherwise a new function is allocated every render,
+  // which causes any consumer that lists it in a useEffect dep array to
+  // re-fire on every parent render (source of the post-create toast spam).
+  // We intentionally omit `initial` from deps: it's typically an inline object
+  // that would defeat memoisation, and the factory/object is only meaningful
+  // at first mount anyway.
+  const clearDraft = useCallback(() => {
     try {
       window.localStorage.removeItem(key);
     } catch { /* noop */ }
     setState(typeof initial === 'function' ? initial() : initial);
     setHasDraft(false);
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
 
   return [state, setState, { clearDraft, hasDraft }];
 }

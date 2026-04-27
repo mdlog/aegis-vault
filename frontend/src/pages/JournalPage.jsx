@@ -25,7 +25,7 @@ export default function JournalPage() {
     : [];
 
   return (
-    <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
+    <div className="max-w-[1540px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-display font-semibold text-white tracking-tight mb-1">Execution Journal</h1>

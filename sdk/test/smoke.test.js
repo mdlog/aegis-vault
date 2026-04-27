@@ -16,14 +16,21 @@ import {
   resolveRpcUrl,
 } from '../src/index.js';
 
-test('config: mainnet address book is populated with V2 stack', () => {
+test('config: mainnet address book exposes V3 vault stack as live', () => {
   const a = getAddresses(CHAINS.OG_MAINNET);
   assert.match(a.vaultFactory, /^0x[a-fA-F0-9]{40}$/);
+  assert.match(a.vaultImplementation, /^0x[a-fA-F0-9]{40}$/);
+  assert.match(a.executionRegistry, /^0x[a-fA-F0-9]{40}$/);
+  assert.match(a.khalaniVenueAdapter, /^0x[a-fA-F0-9]{40}$/);
+  assert.match(a.jaineVenueAdapter, /^0x[a-fA-F0-9]{40}$/);
   assert.match(a.operatorRegistry, /^0x[a-fA-F0-9]{40}$/);
   assert.match(a.operatorStaking, /^0x[a-fA-F0-9]{40}$/);
   assert.match(a.tokens.USDCe, /^0x[a-fA-F0-9]{40}$/);
   assert.equal(ASSET_DECIMALS.USDCe, 6);
   assert.equal(ASSET_DECIMALS.WETH, 18);
+  // V2 vault stack must remain reachable for historical reads.
+  assert.match(a.legacy.vaultFactoryV2, /^0x[a-fA-F0-9]{40}$/);
+  assert.match(a.legacy.executionRegistryV2, /^0x[a-fA-F0-9]{40}$/);
 });
 
 test('config: unknown chain throws', () => {

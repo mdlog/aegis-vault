@@ -60,14 +60,42 @@ export async function fetchMarketData() {
 }
 
 /**
- * Fetch historical price data for volatility calculation
+ * Fetch historical price data for volatility calculation.
+ *
+ * Results are cached in-memory for 30 minutes per (coingeckoId, days) key.
+ * CoinGecko free tier rate-limits aggressively (~30 req/min); without caching
+ * every cycle burns a fresh API call, hits 429s, and collapses indicators to
+ * a synthetic linear array (RSI pegs to 0/100 → AI distrusts signal → policy
+ * blocks every trade).
+ *
+ * 30-minute TTL is safe because RSI/MACD over a 7-day window doesn't change
+ * meaningfully inside that half-hour anyway.
  */
+const HISTORY_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const historyCache = new Map(); // key `${coingeckoId}:${days}` → { expiresAt, data }
+
 export async function fetchPriceHistory(coingeckoId, days = 7) {
+  const cacheKey = `${coingeckoId}:${days}`;
+  const cached = historyCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.data;
+  }
+
   try {
     const url = `${config.coingeckoUrl}/coins/${coingeckoId}/market_chart?vs_currency=usd&days=${days}`;
     const { data } = await axios.get(url, { timeout: 10_000 });
-    return data.prices.map(([ts, price]) => ({ timestamp: ts, price }));
+    const history = data.prices.map(([ts, price]) => ({ timestamp: ts, price }));
+    historyCache.set(cacheKey, { expiresAt: now + HISTORY_CACHE_TTL_MS, data: history });
+    return history;
   } catch (err) {
+    // On 429, serve the last successful cache (even if expired) as a soft
+    // fallback — beats dropping to a synthetic linear array that kills
+    // indicators. Only give up if we've literally never fetched this series.
+    if (cached?.data) {
+      logger.warn(`Price history fetch failed for ${coingeckoId} (${err.message}); serving stale cache (${Math.round((now - (cached.expiresAt - HISTORY_CACHE_TTL_MS)) / 60000)}m old)`);
+      return cached.data;
+    }
     logger.warn(`Price history fetch failed for ${coingeckoId}: ${err.message}`);
     return null;
   }

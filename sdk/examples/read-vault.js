@@ -1,5 +1,5 @@
 // Read an on-chain vault's summary + policy + NAV. Usage:
-//   AEGIS_VAULT=0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181 \
+//   AEGIS_VAULT=0xYOUR_VAULT_CLONE_ADDRESS \
 //   AEGIS_ORCHESTRATOR=http://localhost:4002 \
 //     node examples/read-vault.js
 

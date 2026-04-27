@@ -15,10 +15,15 @@
     "thesis": "Regime-aware position sizing. Up-trend → scale into majors (WBTC/WETH) and native W0G up to 50% single-asset cap. Range/panic → rotate to USDC.e base. Every decision EIP-712 intent-bound to the exact 0G Compute inference response hash via ExecutionIntent.attestationReportHash.",
     "venues": [
       {
-        "name": "Jaine V3",
+        "name": "Jaine V3 (multi-hop)",
         "chainId": 16661,
-        "adapter": "0x0F8B269368925Fd55C62560B6f818173A8cB25eD",
+        "adapter": "0x261244010A6D87e043b3489D93fA573cdc2274B6",
         "router": "0x8b598a7c136215a95ba0282b4d832b9f9801f2e2"
+      },
+      {
+        "name": "Khalani (cross-chain)",
+        "chainId": 16661,
+        "adapter": "0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4"
       }
     ],
     "executionMode": ["open", "sealed"]
@@ -105,7 +110,7 @@
     "Operator hot wallet key is separate from TEE signer key (enforced in orchestrator config).",
     "No off-chain inputs beyond those listed in ai.inputs.",
     "Orchestrator source: https://github.com/mdlog/aegis-vault (MIT).",
-    "Arbitrator can slash up to 50% of stake per 7-day rolling window (OperatorStaking V2 at 0xAABC708aA3d5e9a37A90ff675EdBD681C204a376)."
+    "Arbitrator can slash up to 50% of stake per 7-day rolling window (OperatorStaking at 0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3)."
   ],
 
   "contact": {

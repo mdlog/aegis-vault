@@ -42,6 +42,27 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  /* Tailwind v4 preflight no longer sets `cursor: pointer` on buttons, so
+     interactive elements render with the default arrow cursor. Put it back
+     on the common interactive primitives — disabled controls still get the
+     not-allowed cursor. Non-native clickable elements (e.g. `<div onClick>`)
+     should use the `cursor-pointer` utility explicitly. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  label[for],
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role="button"][aria-disabled="true"],
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    cursor: not-allowed;
+  }
+
   ::selection {
     background-color: rgba(201, 168, 76, 0.3);
     color: #fff;

@@ -17,6 +17,10 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract VaultNAVCalculator {
     IPyth public pyth;
     address public admin;
+    /// @notice Address proposed by the current admin that must call
+    ///         `acceptAdmin()` to finalize the transfer. Prevents typos / lost
+    ///         keys from locking up the contract (Ownable2Step pattern).
+    address public pendingAdmin;
 
     uint256 public constant MAX_PRICE_AGE = 300;        // 5 minutes staleness allowed
     /// @notice Reject Pyth prices whose confidence interval exceeds this fraction of price.
@@ -37,9 +41,13 @@ contract VaultNAVCalculator {
     event AssetAdded(address indexed token, bytes32 priceFeedId, uint8 decimals);
     event AssetRemoved(address indexed token);
     event NAVCalculated(address indexed vault, uint256 navUsd6);
+    event AdminTransferStarted(address indexed previousAdmin, address indexed newAdmin);
+    event AdminTransferred(address indexed previousAdmin, address indexed newAdmin);
 
     // ── Errors ──
     error OnlyAdmin();
+    error OnlyPendingAdmin();
+    error InvalidAdmin();
     error PriceStale(bytes32 feedId, uint256 publishTime, uint256 nowTs);
     error PriceLowConfidence(bytes32 feedId, uint64 conf, uint256 price);
     error PriceNonPositive(bytes32 feedId);
@@ -52,6 +60,30 @@ contract VaultNAVCalculator {
     constructor(address _pyth) {
         pyth = IPyth(_pyth);
         admin = msg.sender;
+    }
+
+    // ── Admin rotation (Ownable2Step pattern) ──
+
+    /// @notice Propose a new admin. Takes effect only after `newAdmin`
+    ///         calls `acceptAdmin()` — guards against setting a bad address.
+    function transferAdmin(address newAdmin) external onlyAdmin {
+        if (newAdmin == address(0)) revert InvalidAdmin();
+        pendingAdmin = newAdmin;
+        emit AdminTransferStarted(admin, newAdmin);
+    }
+
+    /// @notice Called by the pending admin to finalize the transfer.
+    function acceptAdmin() external {
+        if (msg.sender != pendingAdmin) revert OnlyPendingAdmin();
+        address previous = admin;
+        admin = pendingAdmin;
+        pendingAdmin = address(0);
+        emit AdminTransferred(previous, admin);
+    }
+
+    /// @notice Cancel a previously-started transfer. Callable by current admin.
+    function cancelAdminTransfer() external onlyAdmin {
+        pendingAdmin = address(0);
     }
 
     // ── Admin: Configure tracked assets ──

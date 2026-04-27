@@ -35,9 +35,20 @@ frontend/src/lib/deployments.generated.json
 orchestrator/data/
 orchestrator/logs/
 
+# Top-level orchestrator log directory (created when running orchestrator from repo root)
+logs/
+
 # Frontend build output
 frontend/dist/
 frontend/.vite/
+
+# Local backup snapshots (deployments / generated manifests)
+*.bak.*
+contracts/deployments-mainnet.OLD.json
+contracts/deployments-mainnet.PRE-FRESH.json
+
+# Local design / mockup folders
+redesain dashboard aegis/
 
 # Coverage
 coverage/

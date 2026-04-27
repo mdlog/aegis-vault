@@ -6,6 +6,14 @@ import { computeAllIndicators } from './indicators.js';
 import { classifyRegime } from './regimeClassifier.js';
 import { runDecisionEngine, toSimpleDecision } from './decisionEngine.js';
 import { normalizeTradeSymbol } from './assets.js';
+import { fetchPriceHistory } from './marketData.js';
+import { fetchPriceHistoryFromPyth } from './pythPrice.js';
+
+// In-memory cache for CoinGecko historical prices. Keyed by symbol.
+// TTL = cycle interval so each cycle reuses the fetch from context-asset
+// resolution for the decision-asset resolution without a second HTTP round.
+const PRICE_HISTORY_CACHE = new Map();
+const PRICE_HISTORY_TTL_MS = 5 * 60 * 1000; // 5 min
 
 /**
  * InferenceService v1
@@ -32,8 +40,9 @@ export async function requestInference(marketSummary, vaultState) {
   const contextAsset = selectContextAsset(vaultState, marketSummary);
   const contextMarket = getAssetMarketView(marketSummary, contextAsset);
 
-  // Use price history if available, otherwise build minimal array from current data
-  const promptPriceHistory = buildPriceHistory(vaultState, contextMarket.symbol, contextMarket.price, contextMarket.change24h);
+  // Use price history if available, otherwise fetch real OHLCV (CoinGecko)
+  // with in-memory cache. Falls back to synthetic only when network fails.
+  const promptPriceHistory = await buildPriceHistory(vaultState, contextMarket.symbol, contextMarket.price, contextMarket.change24h);
 
   // ── Step 2: Compute indicators ──
   const indicators = computeAllIndicators(promptPriceHistory, contextMarket.price, contextMarket.volume24h);
@@ -104,7 +113,7 @@ export async function requestInference(marketSummary, vaultState) {
 
   const decisionAsset = selectDecisionAsset(vaultState, aiView, contextMarket.symbol);
   const decisionMarket = getAssetMarketView(marketSummary, decisionAsset);
-  const priceHistory = buildPriceHistory(vaultState, decisionMarket.symbol, decisionMarket.price, decisionMarket.change24h);
+  const priceHistory = await buildPriceHistory(vaultState, decisionMarket.symbol, decisionMarket.price, decisionMarket.change24h);
 
   // ── Step 5: Run Decision Engine v1 ──
   const v1Policy = buildV1Policy(vaultState);
@@ -136,12 +145,76 @@ export async function requestInference(marketSummary, vaultState) {
   return decision;
 }
 
-function buildPriceHistory(vaultState, assetSymbol, currentPrice, change24h) {
+/**
+ * Build a usable price series for indicator computation.
+ *
+ * Preference order:
+ *   1. vaultState._priceHistory[symbol] — provided by upstream (if pre-fetched)
+ *   2. PRICE_HISTORY_CACHE — 5-min in-memory cache (reused within a cycle)
+ *   3. CoinGecko 7-day hourly OHLCV — real market data
+ *   4. buildMinimalPriceArray — linear synthetic (LAST RESORT — produces
+ *      degenerate indicators; AI will see RSI=0/100 and distrust the signal)
+ *
+ * Returns { prices: number[], volumes: number[] }. `prices` has ≥30 points
+ * whenever a real source succeeds, so RSI-14 / MACD / EMA-50 all have room
+ * to compute meaningfully.
+ */
+async function buildPriceHistory(vaultState, assetSymbol, currentPrice, change24h) {
   const stored = vaultState._priceHistory?.[assetSymbol] || vaultState._priceHistory;
-  if (stored?.prices?.length) {
+  if (stored?.prices?.length >= 30) {
     return stored;
   }
 
+  // Try cached fetch (fresh within 5 min). Covers both Pyth + CoinGecko results.
+  const cached = PRICE_HISTORY_CACHE.get(assetSymbol);
+  const now = Date.now();
+  if (cached && (now - cached.fetchedAt) < PRICE_HISTORY_TTL_MS) {
+    return { prices: cached.prices, volumes: cached.volumes || [] };
+  }
+
+  // ── Primary source: Pyth Benchmarks (TradingView shim). Free, no rate
+  //    limit, uses same oracle we already trust for live prices. ──
+  try {
+    const pythHistory = await fetchPriceHistoryFromPyth(assetSymbol, 7);
+    if (pythHistory?.length >= 30) {
+      const prices = pythHistory.map((h) => h.price);
+      PRICE_HISTORY_CACHE.set(assetSymbol, { prices, volumes: [], fetchedAt: now });
+      logger.debug(`Price history for ${assetSymbol}: ${prices.length} candles from Pyth Benchmarks`);
+      return { prices, volumes: [] };
+    }
+    if (pythHistory) {
+      logger.debug(`Pyth Benchmarks returned ${pythHistory.length} points for ${assetSymbol} (need ≥30); trying CoinGecko`);
+    }
+  } catch (err) {
+    logger.debug(`Pyth Benchmarks fetch threw for ${assetSymbol}: ${err.message?.substring(0, 120)}`);
+  }
+
+  // ── Secondary fallback: CoinGecko. Kept around because Pyth may not carry
+  //    every asset; also gives a second source if Pyth Benchmarks is down. ──
+  const cgId = config.assets?.[assetSymbol]?.coingeckoId;
+  if (cgId) {
+    try {
+      const history = await fetchPriceHistory(cgId, 7);
+      if (history?.length >= 30) {
+        const prices = history.map((h) => h.price);
+        PRICE_HISTORY_CACHE.set(assetSymbol, {
+          prices,
+          volumes: [],
+          fetchedAt: now,
+        });
+        return { prices, volumes: [] };
+      }
+      logger.warn(`CoinGecko history for ${assetSymbol} returned ${history?.length || 0} points (need ≥30); falling back to synthetic`);
+    } catch (err) {
+      logger.warn(`CoinGecko fetch failed for ${assetSymbol} (${cgId}): ${err.message?.substring(0, 120)}`);
+    }
+  } else {
+    logger.debug(`No CoinGecko ID registered for ${assetSymbol} — using synthetic fallback`);
+  }
+
+  // Last-resort synthetic. Degenerate for RSI/MACD — only used when network
+  // or config prevents a real fetch. Surface a loud warning once per cycle.
+  logger.warn(`Using synthetic linear price array for ${assetSymbol} — RSI/MACD will collapse to 0 or 100 and AI will distrust the signal`);
   return {
     prices: buildMinimalPriceArray(currentPrice, change24h || 0),
     volumes: [],
@@ -239,13 +312,51 @@ function selectContextAsset(vaultState, marketSummary) {
 }
 
 function selectDecisionAsset(vaultState, aiView, fallbackAsset = 'BTC') {
-  return normalizeTradeSymbol(
-    vaultState.current_position_asset ||
-    vaultState.primaryPositionAsset ||
-    aiView.asset ||
-    fallbackAsset ||
-    'BTC'
-  );
+  // Pick the first non-USDC candidate that is also present in the vault's
+  // allowedAssetSymbols (if configured). USDC is the base/cash asset — BUY
+  // with assetIn == assetOut would revert on-chain with SameToken().
+  //
+  // Additionally, non-base assets that aren't in the allowlist have no path
+  // to settle: on 0G mainnet Jaine carries only USDC↔W0G / WBTC↔W0G /
+  // WETH↔W0G pools, so a vault whose allowlist lacks W0G cannot route
+  // BTC/ETH trades directly against USDC. Respecting the allowlist here
+  // keeps the engine from proposing trades the venue cannot quote.
+  const allowed = (vaultState.allowedAssetSymbols || [])
+    .map((s) => normalizeTradeSymbol(s))
+    .filter(Boolean);
+
+  // Priority order: preserve existing position first, then AI's suggestion,
+  // then 0G (deepest Jaine liquidity as USDC↔W0G hub on 0G mainnet — BTC/ETH
+  // would need multi-hop routing which the single-hop adapter doesn't support).
+  // `fallbackAsset` from caller comes last so explicit caller overrides are
+  // still honored when the vault is on a chain where BTC/ETH pools exist.
+  const candidates = [
+    vaultState.current_position_asset,
+    vaultState.primaryPositionAsset,
+    aiView?.asset,
+    '0G',
+    fallbackAsset,
+    'BTC',
+  ];
+
+  // First pass: prefer a candidate that's also in the vault allowlist.
+  if (allowed.length > 0) {
+    for (const c of candidates) {
+      const sym = normalizeTradeSymbol(c);
+      if (sym && sym !== 'USDC' && allowed.includes(sym)) return sym;
+    }
+    // No candidate matched the allowlist — fall back to the first non-USDC
+    // allowlist entry so at least the engine suggests something routable.
+    const firstAllowed = allowed.find((s) => s !== 'USDC');
+    if (firstAllowed) return firstAllowed;
+  }
+
+  // No allowlist info available — fall through to candidate ordering.
+  for (const c of candidates) {
+    const sym = normalizeTradeSymbol(c);
+    if (sym && sym !== 'USDC') return sym;
+  }
+  return '0G';
 }
 
 function getAssetMarketView(marketSummary, assetSymbol) {
@@ -307,6 +418,50 @@ function buildV1VaultState(vaultState) {
 function buildV1Policy(vaultState) {
   const p = vaultState.policy || {};
   const allowedAssets = (vaultState.allowedAssetSymbols || []).filter((symbol) => symbol !== 'USDC');
+
+  // ── Engine thresholds derived from vault policy ──
+  //
+  // The vault's `confidenceThresholdBps` is the user-declared risk budget:
+  // "I'm comfortable trading when AI confidence ≥ X%". We scale the engine's
+  // internal gates around that single knob so the engine respects user intent
+  // instead of overriding with hardcoded 75% / 28% / 78% that were tuned for
+  // a single default profile.
+  //
+  // Scaling:
+  //   min_confidence_buy            = vault threshold (direct)
+  //   min_confidence_reduce_or_sell = vault threshold − 10pp, floor 20%
+  //                                   (sell should be a touch more permissive
+  //                                   than buy — easier to exit than to enter)
+  //   max_risk_score_buy            = inversely scaled: strict vault (high
+  //                                   conf threshold) → low risk tolerance;
+  //                                   permissive vault → up to 70% risk OK
+  //   min_quality_buy               = scaled with confidence threshold: the
+  //                                   quality bar should only be tall when
+  //                                   confidence bar is tall
+  //
+  // Result: a vault with confidenceThresholdBps=6000 (60%) keeps roughly
+  // today's production-strict behavior. A vault with 3000 (30%) opens up to
+  // demo-friendly execution without bypassing any safety logic — the user
+  // explicitly asked for more aggressive trading when they set that value.
+  const vaultMinConf = (p.confidenceThresholdBps || 6000) / 10000;
+  const minConfidenceBuy            = vaultMinConf;
+  const minConfidenceReduceOrSell   = Math.max(0.20, vaultMinConf - 0.10);
+  const maxRiskScoreBuy             = Math.max(0.28, Math.min(0.70, 1 - vaultMinConf + 0.05));
+  const minQualityBuy               = Math.max(25, Math.min(85, Math.round(vaultMinConf * 100 + 5)));
+  // Edge score threshold scales with confidence threshold too. The default 72
+  // in decisionEngine matches a strict vault (vaultMinConf ≈ 0.75); permissive
+  // vaults proportionally lower the edge bar.
+  const minEdgeBuy                  = Math.max(30, Math.min(80, Math.round(35 + vaultMinConf * 55)));
+
+  // Allowed regimes for BUY scale with vault risk tolerance. LOW_LIQUIDITY,
+  // PANIC_VOLATILE, and TREND_DOWN_STRONG are never permitted regardless of
+  // vault policy — those regimes indicate dangerous conditions unrelated to
+  // user risk tolerance. Permissive vaults additionally tolerate NOISY range
+  // and weak downtrends where a strict vault would sit on the sidelines.
+  const allowedBuyRegimes = ['TREND_UP_STRONG', 'TREND_UP_WEAK', 'RANGE_STABLE'];
+  if (vaultMinConf < 0.65) allowedBuyRegimes.push('RANGE_NOISY');
+  if (vaultMinConf < 0.40) allowedBuyRegimes.push('TREND_DOWN_WEAK');
+
   return {
     allowed_assets: allowedAssets.length > 0 ? allowedAssets : ['BTC', 'ETH'],
     max_position_bps: p.maxPositionBps || 5000,
@@ -316,9 +471,12 @@ function buildV1Policy(vaultState) {
     trail_stop_bps: 180,
     cooldown_seconds: p.cooldownSeconds || 60,
     max_actions_per_60m: 2,
-    min_confidence_buy: 0.75,
-    min_confidence_reduce_or_sell: 0.55,
-    max_risk_score_buy: 0.28,
+    min_confidence_buy: minConfidenceBuy,
+    min_confidence_reduce_or_sell: minConfidenceReduceOrSell,
+    max_risk_score_buy: maxRiskScoreBuy,
+    min_quality_buy: minQualityBuy,
+    min_edge_buy: minEdgeBuy,
+    allowed_buy_regimes: allowedBuyRegimes,
     max_slippage_bps: 30,
     max_spread_bps: 20,
     pause: p.paused || false,

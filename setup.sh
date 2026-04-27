@@ -16,7 +16,7 @@ echo ""
 echo "── Step 1: Installing dependencies ──"
 cd "$ROOT_DIR/contracts" && npm install --silent
 cd "$ROOT_DIR/orchestrator" && npm install --legacy-peer-deps --silent
-cd "$ROOT_DIR/landing" && npm install --silent
+cd "$ROOT_DIR/frontend" && npm install --silent
 echo "✓ Dependencies installed"
 
 # ── Step 2: Compile contracts ──
@@ -59,7 +59,7 @@ node -e "const a=JSON.parse(require('fs').readFileSync('artifacts/contracts/mock
 node -e "const a=JSON.parse(require('fs').readFileSync('artifacts/contracts/mocks/MockDEX.sol/MockDEX.json','utf8')); require('fs').writeFileSync('../orchestrator/src/abi/MockDEX.json', JSON.stringify(a.abi, null, 2))"
 
 # Copy ABIs to frontend
-cp "$ROOT_DIR/orchestrator/src/abi/"*.json "$ROOT_DIR/landing/src/lib/abi/"
+cp "$ROOT_DIR/orchestrator/src/abi/"*.json "$ROOT_DIR/frontend/src/lib/abi/"
 echo "✓ Configs synced"
 
 # ── Step 6: Run tests ──
@@ -82,7 +82,7 @@ echo "║  Terminal 2:                                     ║"
 echo "║    cd orchestrator && npm start                  ║"
 echo "║                                                 ║"
 echo "║  Terminal 3:                                     ║"
-echo "║    cd landing && npm run dev                     ║"
+echo "║    cd frontend && npm run dev                    ║"
 echo "║                                                 ║"
 echo "║  Then open: http://localhost:5173                ║"
 echo "║                                                 ║"

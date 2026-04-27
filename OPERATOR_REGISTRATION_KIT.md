@@ -108,10 +108,10 @@ Tactical:
 
 Setelah semua field terisi, klik submit. Tx goes to `OperatorRegistry V2` at:
 ```
-0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5
+0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9
 ```
 
-Explorer: [`https://chainscan.0g.ai/address/0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5`](https://chainscan.0g.ai/address/0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5)
+Explorer: [`https://chainscan.0g.ai/address/0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9`](https://chainscan.0g.ai/address/0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9)
 
 Verifikasi sukses: buka `/marketplace`, operator baru muncul di list.
 
@@ -308,7 +308,7 @@ Tier determines max vault size operator boleh kelola:
 Kalau hanya test demo, tier None cukup (tidak perlu stake). Kalau production, minimum Bronze direkomendasikan.
 
 Flow stake di `/operator/profile?address=<wallet>`:
-1. Approve USDC.e ke `OperatorStaking V2` (`0xAABC708aA3d5e9a37A90ff675EdBD681C204a376`)
+1. Approve USDC.e ke `OperatorStaking V2` (`0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3`)
 2. Call `stake(amount)` — amount dalam USDC.e native units (6 decimals), misal `1000000000` untuk 1,000 USDC.e
 
 ---
@@ -327,7 +327,7 @@ On-chain verify:
 ```bash
 # Ganti $OP dengan alamat wallet operator kamu
 export OP=0x<yourOperatorWallet>
-export REG=0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5
+export REG=0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9
 
 cast call $REG "isRegistered(address)(bool)" $OP --rpc-url https://evmrpc.0g.ai
 # Expected: true
@@ -354,16 +354,18 @@ Setelah operator ready:
 
 Vault siap deposit USDC.e + orchestrator akan detect + mulai cycle.
 
-> **Note:** V2 factory (`0x9450ac911D06c81a54007a768d4278929d87A17e`) tetap operasional untuk vault yang sudah di-create sebelum 2026-04-27, tapi vault baru sebaiknya tidak pakai V2 — V2 tidak punya `acceptCrossChainFill` (Khalani path), tidak punya audit-fix surface (`maxCrossChainFeeBps`, `consumedKhalaniIds`, owner emergency controls).
+> **Note:** Operator registry baru di-deploy fresh pada **2026-04-27** sebagai bagian dari V3 cutover. Tidak ada operator lama yang carry-over — registrasi sekarang dimulai dari nol di `0x252Ef1B2…594c9`.
 
 ---
 
-## Quick reference — alamat kontrak 0G Aristotle (chain 16661, V3 canonical)
+## Quick reference — alamat kontrak 0G Aristotle (chain 16661)
 
 | Role | Address |
 |---|---|
-| OperatorRegistry V2 (register here) | `0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5` |
-| OperatorStaking V2 (stake here) | `0xAABC708aA3d5e9a37A90ff675EdBD681C204a376` |
+| OperatorRegistry (register here) | `0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9` |
+| OperatorStaking (stake here) | `0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3` |
+| OperatorReputation | `0x855380187f223391b55fc381f33429A14d238879` |
+| InsurancePool | `0xd5eb21420e9D22b763b94fDb396756d820eCa694` |
 | **AegisVaultFactoryV3** (create vault here) | `0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3` |
 | ExecutionRegistry V3 | `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9` |
 | KhalaniVenueAdapter (cross-chain) | `0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4` |

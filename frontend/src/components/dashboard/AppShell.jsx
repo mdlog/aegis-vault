@@ -101,7 +101,7 @@ export default function AppShell({ children }) {
     <div className="min-h-screen bg-obsidian flex flex-col">
       {/* Top bar */}
       <header className="sticky top-0 z-50 bg-obsidian/95 backdrop-blur-xl border-b border-white/[0.04]">
-        <div className="max-w-[1440px] mx-auto px-4 lg:px-6 h-24 flex items-center justify-between gap-4">
+        <div className="max-w-[1540px] mx-auto px-4 lg:px-6 h-24 flex items-center justify-between gap-4">
           {/* Left: Logo + vault switcher */}
           <div className="flex items-center gap-4">
             <Link to="/" className="flex items-center group">
@@ -214,7 +214,7 @@ export default function AppShell({ children }) {
                 <Link
                   key={item.label}
                   to={item.path}
-                  className={`flex items-center px-3 py-1.5 rounded-md text-[11px] font-medium tracking-wide transition-all duration-200
+                  className={`flex items-center px-3.5 py-2 rounded-md text-[13px] font-medium tracking-wide transition-all duration-200
                     ${active
                       ? 'text-white bg-white/[0.06] border border-white/[0.06]'
                       : 'text-steel/60 hover:text-steel/90 hover:bg-white/[0.02]'
@@ -333,28 +333,28 @@ export default function AppShell({ children }) {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-white/[0.04] py-6 mt-12">
-        <div className="max-w-[1440px] mx-auto px-4 lg:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <footer className="mt-12 py-6" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        <div className="max-w-[1540px] mx-auto px-4 lg:px-6 flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
-            <Logo size={18} />
-            <span className="text-[10px] font-mono tracking-[0.12em] uppercase text-steel/40">
-              Aegis Vault
+            <Logo height={18} />
+            <span className="ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
+              Aegis · Vault
             </span>
           </div>
-          <div className="flex items-center gap-5">
-            {['Documentation', 'GitHub', 'Architecture', 'Contact'].map((link) => (
-              <a
-                key={link}
-                href="#"
-                className="text-[10px] tracking-[0.08em] uppercase text-steel/30 hover:text-steel/60 transition-colors duration-300"
-              >
-                {link}
-              </a>
-            ))}
+          <div className="flex items-center gap-6 ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
+            <Link to="/whitepaper" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
+              Whitepaper
+            </Link>
+            <Link to="/docs" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
+              Docs
+            </Link>
+            <Link to="/marketplace" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
+              Marketplace
+            </Link>
           </div>
-          <div className="text-[10px] font-mono tracking-wider text-steel/20">
-            Built on 0G · 2025
-          </div>
+          <span className="ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
+            Built on 0G · 2026
+          </span>
         </div>
       </footer>
     </div>

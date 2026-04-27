@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { Sentry } from './utils/sentry.js';
 import config from './config/index.js';
 import { runCycle, getStatus } from './services/orchestrator.js';
 import { readVaultState } from './services/vaultReader.js';
@@ -39,15 +40,16 @@ function filterJournalEntries(entries, { type, vault, level }) {
 function isLoopbackAddress(value) {
   return value === '127.0.0.1' ||
     value === '::1' ||
-    value === '::ffff:127.0.0.1' ||
-    value === 'localhost';
+    value === '::ffff:127.0.0.1';
 }
 
+// Only trust socket-level addresses. req.hostname comes from the Host header,
+// which is client-controllable — a remote attacker sending `Host: localhost`
+// would otherwise be mis-classified as loopback.
 function isLoopbackRequest(req) {
   const candidates = [
     req.ip,
     req.socket?.remoteAddress,
-    req.hostname,
   ].filter(Boolean);
 
   return candidates.some(isLoopbackAddress);
@@ -75,6 +77,37 @@ function authorizeMutationRequest(req, apiKey) {
     ok: false,
     status: 403,
     error: 'Manual mutation routes are limited to localhost when no API key is configured',
+  };
+}
+
+// Reads are public by default, but "operator-level" reads (raw KV, 0G state
+// dumps, status internals) require the same API key as mutations. When no key
+// is configured, we still allow loopback-only to keep local dev ergonomic.
+function isOperatorAuthorized(req, apiKey) {
+  if (!apiKey) return isLoopbackRequest(req);
+  return req.get('x-api-key') === apiKey;
+}
+
+function sanitizeStatusForPublic(status) {
+  if (!status || typeof status !== 'object') return status;
+  // Strip fields that leak operator internals (deployment file paths, auth
+  // mode, raw wallet pool stats, pending approval payloads). Keep
+  // `executorAddress`/`executorAddresses` — they are public on-chain anyway
+  // (readable from `AegisVault.executor()` view function), and the frontend
+  // uses them to render "Matched / Different / Offline" sync status.
+  const {
+    configuredVault: _cv,
+    deploymentsFile: _df,
+    mutationAuthMode: _mam,
+    pendingApprovals: _pa,
+    poolStats: _ps,
+    ...publicFields
+  } = status;
+  return {
+    ...publicFields,
+    // Keep the count; drop the detailed map (which includes vault IDs + payloads).
+    pendingApprovalCount: status.pendingApprovalCount
+      ?? Object.keys(status.pendingApprovals || {}).length,
   };
 }
 
@@ -136,6 +169,11 @@ export function createApp(overrides = {}) {
     next();
   }
 
+  function requireOperatorAuth(req, res, next) {
+    if (isOperatorAuthorized(req, apiKey)) return next();
+    return res.status(401).json({ error: 'Operator API key required' });
+  }
+
   // ── Health ──
 
   app.get('/api/health', (req, res) => {
@@ -146,7 +184,10 @@ export function createApp(overrides = {}) {
 
   app.get('/api/status', (req, res) => {
     const status = getStatusFn();
-    res.json(status);
+    if (isOperatorAuthorized(req, apiKey)) {
+      return res.json(status);
+    }
+    res.json(sanitizeStatusForPublic(status));
   });
 
   // ── Trigger Manual Cycle ──
@@ -237,7 +278,7 @@ export function createApp(overrides = {}) {
 
   // ── Storage / Journal ──
 
-  app.get('/api/state', (req, res) => {
+  app.get('/api/state', requireOperatorAuth, (req, res) => {
     const state = readKVStateFn();
     res.json(state);
   });
@@ -306,7 +347,7 @@ export function createApp(overrides = {}) {
     });
   });
 
-  app.get('/api/og/state', async (req, res) => {
+  app.get('/api/og/state', requireOperatorAuth, async (req, res) => {
     try {
       const state = await readVaultStateFromOGFn();
       res.json(state || { error: 'No state found in 0G Storage' });
@@ -315,7 +356,7 @@ export function createApp(overrides = {}) {
     }
   });
 
-  app.get('/api/og/kv/:key', async (req, res) => {
+  app.get('/api/og/kv/:key', requireOperatorAuth, async (req, res) => {
     try {
       const value = await kvGetFn(req.params.key);
       res.json(value || { error: 'Key not found' });
@@ -332,6 +373,9 @@ export function createApp(overrides = {}) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // Sentry Express error handler — must come AFTER all routes. No-op when DSN unset.
+  Sentry.setupExpressErrorHandler(app);
 
   return app;
 }
@@ -365,4 +409,4 @@ export function startAPI() {
   return server;
 }
 
-export { authorizeMutationRequest };
+export { authorizeMutationRequest, isOperatorAuthorized, sanitizeStatusForPublic };

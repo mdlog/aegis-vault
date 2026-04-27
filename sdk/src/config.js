@@ -1,9 +1,9 @@
 // Network + deployment configuration for Aegis Vault SDK.
 //
-// Address source-of-truth is `deployments-mainnet.json` (bundled). The V2
-// contract stack is the live one on 0G Aristotle Mainnet (chain 16661);
-// legacy V1 addresses are still exposed for tooling that needs to walk
-// historical state.
+// Address source-of-truth is `deployments-mainnet.json` (bundled). The V3
+// contract stack (with Khalani routing) is the live one on 0G Aristotle
+// Mainnet (chain 16661); V2 and V1 addresses are still exposed under
+// `legacy` for tooling that needs to walk historical state.
 
 import mainnetDeployments from './deployments-mainnet.json' with { type: 'json' };
 
@@ -69,37 +69,53 @@ export const NETWORK_PARAMS = {
 /**
  * Canonical address book per chain.
  *
- * For 0G Mainnet the V2 addresses are the authoritative ones; helpers below
- * resolve the right address whether the caller asks for `vaultFactory` or
- * the explicit `vaultFactoryV2` field.
+ * For 0G Mainnet the V3 addresses are the authoritative ones — vault
+ * factory, implementation, execution registry, and the new Khalani venue
+ * adapter for cross-chain routing. The operator stack (registry / staking /
+ * insurance) is still on V2 contracts. V2/V1 vault contracts are exposed
+ * under `legacy` so historical reads keep working.
  */
 export const ADDRESSES = {
   [CHAINS.OG_MAINNET]: {
-    // V2 stack — live
-    vaultFactory: mainnetDeployments.aegisVaultFactoryV2,
-    vaultImplementation: mainnetDeployments.aegisVaultImplementationV2,
-    executionRegistry: mainnetDeployments.executionRegistryV2,
+    // V3 stack — live
+    vaultFactory: mainnetDeployments.aegisVaultFactoryV3,
+    vaultImplementation: mainnetDeployments.aegisVaultImplementationV3,
+    executionRegistry: mainnetDeployments.executionRegistryV3,
+
+    // Operator stack — V2 (still current; no V3 redeploy)
     operatorRegistry: mainnetDeployments.operatorRegistryV2,
     operatorStaking: mainnetDeployments.operatorStakingV2,
     insurancePool: mainnetDeployments.insurancePoolV2,
     operatorReputation: mainnetDeployments.operatorReputation,
+
+    // Governance + treasury
     governor: mainnetDeployments.aegisGovernor,
     protocolTreasury: mainnetDeployments.protocolTreasury,
     navCalculator: mainnetDeployments.vaultNAVCalculator,
-    // `jaineVenueAdapter` resolves to V2 (multi-hop, USDC.e ↔ BTC/ETH via
-    // W0G hub) when present, else falls back to V1 single-hop. New vault
-    // creates should pass this address as the `venue`.
-    jaineVenueAdapter:
-      mainnetDeployments.jaineVenueAdapterV2 || mainnetDeployments.jaineVenueAdapter,
 
-    // Legacy (V1) — kept so historical reads still resolve
+    // Venue adapters — pass one of these as the `venue` on new vaults.
+    // `jaineVenueAdapter` is V2 (multi-hop, USDC.e ↔ BTC/ETH via W0G hub).
+    // `khalaniVenueAdapter` enables cross-chain routing through Khalani.
+    jaineVenueAdapter: mainnetDeployments.jaineVenueAdapterV2,
+    khalaniVenueAdapter: mainnetDeployments.khalaniVenueAdapter,
+
+    // V3 supporting libraries (linked into the vault implementation).
+    libraries: {
+      exec: mainnetDeployments.execLibraryV3,
+      io: mainnetDeployments.ioLibraryV3,
+      crossChain: mainnetDeployments.crossChainLibrary,
+    },
+
+    // Legacy stacks — kept so historical reads still resolve.
     legacy: {
-      vaultFactory: mainnetDeployments.aegisVaultFactory,
-      executionRegistry: mainnetDeployments.executionRegistry,
-      operatorRegistry: mainnetDeployments.operatorRegistry,
-      operatorStaking: mainnetDeployments.operatorStaking,
-      insurancePool: mainnetDeployments.insurancePool,
-      jaineVenueAdapter: mainnetDeployments.jaineVenueAdapter,
+      // V2 vault stack (superseded by V3)
+      vaultFactoryV2: mainnetDeployments.aegisVaultFactoryV2,
+      vaultImplementationV2: mainnetDeployments.aegisVaultImplementationV2,
+      executionRegistryV2: mainnetDeployments.executionRegistryV2,
+      // V1 stack
+      vaultFactoryV1: mainnetDeployments.aegisVaultFactory,
+      executionRegistryV1: mainnetDeployments.executionRegistry,
+      jaineVenueAdapterV1: mainnetDeployments.jaineVenueAdapter,
     },
 
     // Tokens (canonical 0G mainnet)

@@ -162,19 +162,41 @@ export function runDecisionEngine(params) {
     }
   } else if (positionSide === 'flat') {
     // ── FLAT PATH — check BUY conditions ──
-    const buyAllowed =
-      [REGIMES.TREND_UP_STRONG, REGIMES.TREND_UP_WEAK, REGIMES.RANGE_STABLE].includes(regime) &&
-      edgeScore >= THRESHOLDS.ENTER_BUY &&
-      confidence >= (policy.min_confidence_buy || 0.75) &&
-      riskScore <= (policy.max_risk_score_buy || 0.28) &&
-      adjustedQuality >= 78 &&
-      (vaultState.consecutive_losses || 0) <= 1 &&
-      indicators.slippage_estimate_bps <= (policy.max_slippage_bps || 30) &&
-      indicators.spread_bps <= (policy.max_spread_bps || 20);
+    // All four gates (edge / confidence / risk / quality) are policy-driven via
+    // buildV1Policy, which scales each threshold from vault.confidenceThresholdBps.
+    // Strict vaults (high confidence requirement) keep near-default behavior.
+    // Permissive vaults proportionally lower each bar in parallel.
+    const minQuality = policy.min_quality_buy || 78;
+    const minEdge    = policy.min_edge_buy || THRESHOLDS.ENTER_BUY;
+
+    // Debug instrumentation: evaluate each gate separately so we can log which
+    // specific condition blocked a BUY when conditions look like they should
+    // have passed. Remove once execution flow is stable.
+    const gates = {
+      regime_ok:        (policy.allowed_buy_regimes || [REGIMES.TREND_UP_STRONG, REGIMES.TREND_UP_WEAK, REGIMES.RANGE_STABLE]).includes(regime),
+      edge_ok:          edgeScore >= minEdge,
+      confidence_ok:    confidence >= (policy.min_confidence_buy || 0.75),
+      risk_ok:          riskScore <= (policy.max_risk_score_buy || 0.28),
+      quality_ok:       adjustedQuality >= minQuality,
+      losses_ok:        (vaultState.consecutive_losses || 0) <= 1,
+      slippage_ok:      (indicators.slippage_estimate_bps || 0) <= (policy.max_slippage_bps || 30),
+      spread_ok:        (indicators.spread_bps || 0) <= (policy.max_spread_bps || 20),
+    };
+    const buyAllowed = Object.values(gates).every(Boolean);
+    if (!buyAllowed) {
+      const failed = Object.entries(gates).filter(([, ok]) => !ok).map(([k]) => k);
+      logger.info(`  BUY gates · passed: ${Object.entries(gates).filter(([, ok]) => ok).map(([k]) => k).join(', ') || '(none)'} · FAILED: ${failed.join(', ')}`);
+      logger.info(`  BUY inputs · edge=${edgeScore} minEdge=${minEdge} · conf=${confidence.toFixed(2)} minConf=${(policy.min_confidence_buy || 0.75).toFixed(2)} · risk=${riskScore.toFixed(2)} maxRisk=${(policy.max_risk_score_buy || 0.28).toFixed(2)} · quality=${adjustedQuality} minQ=${minQuality} · slip=${indicators.slippage_estimate_bps || 0}/${policy.max_slippage_bps || 30} spread=${indicators.spread_bps || 0}/${policy.max_spread_bps || 20} losses=${vaultState.consecutive_losses || 0}`);
+    }
 
     if (buyAllowed) {
       action = 'BUY';
-      executionMode = adjustedQuality >= 78 ? 'MARKETABLE_SWAP' : (adjustedQuality >= 70 ? 'WAIT_RETEST' : 'DO_NOT_EXECUTE');
+      // Tier thresholds stay at (minQuality + 0), (minQuality - 8), floor.
+      // For a strict vault (minQuality=78) this matches the previous
+      // 78/70 split; for a permissive one (minQuality=40) it becomes 40/32.
+      executionMode = adjustedQuality >= minQuality
+        ? 'MARKETABLE_SWAP'
+        : (adjustedQuality >= minQuality - 8 ? 'WAIT_RETEST' : 'DO_NOT_EXECUTE');
       entryTrigger = indicators.price_vs_vwap_pct > 0 ? 'above_vwap_momentum' : 'dip_to_ema20_bounce';
       const mandate = policy.mandate || (policy.max_position_bps <= 1000 ? 'conservative' : policy.max_position_bps <= 1500 ? 'balanced' : 'aggressive');
       sizeBps = computePositionSize(

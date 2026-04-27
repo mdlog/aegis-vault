@@ -75,14 +75,25 @@ export function evaluateHardVeto(indicators, vaultState, policy, regime, aiView)
   }
 
   // 14. AI confidence too low for buy
+  //
+  // Uses the policy-derived reduce/sell threshold (set by buildV1Policy from
+  // vault.confidenceThresholdBps). Previously hardcoded at 0.55, which
+  // overrode user-configured vault policy and made any vault with a lower
+  // confidence threshold silently unable to execute.
   const confidence = aiView?.confidence || 0;
-  if (confidence < 0.55) {
+  const minConfidence = policy.min_confidence_reduce_or_sell ?? 0.55;
+  if (confidence < minConfidence) {
     reasons.push('confidence_below_minimum');
   }
 
   // 15. Risk score too high for buy
+  //
+  // Also scaled from vault policy — a vault with a low confidence threshold
+  // has implicitly opted into higher risk tolerance, so the engine's risk
+  // veto scales inversely (set by buildV1Policy).
   const riskScore = aiView?.risk_score || 0.5;
-  if (riskScore > 0.45) {
+  const maxRisk = policy.max_risk_score_buy ?? 0.45;
+  if (riskScore > maxRisk) {
     reasons.push('risk_score_too_high');
   }
 

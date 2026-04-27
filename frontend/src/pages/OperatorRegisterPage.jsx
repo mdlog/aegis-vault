@@ -2,7 +2,7 @@ import { createElement, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { toast } from 'sonner';
-import { getDeployments, getExplorerTxHref, shortHexLabel } from '../lib/contracts';
+import { getDeployments, getExplorerTxHref, shortHexLabel, findDeploymentChainId } from '../lib/contracts';
 import {
   useIsRegistered, useOperator, useRegisterOperator, useUpdateOperator, Mandate,
   useOperatorExtended, usePublishManifest, useDeclareAIModel,
@@ -139,6 +139,8 @@ export default function OperatorRegisterPage() {
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
   const registryAddress = deployments.operatorRegistryV2 || deployments.operatorRegistry;
+  const registryChainId = findDeploymentChainId('operatorRegistryV2')
+    || findDeploymentChainId('operatorRegistry');
 
   const { data: isRegistered } = useIsRegistered(registryAddress, address);
   const { data: existingOp } = useOperator(registryAddress, isRegistered ? address : undefined);
@@ -347,7 +349,7 @@ export default function OperatorRegisterPage() {
   };
 
   return (
-    <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
+    <div className="max-w-[1540px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
       <Link to="/marketplace" className="text-xs text-steel/50 hover:text-white inline-flex items-center gap-1.5 mb-4">
         <ArrowLeft className="w-3.5 h-3.5" /> Back to Marketplace
       </Link>
@@ -423,7 +425,7 @@ export default function OperatorRegisterPage() {
       {isConnected && (
         <NetworkWarning
           requiredAddress={registryAddress}
-          expectedChainId={16602}
+          expectedChainId={registryChainId}
           contractName="Operator Registry"
         />
       )}

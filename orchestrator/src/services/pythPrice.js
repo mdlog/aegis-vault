@@ -1,5 +1,6 @@
 import { HermesClient } from '@pythnetwork/hermes-client';
 import { ethers } from 'ethers';
+import axios from 'axios';
 import config from '../config/index.js';
 import { getProvider } from '../config/contracts.js';
 import { getTrackedAssets, getTokenAddresses } from './assets.js';
@@ -69,6 +70,90 @@ export async function fetchPythPrices() {
     }
     logger.warn(`Pyth Hermes fetch failed: ${err.message}. Using fallback prices.`);
     return getFallbackPrices();
+  }
+}
+
+/**
+ * Fetch historical price candles from Pyth Benchmarks (TradingView-compatible
+ * shim). Free, no API key, no rate limiting — runs off Pyth's own oracle
+ * historical database. Replaces CoinGecko fetchPriceHistory which gets
+ * rate-limited (HTTP 429) under multi-asset multi-cycle load.
+ *
+ * Returns the same shape as marketData.fetchPriceHistory so buildPriceHistory
+ * can consume it without any downstream refactor: `[{timestamp, price}]`.
+ *
+ * @param {string} assetSymbol - BTC, ETH, USDC, 0G
+ * @param {number} days - lookback window in days (default 7)
+ * @returns {Promise<Array<{timestamp: number, price: number}>|null>}
+ */
+
+// Asset symbol → Pyth Benchmarks symbol.
+// Verified via https://benchmarks.pyth.network/v1/shims/tradingview/search
+// Native ticker is "Crypto.0G/USD" (literal zero-G, not ZG).
+const PYTH_BENCHMARK_SYMBOLS = {
+  BTC:  'Crypto.BTC/USD',
+  ETH:  'Crypto.ETH/USD',
+  USDC: 'Crypto.USDC/USD',
+  '0G': 'Crypto.0G/USD',
+  ZG:   'Crypto.0G/USD',
+};
+
+// In-memory cache so cycles within the TTL window don't re-hit even this free
+// endpoint. Benchmarks API is fast but adding a local cache keeps hot-path
+// latency predictable.
+const PYTH_HISTORY_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const pythHistoryCache = new Map();
+
+export async function fetchPriceHistoryFromPyth(assetSymbol, days = 7) {
+  const pythSymbol = PYTH_BENCHMARK_SYMBOLS[String(assetSymbol).toUpperCase()];
+  if (!pythSymbol) {
+    logger.debug(`No Pyth Benchmarks symbol mapping for ${assetSymbol}`);
+    return null;
+  }
+
+  const cacheKey = `${pythSymbol}:${days}`;
+  const cached = pythHistoryCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.data;
+  }
+
+  // 1h resolution over 7 days = 168 candles. Plenty for RSI/MACD which only
+  // need ≥30 data points. 1D resolution gives just 7 points — not enough.
+  const resolution = '60';
+  const to = Math.floor(now / 1000);
+  const from = to - days * 24 * 60 * 60;
+
+  const url = 'https://benchmarks.pyth.network/v1/shims/tradingview/history';
+  try {
+    const { data } = await axios.get(url, {
+      params: { symbol: pythSymbol, resolution, from, to },
+      timeout: 10_000,
+    });
+
+    if (data?.s !== 'ok' || !Array.isArray(data.t) || !Array.isArray(data.c) || data.t.length === 0) {
+      logger.debug(`Pyth Benchmarks returned no data for ${pythSymbol} (status=${data?.s})`);
+      // Soft fallback to stale cache if we have one.
+      if (cached?.data) return cached.data;
+      return null;
+    }
+
+    // Shape matches CoinGecko's fetchPriceHistory: [{timestamp (ms), price}].
+    // Pyth timestamps come in seconds; convert to ms for consistency.
+    const history = data.t.map((ts, i) => ({
+      timestamp: ts * 1000,
+      price: Number(data.c[i]),
+    })).filter((p) => Number.isFinite(p.price) && p.price > 0);
+
+    pythHistoryCache.set(cacheKey, { expiresAt: now + PYTH_HISTORY_CACHE_TTL_MS, data: history });
+    return history;
+  } catch (err) {
+    if (cached?.data) {
+      logger.warn(`Pyth Benchmarks fetch failed for ${pythSymbol} (${err.message}); serving stale cache`);
+      return cached.data;
+    }
+    logger.warn(`Pyth Benchmarks fetch failed for ${pythSymbol}: ${err.message}`);
+    return null;
   }
 }
 

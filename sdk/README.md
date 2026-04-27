@@ -31,7 +31,7 @@ const orch = new OrchestratorClient({
 });
 
 const status = await orch.status();
-const nav = await orch.nav('0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181');
+const nav = await orch.nav('0xYOUR_VAULT_CLONE_ADDRESS');
 const decisions = await orch.decisions({ limit: 20, vault: '0x...' });
 ```
 
@@ -52,7 +52,7 @@ const sdk = new AegisSDK({
 });
 
 // On-chain reads
-const vault = sdk.vault('0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181');
+const vault = sdk.vault('0xYOUR_VAULT_CLONE_ADDRESS');
 const summary = await vault.getSummary();
 // → { owner, executor, baseAsset, nav, totalDeposited, paused, ... }
 
@@ -422,7 +422,7 @@ Run with:
 
 ```bash
 AEGIS_ORCHESTRATOR=https://orch.aegis.xyz node examples/orchestrator-status.js
-AEGIS_VAULT=0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181 node examples/read-vault.js
+AEGIS_VAULT=0xYOUR_VAULT_CLONE_ADDRESS node examples/read-vault.js
 ```
 
 ### `MulticallClient`

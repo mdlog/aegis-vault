@@ -1798,32 +1798,6 @@ export default function OperatorProfilePage() {
           </aside>
         </div>
 
-        {/* Footer */}
-        <footer
-          className="mt-12 pt-6 flex items-center justify-between flex-wrap gap-4"
-          style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
-        >
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-3.5 h-3.5" style={{ color: ACCENTS.emerald }} />
-            <span className="ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
-              Aegis · Vault
-            </span>
-          </div>
-          <div className="flex items-center gap-6 ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
-            <Link to="/whitepaper" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
-              Whitepaper
-            </Link>
-            <Link to="/docs" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
-              Docs
-            </Link>
-            <Link to="/marketplace" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
-              Marketplace
-            </Link>
-          </div>
-          <span className="ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
-            Built on 0G · 2026
-          </span>
-        </footer>
       </div>
     </div>
   );

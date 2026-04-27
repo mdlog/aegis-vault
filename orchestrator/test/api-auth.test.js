@@ -57,3 +57,44 @@ test('manual mutation requests are localhost-only when no API key is configured'
     error: 'Manual mutation routes are limited to localhost when no API key is configured',
   });
 });
+
+test('remote requests cannot bypass loopback check via spoofed Host header', () => {
+  const auth = authorizeMutationRequest(
+    makeRequest({
+      ip: '203.0.113.10',
+      remoteAddress: '203.0.113.10',
+      hostname: 'localhost',
+    }),
+    ''
+  );
+
+  assert.equal(auth.ok, false);
+  assert.equal(auth.status, 403);
+});
+
+test('remote requests cannot bypass loopback check via spoofed 127.0.0.1 hostname', () => {
+  const auth = authorizeMutationRequest(
+    makeRequest({
+      ip: '203.0.113.10',
+      remoteAddress: '203.0.113.10',
+      hostname: '127.0.0.1',
+    }),
+    ''
+  );
+
+  assert.equal(auth.ok, false);
+  assert.equal(auth.status, 403);
+});
+
+test('loopback requests (true 127.0.0.1 socket) are still allowed when no key is configured', () => {
+  const auth = authorizeMutationRequest(
+    makeRequest({
+      ip: '127.0.0.1',
+      remoteAddress: '127.0.0.1',
+      hostname: 'anything',
+    }),
+    ''
+  );
+
+  assert.deepEqual(auth, { ok: true });
+});

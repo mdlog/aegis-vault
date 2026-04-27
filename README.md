@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://chainscan.0g.ai/address/0x9450ac911D06c81a54007a768d4278929d87A17e"><img src="https://img.shields.io/badge/0G_Mainnet-live-brightgreen?style=for-the-badge" alt="0G mainnet" /></a>
+  <a href="https://chainscan.0g.ai/address/0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3"><img src="https://img.shields.io/badge/0G_Mainnet-live-brightgreen?style=for-the-badge" alt="0G mainnet" /></a>
   <img src="https://img.shields.io/badge/Contracts-235_tests_passing-brightgreen?style=for-the-badge" alt="Tests" />
   <img src="https://img.shields.io/badge/Slither-fail_on_high-blue?style=for-the-badge" alt="Slither" />
   <img src="https://img.shields.io/badge/SDK-%40aegis--vault%2Fsdk_v0.3.0-cyan?style=for-the-badge" alt="SDK" />
@@ -23,23 +23,31 @@ Built for **Track 2 — Agentic Trading Arena (Verifiable Finance)**: inference 
 
 ## Live on 0G Aristotle Mainnet (chain 16661)
 
+V3 vault stack with the Khalani cross-chain adapter shipped **2026-04-27** after audit-pass hardening (235 contract tests). The operator marketplace contracts (registry / staking / reputation / insurance) were redeployed the same day for a clean post-audit baseline.
+
 | Contract | Address |
 |---|---|
-| AegisVaultFactory (V2) | [`0x9450ac911D06c81a54007a768d4278929d87A17e`](https://chainscan.0g.ai/address/0x9450ac911D06c81a54007a768d4278929d87A17e) |
-| AegisVault impl (V2) | [`0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181`](https://chainscan.0g.ai/address/0xf7AAFFBddaf66B90f13fc3447634372eBF0Ea181) |
-| ExecutionRegistry (V2) | [`0x3a8a59865546e99c8377aFd2d02736e25Ac5d04E`](https://chainscan.0g.ai/address/0x3a8a59865546e99c8377aFd2d02736e25Ac5d04E) |
-| OperatorRegistry (V2) | [`0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5`](https://chainscan.0g.ai/address/0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5) |
-| OperatorStaking (V2) | [`0xAABC708aA3d5e9a37A90ff675EdBD681C204a376`](https://chainscan.0g.ai/address/0xAABC708aA3d5e9a37A90ff675EdBD681C204a376) |
-| OperatorReputation | [`0xc270c579400a45975B2EBff05A2fF80f620080CA`](https://chainscan.0g.ai/address/0xc270c579400a45975B2EBff05A2fF80f620080CA) |
-| InsurancePool (V2) | [`0x0CaCfc2a5a47C315343f20A8841EE29133AD1598`](https://chainscan.0g.ai/address/0x0CaCfc2a5a47C315343f20A8841EE29133AD1598) |
+| AegisVaultFactoryV3 | [`0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3`](https://chainscan.0g.ai/address/0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3) |
+| AegisVault impl (V3) | [`0x0c78257550802bF2fFD201106Fe8096A5211397e`](https://chainscan.0g.ai/address/0x0c78257550802bF2fFD201106Fe8096A5211397e) |
+| ExecutionRegistry (V3) | [`0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9`](https://chainscan.0g.ai/address/0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9) |
+| OperatorRegistry | [`0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9`](https://chainscan.0g.ai/address/0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9) |
+| OperatorStaking | [`0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3`](https://chainscan.0g.ai/address/0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3) |
+| OperatorReputation | [`0x855380187f223391b55fc381f33429A14d238879`](https://chainscan.0g.ai/address/0x855380187f223391b55fc381f33429A14d238879) |
+| InsurancePool | [`0xd5eb21420e9D22b763b94fDb396756d820eCa694`](https://chainscan.0g.ai/address/0xd5eb21420e9D22b763b94fDb396756d820eCa694) |
 | ProtocolTreasury | [`0xCDc5D994590D0BF407E5be390A62A8d1eBbf0dF4`](https://chainscan.0g.ai/address/0xCDc5D994590D0BF407E5be390A62A8d1eBbf0dF4) |
 | AegisGovernor (multisig) | [`0x023EC4a54435f94E9395460e4835e75E429D5A2e`](https://chainscan.0g.ai/address/0x023EC4a54435f94E9395460e4835e75E429D5A2e) |
 | VaultNAVCalculator (Pyth) | [`0xBd21bfd62a11e1F8d04e7bE42D2cbDB6C51C4Ae1`](https://chainscan.0g.ai/address/0xBd21bfd62a11e1F8d04e7bE42D2cbDB6C51C4Ae1) |
-| JaineVenueAdapter | [`0x0F8B269368925Fd55C62560B6f818173A8cB25eD`](https://chainscan.0g.ai/address/0x0F8B269368925Fd55C62560B6f818173A8cB25eD) |
+| JaineVenueAdapterV2 (multi-hop) | [`0x261244010A6D87e043b3489D93fA573cdc2274B6`](https://chainscan.0g.ai/address/0x261244010A6D87e043b3489D93fA573cdc2274B6) |
+| KhalaniVenueAdapter (cross-chain) | [`0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4`](https://chainscan.0g.ai/address/0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4) |
+| CrossChainLib | [`0x505C1C76520C6a47a1C0Bf8819359c786E3c8aB3`](https://chainscan.0g.ai/address/0x505C1C76520C6a47a1C0Bf8819359c786E3c8aB3) |
 
-Full address book including legacy V1 and Arbitrum mirror: [`contracts/deployments-mainnet.json`](contracts/deployments-mainnet.json).
+Live tokens include `USDC.e`, `W0G`, `USDT`, `WETH`, `cbBTC` — see [`contracts/deployments-mainnet.json`](contracts/deployments-mainnet.json) for the full address book and active Jaine pool list.
 
-**First on-chain execution** (AI → policy → DEX, end-to-end): [`0x7efe51ac…`](https://chainscan.0g.ai/tx/0x7efe51ac) — orchestrator cycle BUY 0G on Jaine, signed by the TEE signer, verified through `AegisVault.executeIntent()`.
+**Arbitrum One mirror** (chain `42161`, deployed 2026-04-21): V1 stack only — `AegisVaultFactory` at [`0x49354460eAdE1C2E786E36B3B3e7A18Fb4283C45`](https://arbiscan.io/address/0x49354460eAdE1C2E786E36B3B3e7A18Fb4283C45) with Uniswap V3 venue and Pyth NAV. The full marketplace stack (`OperatorRegistry`, `Staking`, `Reputation`, `Governor`, `InsurancePool`) currently lives only on 0G. Full Arbitrum address book: [`contracts/deployments-arbitrum.json`](contracts/deployments-arbitrum.json). See [`docs/ARBITRUM_BRINGUP.md`](docs/ARBITRUM_BRINGUP.md) for the V3 parity plan.
+
+**First on-chain execution** (AI → policy → DEX, end-to-end): [`0x7efe51ac…`](https://chainscan.0g.ai/tx/0x7efe51ac) on **2026-04-24** — orchestrator cycle BUY 0G on Jaine, signed by the TEE signer, verified through `AegisVault.executeIntent()`. (Recorded against the V2 vault stack that preceded the V3 cutover; the V3 reputation registry starts fresh.)
+
+> **Pyth oracle guard note (Jaine adapter):** `OracleGuardLib.checkDeviation()` is wired into every venue adapter, but the on-chain Pyth feeds on 0G are not currently pushed frequently enough to satisfy the 5-minute staleness check. The guard is therefore set to `address(0)` on the live `JaineVenueAdapter`, and the adapter's `maxSlippageBps` cap is the active price-protection mechanism. The guard will be re-enabled once Pyth Hermes push cadence on 0G meets the threshold (or migrated to a pull-at-swap model). Pyth is still used in production by `VaultNAVCalculator` for share-price NAV computation.
 
 ## Architecture
 
@@ -135,24 +143,13 @@ sdk/             @aegis-vault/sdk v0.3.0 — ethers v6 clients + orchestrator HT
 docker-compose.yml  one-command local bring-up (orchestrator + frontend)
 ```
 
-## V3 + Khalani — live on 0G mainnet (deployed 2026-04-27)
+## V3 audit-pass surface
 
-V3 vault + factory and the KhalaniVenueAdapter shipped after audit-pass hardening (235 contract tests). New vault creates route through V3; the V2 stack stays operational for existing vaults.
-
-| Contract | Address |
-|---|---|
-| AegisVaultFactoryV3 | [`0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3`](https://chainscan.0g.ai/address/0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3) |
-| AegisVault impl (V3) | [`0x0c78257550802bF2fFD201106Fe8096A5211397e`](https://chainscan.0g.ai/address/0x0c78257550802bF2fFD201106Fe8096A5211397e) |
-| ExecutionRegistry (V3) | [`0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9`](https://chainscan.0g.ai/address/0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9) |
-| KhalaniVenueAdapter | [`0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4`](https://chainscan.0g.ai/address/0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4) |
-| JaineVenueAdapterV2 (multi-hop) | [`0x261244010A6D87e043b3489D93fA573cdc2274B6`](https://chainscan.0g.ai/address/0x261244010A6D87e043b3489D93fA573cdc2274B6) |
-| CrossChainLib | [`0x505C1C76520C6a47a1C0Bf8819359c786E3c8aB3`](https://chainscan.0g.ai/address/0x505C1C76520C6a47a1C0Bf8819359c786E3c8aB3) |
-
-V3 audit-pass surface: factory role separation (depositor/owner ≠ executor), owner emergency controls (`pause`/`unpause`/`setExecutor`/`setVenue`), on-chain `maxPositionBps` trade-size cap, `consumedKhalaniIds` double-credit guard, multi-factory `ExecutionRegistry` (`authorizedFactories` + Ownable2Step admin), Pyth confidence-band check in `OracleGuardLib`, 80/20 protocol fee split. Full address book: [`contracts/deployments-mainnet.json`](contracts/deployments-mainnet.json). Deploy procedure: [`docs/V3_KHALANI_ROLLOUT.md`](docs/V3_KHALANI_ROLLOUT.md).
+Factory role separation (depositor/owner ≠ executor), owner emergency controls (`pause`/`unpause`/`setExecutor`/`setVenue`), on-chain `maxPositionBps` trade-size cap, `consumedKhalaniIds` double-credit guard, multi-factory `ExecutionRegistry` (`authorizedFactories` + Ownable2Step admin), Pyth confidence-band check in `OracleGuardLib`, 80/20 protocol fee split. Deploy procedure: [`docs/V3_KHALANI_ROLLOUT.md`](docs/V3_KHALANI_ROLLOUT.md).
 
 ## What's next (roadmap)
 
-- **Arbitrum V2/V3 parity** — port `OperatorRegistry`, `Staking`, `Reputation`, `Governor`, `InsurancePool`, then V3 vault + Khalani onto Arbitrum One.
+- **Arbitrum V3 parity** — port `OperatorRegistry`, `Staking`, `Reputation`, `Governor`, `InsurancePool`, then V3 vault + Khalani onto Arbitrum One.
 - **External operator onboarding** — open `OperatorRegistry` to the first wave of third-party operators using [`OPERATOR_REGISTRATION_KIT.md`](OPERATOR_REGISTRATION_KIT.md).
 - **Phase 3 Khalani auto-execution end-to-end** — orchestrator submission flow ready (`submitCrossChainIntent`), gated by per-vault `maxCrossChainFeeBps` ≥ Khalani solver fee.
 - **Pyth deviation guard re-enable** on Jaine adapter once 0G push cadence is acceptable.

@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ORCHESTRATOR_URL } from '../lib/contracts.js';
 
-const ORCHESTRATOR_API_KEY = import.meta.env.VITE_ORCHESTRATOR_API_KEY || '';
+// Intentionally no ORCHESTRATOR_API_KEY here: any VITE_* env is inlined into
+// the public JS bundle at build time, so treating it as a secret is unsafe.
+// Mutation endpoints (/api/cycle, /api/og/flush) work only on loopback in dev,
+// or from an ops CLI that holds the key out-of-band. The frontend never
+// attempts to authenticate to them.
 
 function buildQuery(params = {}) {
   const query = new URLSearchParams();
@@ -16,12 +20,14 @@ function buildQuery(params = {}) {
   return queryString ? `?${queryString}` : '';
 }
 
-function getMutationHeaders() {
-  return ORCHESTRATOR_API_KEY ? { 'x-api-key': ORCHESTRATOR_API_KEY } : {};
-}
-
 /**
  * Generic fetch hook for orchestrator API
+ *
+ * Endpoint-change behavior (important for vault switching):
+ *   - Resets `data` to null immediately so the UI doesn't render stale rows
+ *     from the previous vault/filter.
+ *   - Aborts in-flight fetches so a slow response for vault A can't overwrite
+ *     the fast response for vault B (observed race condition before fix).
  */
 function useAPI(endpoint, options = {}) {
   const { interval = 0, enabled = true } = options;
@@ -29,27 +35,40 @@ function useAPI(endpoint, options = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal) => {
     if (!enabled) return;
     try {
-      const res = await fetch(`${ORCHESTRATOR_URL}${endpoint}`);
+      const res = await fetch(`${ORCHESTRATOR_URL}${endpoint}`, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
+      if (signal?.aborted) return;
       setData(json);
       setError(null);
     } catch (err) {
+      if (err.name === 'AbortError') return; // intentional cancel, not a failure
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, [endpoint, enabled]);
 
   useEffect(() => {
-    fetchData();
+    // Clear any stale payload from a previous endpoint — prevents the chart /
+    // list from freezing on the old vault's data while the new one loads.
+    setData(null);
+    setLoading(true);
+
+    const controller = new AbortController();
+    fetchData(controller.signal);
+
+    let id = null;
     if (interval > 0) {
-      const id = setInterval(fetchData, interval);
-      return () => clearInterval(id);
+      id = setInterval(() => fetchData(controller.signal), interval);
     }
+    return () => {
+      controller.abort();
+      if (id) clearInterval(id);
+    };
   }, [fetchData, interval]);
 
   return { data, loading, error, refetch: fetchData };
@@ -167,7 +186,6 @@ export function useTriggerCycle() {
     try {
       const res = await fetch(`${ORCHESTRATOR_URL}/api/cycle`, {
         method: 'POST',
-        headers: getMutationHeaders(),
       });
       const json = await res.json();
       setResult(json);

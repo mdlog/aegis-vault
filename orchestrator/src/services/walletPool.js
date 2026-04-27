@@ -22,7 +22,7 @@
  */
 
 import { ethers, NonceManager } from 'ethers';
-import { getProvider } from '../config/contracts.js';
+import { getProvider, getSigner } from '../config/contracts.js';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
@@ -35,20 +35,31 @@ function buildPool() {
   const provider = getProvider();
   const raw = process.env.EXECUTOR_PRIVATE_KEYS || '';
   const keys = raw.split(',').map((k) => k.trim()).filter(Boolean);
+  const primaryKey = (config.privateKey || '').replace(/^0x/, '');
+  const primaryAddress = primaryKey
+    ? new ethers.Wallet(primaryKey).address.toLowerCase()
+    : null;
+
+  const makeWallet = (key) => {
+    const clean = key.replace(/^0x/, '');
+    const address = new ethers.Wallet(clean).address.toLowerCase();
+    if (primaryAddress && address === primaryAddress) {
+      // Share the same NonceManager used by 0G Storage / registry writes. Two
+      // independent managers for the same key drift apart and produce stale
+      // nonces once either path submits transactions.
+      return getSigner();
+    }
+    return new NonceManager(new ethers.Wallet(clean, provider));
+  };
 
   // Backwards compat: if no pool configured, fall back to single PRIVATE_KEY
   if (keys.length === 0) {
-    const fallback = (config.privateKey || '').replace(/^0x/, '');
-    if (!fallback) {
+    if (!primaryKey) {
       throw new Error('Wallet pool: no EXECUTOR_PRIVATE_KEYS or PRIVATE_KEY configured');
     }
-    const wallet = new NonceManager(new ethers.Wallet(fallback, provider));
-    _pool = [wallet];
+    _pool = [getSigner()];
   } else {
-    _pool = keys.map((k) => {
-      const clean = k.replace(/^0x/, '');
-      return new NonceManager(new ethers.Wallet(clean, provider));
-    });
+    _pool = keys.map(makeWallet);
   }
 
   // Resolve addresses (NonceManager doesn't expose .address synchronously in v6)

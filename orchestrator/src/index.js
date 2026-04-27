@@ -1,3 +1,8 @@
+// Sentry must initialize before any other module so its instrumentation can
+// patch http/https + uncaughtException handlers cleanly. Keep this import first.
+import { initSentry, Sentry } from './utils/sentry.js';
+initSentry();
+
 import cron from 'node-cron';
 import config, { validateConfig } from './config/index.js';
 import { initialize, runCycle, getStatus } from './services/orchestrator.js';
@@ -63,6 +68,7 @@ async function main() {
     await runCycle();
   } catch (err) {
     logger.error(`Initial cycle failed: ${err.message}`);
+    Sentry.captureException(err, { tags: { phase: 'initial_cycle' } });
   }
 
   // Schedule recurring cycles
@@ -74,6 +80,7 @@ async function main() {
       await runCycle();
     } catch (err) {
       logger.error(`Scheduled cycle failed: ${err.message}`);
+      Sentry.captureException(err, { tags: { phase: 'scheduled_cycle' } });
     }
   });
 
@@ -89,6 +96,9 @@ async function shutdown(signal) {
   } catch (err) {
     logger.warn(`Journal flush during shutdown failed: ${err.message}`);
   }
+  try {
+    await Sentry.close(2000);
+  } catch {}
   const status = getStatus();
   logger.info(`Final status: ${status.cycleCount} cycles, ${status.totalExecutions} executions`);
   process.exit(0);
@@ -104,5 +114,6 @@ process.on('SIGTERM', () => {
 
 main().catch((err) => {
   logger.error(`Fatal error: ${err.message}`);
-  process.exit(1);
+  Sentry.captureException(err, { tags: { phase: 'main_bootstrap' } });
+  Sentry.close(2000).finally(() => process.exit(1));
 });

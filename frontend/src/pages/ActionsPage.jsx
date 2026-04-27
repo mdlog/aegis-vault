@@ -7,54 +7,157 @@ import { ENABLE_DEMO_FALLBACKS, getExplorerTxHref, ORCHESTRATOR_URL, shortHexLab
 import { demoJournalEntries, demoStatus } from '../data/demoContent';
 import ControlButton from '../components/ui/ControlButton';
 import GlassPanel from '../components/ui/GlassPanel';
-import StatusPill from '../components/ui/StatusPill';
 import ExplorerAnchor from '../components/ui/ExplorerAnchor';
-import { Zap, Radio, FileText, Activity, Shield, AlertTriangle, Settings, Clock, Cpu, Plus } from 'lucide-react';
+import {
+  Zap, Radio, FileText, Activity, Shield, AlertTriangle, Settings, Cpu, Plus,
+  RefreshCw, Download, ArrowLeft, Layers, CheckCircle2, Search, Pause, Play,
+} from 'lucide-react';
 
+// KPI tile used inside the editorial hero's inline metric strip. Tiny tone
+// icon + eyebrow label + editorial-italic number + mono sub-caption. Kept
+// purpose-built (not reused from MetricCard) so the hero's density matches
+// the reference design exactly.
+function KPI({ Icon, label, value, sub, tone = 'info', mono }) {
+  const tones = {
+    info:    { c: 'var(--ed-cyan)',    bg: 'rgba(76,201,240,0.12)' },
+    emerald: { c: 'var(--ed-emerald)', bg: 'rgba(16,185,129,0.12)' },
+    amber:   { c: 'var(--ed-amber)',   bg: 'rgba(245,158,11,0.12)' },
+    gold:    { c: 'var(--ed-gold)',    bg: 'rgba(201,168,76,0.12)' },
+    rose:    { c: 'var(--ed-rose)',    bg: 'rgba(225,29,72,0.12)' },
+    neutral: { c: 'var(--ed-steel-300)', bg: 'rgba(255,255,255,0.06)' },
+  }[tone] || { c: 'var(--ed-cyan)', bg: 'rgba(76,201,240,0.12)' };
+  return (
+    <div className="rounded-xl ed-ghost p-4" style={{ background: 'rgba(255,255,255,0.03)' }}>
+      <div className="flex items-center gap-2 mb-3">
+        <span
+          className="h-6 w-6 rounded-md flex items-center justify-center"
+          style={{ background: tones.bg, color: tones.c }}
+        >
+          <Icon className="w-3 h-3" />
+        </span>
+        <span
+          className="ed-mono uppercase"
+          style={{ fontSize: 9, letterSpacing: '0.22em', color: 'var(--ed-steel-500)' }}
+        >
+          {label}
+        </span>
+      </div>
+      <div
+        className={mono ? 'ed-mono' : 'ed-italic'}
+        style={{
+          fontSize: mono ? 28 : 34,
+          lineHeight: 1,
+          color: mono ? tones.c : 'var(--ed-steel-100)',
+        }}
+      >
+        {value}
+      </div>
+      <div className="ed-mono mt-2" style={{ fontSize: 10.5, color: 'var(--ed-steel-500)' }}>
+        {sub}
+      </div>
+    </div>
+  );
+}
+
+// Per-row visual config. Each journal entry type maps to an icon, an accent
+// colour (used for the icon tile + left rail tint), a chip style, and a
+// short label. The accent propagates into JournalRow's inline styles so the
+// stream reads at a glance: cycle=blue, execution=rose/emerald by side,
+// policy=amber, alert=amber, decision=cyan.
 const typeConfig = {
-  decision: { icon: Activity, color: 'text-cyan/60', label: 'Decision' },
-  execution: { icon: Shield, color: 'text-emerald-soft/60', label: 'Execution' },
-  policy_check: { icon: AlertTriangle, color: 'text-gold/60', label: 'Policy' },
-  alert: { icon: AlertTriangle, color: 'text-amber-warn/60', label: 'Alert' },
-  cycle: { icon: Clock, color: 'text-steel/40', label: 'Cycle' },
-  system: { icon: Settings, color: 'text-steel/40', label: 'System' },
+  decision:     { icon: Activity,      chip: 'cyan',    label: 'Decision',    accent: 'var(--ed-cyan)',    accentRgb: '76,201,240' },
+  execution:    { icon: Zap,           chip: 'emerald', label: 'Execution',   accent: 'var(--ed-emerald)', accentRgb: '16,185,129' },
+  policy_check: { icon: Shield,        chip: 'amber',   label: 'Policy',      accent: 'var(--ed-amber)',   accentRgb: '245,158,11' },
+  alert:        { icon: AlertTriangle, chip: 'amber',   label: 'Alert',       accent: 'var(--ed-amber)',   accentRgb: '245,158,11' },
+  cycle:        { icon: Layers,        chip: 'cyan',    label: 'Cycle',       accent: 'var(--ed-cyan)',    accentRgb: '76,201,240' },
+  system:       { icon: Settings,      chip: 'steel',   label: 'System',      accent: 'var(--ed-steel-300)', accentRgb: '154,154,166' },
 };
 
-const journalFilters = ['all', 'decision', 'execution', 'policy_check', 'alert', 'cycle'];
+const journalFilters = [
+  { k: 'all',          l: 'All' },
+  { k: 'decision',     l: 'Decisions' },
+  { k: 'execution',    l: 'Executed' },
+  { k: 'policy_check', l: 'Policy-rejected' },
+  { k: 'alert',        l: 'Alerts' },
+  { k: 'cycle',        l: 'Cycles' },
+];
 
 function JournalTab({ fallbackEntries = [] }) {
   const chainId = useChainId();
   const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
   const { data: entries, loading } = useJournal(100);
   const sourceEntries = entries && entries.length > 0 ? entries : fallbackEntries;
   const usingFallback = (!entries || entries.length === 0) && fallbackEntries.length > 0;
 
-  const filtered = sourceEntries
-    ? (filter === 'all' ? sourceEntries : sourceEntries.filter(e => e.type === filter))
-    : [];
+  const filtered = (sourceEntries || [])
+    .filter((e) => (filter === 'all' ? true : e.type === filter))
+    .filter((e) => {
+      if (!search.trim()) return true;
+      const q = search.toLowerCase().trim();
+      return (
+        (e.id && String(e.id).toLowerCase().includes(q)) ||
+        (e.asset && e.asset.toLowerCase().includes(q)) ||
+        (e.action && e.action.toLowerCase().includes(q)) ||
+        (e.message && e.message.toLowerCase().includes(q)) ||
+        (e.reason && e.reason.toLowerCase().includes(q))
+      );
+    });
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-xs text-steel/50">Complete audit trail — decisions, policy checks, executions, and system events.</p>
-        <div className="flex items-center gap-1">
-          {journalFilters.map(f => (
+      {/* L.03 section header */}
+      <div className="flex items-center gap-4 mb-4">
+        <span className="ed-eyebrow">§ L.03 · Log Stream</span>
+        <div className="flex-1 ed-hairline" />
+        <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
+          {filtered.length} row{filtered.length === 1 ? '' : 's'} · auto-scroll
+        </span>
+      </div>
+
+      {/* Tabs + filters row */}
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          {journalFilters.map((t) => (
             <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-2.5 py-1 rounded text-[10px] font-mono uppercase tracking-wider transition-all
-                ${f === filter
-                  ? 'bg-white/[0.08] text-white border border-white/[0.08]'
-                  : 'text-steel/40 hover:text-steel/70'
-                }`}
+              key={t.k}
+              onClick={() => setFilter(t.k)}
+              className="ed-mono uppercase whitespace-nowrap transition rounded-lg"
+              style={{
+                fontSize: 11.5,
+                letterSpacing: '0.18em',
+                padding: '0 12px',
+                height: 36,
+                color: filter === t.k ? 'var(--ed-steel-100)' : 'var(--ed-steel-500)',
+                background: filter === t.k ? 'rgba(255,255,255,0.08)' : 'transparent',
+                boxShadow: filter === t.k ? 'var(--ed-ghost-border)' : 'none',
+              }}
             >
-              {f === 'all' ? 'All' : f.replace('_', ' ')}
+              {t.l}
             </button>
           ))}
         </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div
+            className="flex items-center gap-1.5 rounded-lg ed-ghost px-3"
+            style={{ background: 'rgba(0,0,0,0.3)', height: 36 }}
+          >
+            <Search className="w-3 h-3" style={{ color: 'var(--ed-steel-500)' }} />
+            <input
+              placeholder="Search by id, asset, reason…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="bg-transparent outline-none w-[220px]"
+              style={{ fontSize: 12, color: 'var(--ed-steel-100)' }}
+            />
+          </div>
+          <span className="ed-chip ed-chip-steel">Sort · Newest</span>
+        </div>
       </div>
 
-      {loading && !usingFallback && <p className="text-xs text-steel/40">Loading journal...</p>}
+      {loading && !usingFallback && (
+        <p className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>Loading journal…</p>
+      )}
 
       {!loading && filtered.length === 0 && (
         <GlassPanel className="p-8">
@@ -83,78 +186,266 @@ function JournalTab({ fallbackEntries = [] }) {
         </GlassPanel>
       )}
 
-      <div className="space-y-1.5">
-        {filtered.map((entry, i) => {
-          const cfg = typeConfig[entry.type] || typeConfig.system;
-          const Icon = cfg.icon;
-          const txHref = getExplorerTxHref(chainId, entry.txHash);
-          return (
-            <GlassPanel key={entry.id || i} className="p-3.5 hover:border-white/[0.08]" hover>
-              <div className="flex items-start gap-3">
-                <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${cfg.color}`} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-[10px] font-mono text-steel/30 uppercase">{cfg.label}</span>
-                    {entry.action && (
-                      <span className="text-xs text-white/70 font-medium">
-                        {entry.action.toUpperCase()} {entry.asset || ''}
-                      </span>
-                    )}
-                    {entry.valid !== undefined && (
-                      <StatusPill label={entry.valid ? 'Passed' : 'Blocked'} variant={entry.valid ? 'passed' : 'blocked'} />
-                    )}
-                    {entry.success !== undefined && (
-                      <StatusPill label={entry.success ? 'Success' : 'Failed'} variant={entry.success ? 'executed' : 'failed'} />
-                    )}
-                    {entry.level && (
-                      <StatusPill label={entry.level} variant={entry.level === 'critical' ? 'critical' : entry.level === 'warning' ? 'warning' : 'info'} />
-                    )}
-                    {entry.approval_tier && entry.approval_tier !== 'not_required' && (
-                      <StatusPill
-                        label={entry.approval_tier.replace(/_/g, ' ')}
-                        variant={entry.approval_tier === 'auto_execute' ? 'active' : 'warning'}
-                      />
-                    )}
-                    {usingFallback && (
-                      <span className="text-[8px] font-mono text-gold/70 px-1 py-0.5 rounded bg-gold/5 border border-gold/10">
-                        DEMO
-                      </span>
-                    )}
-                  </div>
-                  {entry.message && (
-                    <p className="text-[11px] text-white/65 truncate">{entry.message}</p>
-                  )}
-                  {entry.reason && (
-                    <p className="text-[11px] text-steel/50 truncate">{entry.reason}</p>
-                  )}
-                  {entry.confidence !== undefined && (
-                    <span className="text-[10px] font-mono text-cyan/40">
-                      Conf: {(entry.confidence * 100).toFixed(0)}% | Risk: {((entry.risk_score || 0) * 100).toFixed(0)}%
-                    </span>
-                  )}
-                  {entry.txHash && (
-                    txHref ? (
-                      <ExplorerAnchor
-                        href={txHref}
-                        label={shortHexLabel(entry.txHash, 10, 6)}
-                        className="text-[10px] font-mono text-cyan/40 block w-fit hover:text-cyan"
-                      />
-                    ) : (
-                      <span className="text-[10px] font-mono text-cyan/30 block">{shortHexLabel(entry.txHash, 10, 6)}</span>
-                    )
-                  )}
-                  {entry.duration_ms && (
-                    <span className="text-[10px] font-mono text-steel/30">{entry.duration_ms}ms</span>
-                  )}
-                </div>
-                <span className="text-[9px] font-mono text-steel/25 flex-shrink-0 whitespace-nowrap">
-                  {entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : ''}
-                </span>
-              </div>
-            </GlassPanel>
-          );
-        })}
+      <div className="flex flex-col gap-2">
+        {filtered.map((entry, i) => (
+          <JournalRow key={entry.id || i} entry={entry} chainId={chainId} usingFallback={usingFallback} />
+        ))}
       </div>
+
+      {filtered.length > 0 && <StreamTail />}
+    </div>
+  );
+}
+
+// One log row. Cycles get a blue gradient rail + single-line summary; all
+// other types are full cards with icon tile + title + metadata + optional
+// policy-tag pills + timestamp + Receipt link.
+function JournalRow({ entry, chainId, usingFallback }) {
+  const cfg = typeConfig[entry.type] || typeConfig.system;
+  const RowIcon = cfg.icon;
+  const txHref = getExplorerTxHref(chainId, entry.txHash);
+  const timestamp = entry.timestamp
+    ? new Date(entry.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+    : '';
+
+  // Cycle entries render as a single-line gradient strip
+  if (entry.type === 'cycle') {
+    return (
+      <div
+        className="rounded-xl ed-ghost relative overflow-hidden"
+        style={{ background: 'linear-gradient(90deg, rgba(76,201,240,0.06), rgba(15,15,19,0.8))' }}
+      >
+        <div
+          className="grid items-center gap-4 px-5 py-3.5"
+          style={{ gridTemplateColumns: '46px 1fr auto' }}
+        >
+          <div
+            className="h-9 w-9 rounded-lg flex items-center justify-center"
+            style={{
+              background: 'rgba(76,201,240,0.12)',
+              color: 'var(--ed-cyan)',
+              boxShadow: 'inset 0 0 0 1px rgba(76,201,240,0.28)',
+            }}
+          >
+            <Layers className="w-3.5 h-3.5" />
+          </div>
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <span style={{ fontSize: 13.5, color: 'var(--ed-steel-100)' }} className="whitespace-nowrap">
+              {entry.message || `AI Cycle #${entry.cycleCount || '—'}`}
+            </span>
+            <span className="ed-chip ed-chip-cyan">Cycle</span>
+            {entry.id && <span className="ed-chip ed-chip-steel">{String(entry.id).slice(0, 10)}</span>}
+            {entry.duration_ms && (
+              <span className="ed-mono ml-2" style={{ fontSize: 10.5, color: 'var(--ed-steel-500)' }}>
+                {entry.duration_ms} ms
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="ed-mono whitespace-nowrap" style={{ fontSize: 10.5, color: 'var(--ed-steel-500)' }}>
+              {timestamp}
+            </span>
+            {txHref && (
+              <ExplorerAnchor
+                href={txHref}
+                label="Receipt →"
+                className="ed-mono uppercase whitespace-nowrap transition-colors"
+                style={{ fontSize: 10, letterSpacing: '0.18em', color: 'var(--ed-cyan)' }}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Action entries (decision, execution, policy_check, alert, system)
+  const accent = cfg.accent;
+  const accentRgb = cfg.accentRgb;
+  const badgeTone = cfg.chip;
+  const titleText = entry.action
+    ? `${entry.action.toUpperCase()}${entry.asset ? ` ${entry.asset}` : ''}`
+    : entry.message || cfg.label;
+
+  // Decide the short status word that sits next to the title
+  let statusLabel = null;
+  let statusTone = badgeTone;
+  if (entry.type === 'execution') {
+    if (entry.success === false) { statusLabel = 'Failed'; statusTone = 'rose'; }
+    else if (entry.success === true) { statusLabel = 'Filled'; statusTone = 'emerald'; }
+    else { statusLabel = 'Exec'; }
+  } else if (entry.type === 'policy_check') {
+    statusLabel = entry.valid === false ? 'Blocked' : 'Passed';
+    statusTone = entry.valid === false ? 'amber' : 'emerald';
+  } else if (entry.type === 'alert') {
+    statusLabel = (entry.level || 'info').toUpperCase();
+    statusTone = entry.level === 'critical' ? 'rose' : entry.level === 'warning' ? 'amber' : 'cyan';
+  } else if (entry.type === 'decision') {
+    statusLabel = entry.action ? entry.action.toUpperCase() : 'Signal';
+    statusTone = 'cyan';
+  }
+
+  const policyTags = Array.isArray(entry.policy_checks) ? entry.policy_checks : null;
+
+  return (
+    <div
+      className="rounded-xl ed-ghost transition"
+      style={{ background: 'var(--ed-surface-0)' }}
+    >
+      <div
+        className="grid gap-4 px-5 py-4 items-start"
+        style={{ gridTemplateColumns: '46px 1fr auto' }}
+      >
+        <div
+          className="h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={{
+            background: `rgba(${accentRgb}, 0.1)`,
+            color: accent,
+            boxShadow: `inset 0 0 0 1px rgba(${accentRgb}, 0.35)`,
+          }}
+        >
+          <RowIcon className="w-3.5 h-3.5" />
+        </div>
+
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span style={{ fontSize: 13.5, color: 'var(--ed-steel-100)' }} className="whitespace-nowrap">
+              {titleText}
+            </span>
+            {statusLabel && <span className={`ed-chip ed-chip-${statusTone}`}>{statusLabel}</span>}
+            <span className="ed-chip ed-chip-steel">{cfg.label}</span>
+            {entry.confidence !== undefined && (
+              <span className="ed-mono" style={{ fontSize: 10.5, color: 'var(--ed-cyan)' }}>
+                conf {(entry.confidence * 100).toFixed(0)}%
+              </span>
+            )}
+            {entry.pnl !== undefined && entry.pnl !== null && (
+              <span
+                className="ed-mono"
+                style={{ fontSize: 11, color: Number(entry.pnl) >= 0 ? 'var(--ed-emerald)' : 'var(--ed-rose)' }}
+              >
+                {Number(entry.pnl) >= 0 ? '+' : ''}${Number(entry.pnl).toFixed(2)}
+              </span>
+            )}
+            {usingFallback && (
+              <span className="ed-chip ed-chip-gold">Demo</span>
+            )}
+          </div>
+
+          {(entry.message || entry.reason) && (
+            <p style={{ fontSize: 12.5, color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
+              {entry.reason || entry.message}
+            </p>
+          )}
+
+          {/* Policy-check tag pills */}
+          {policyTags && policyTags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {policyTags.map((tag, j) => {
+                const passed = typeof tag === 'object' ? tag.passed : true;
+                const label = typeof tag === 'object' ? tag.name : tag;
+                const tagColor = passed ? 'var(--ed-emerald)' : 'var(--ed-amber)';
+                const tagRgb = passed ? '16,185,129' : '245,158,11';
+                return (
+                  <span
+                    key={`${label}-${j}`}
+                    className="ed-mono uppercase whitespace-nowrap rounded-md ed-ghost"
+                    style={{
+                      fontSize: 10,
+                      padding: '2px 6px',
+                      background: `rgba(${tagRgb}, 0.1)`,
+                      color: tagColor,
+                    }}
+                  >
+                    {label}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Exec-specific metadata row */}
+          {entry.type === 'execution' && (entry.venue || entry.slippage_bps !== undefined) && (
+            <div className="flex items-center gap-4 mt-2.5 flex-wrap">
+              {entry.venue && (
+                <span className="ed-mono" style={{ fontSize: 10.5, color: 'var(--ed-steel-500)' }}>
+                  venue <span style={{ color: 'var(--ed-steel-100)' }}>{entry.venue}</span>
+                </span>
+              )}
+              {entry.sealed && (
+                <span className="ed-mono" style={{ fontSize: 10.5, color: 'var(--ed-steel-500)' }}>
+                  seal <span style={{ color: 'var(--ed-steel-100)' }}>commit+reveal</span>
+                </span>
+              )}
+              {entry.slippage_bps !== undefined && (
+                <span className="ed-mono" style={{ fontSize: 10.5, color: 'var(--ed-steel-500)' }}>
+                  slip <span style={{ color: 'var(--ed-steel-100)' }}>{entry.slippage_bps} bps</span>
+                </span>
+              )}
+              {entry.duration_ms && (
+                <span className="ed-mono" style={{ fontSize: 10.5, color: 'var(--ed-steel-500)' }}>
+                  latency <span style={{ color: 'var(--ed-steel-100)' }}>{entry.duration_ms} ms</span>
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col items-end gap-2 flex-shrink-0">
+          <span className="ed-mono whitespace-nowrap" style={{ fontSize: 10.5, color: 'var(--ed-steel-500)' }}>
+            {timestamp}
+          </span>
+          {entry.txHash && txHref && (
+            <ExplorerAnchor
+              href={txHref}
+              label="Receipt →"
+              className="ed-mono uppercase whitespace-nowrap transition-colors"
+              style={{ fontSize: 10, letterSpacing: '0.18em', color: 'var(--ed-cyan)' }}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Live-stream footer — shown below the journal rows to signal "the feed is
+// still ticking, more rows will arrive at the top." Pause button is a
+// placeholder; the underlying poll is driven by useJournal's interval.
+function StreamTail() {
+  const [paused, setPaused] = useState(false);
+  return (
+    <div
+      className="mt-5 rounded-xl ed-ghost p-4 flex items-center gap-4"
+      style={{ background: 'rgba(255,255,255,0.02)' }}
+    >
+      <div
+        className="h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0"
+        style={{ background: 'rgba(76,201,240,0.15)', color: 'var(--ed-cyan)' }}
+      >
+        <Radio className="w-3 h-3 animate-pulse" />
+      </div>
+      <div className="flex-1">
+        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+          <span
+            className="ed-mono uppercase whitespace-nowrap"
+            style={{ fontSize: 11, letterSpacing: '0.2em', color: 'var(--ed-steel-100)' }}
+          >
+            Stream tail
+          </span>
+          <span className="ed-chip ed-chip-cyan">
+            <span className="inline-block rounded-full" style={{ width: 5, height: 5, background: 'var(--ed-cyan)' }} />
+            {paused ? 'Paused' : 'Live'}
+          </span>
+        </div>
+        <p style={{ fontSize: 12.5, color: 'var(--ed-steel-400)' }}>
+          New signals stream in at the top as the orchestrator ticks. The feed polls the journal every 10 s.
+        </p>
+      </div>
+      <ControlButton variant="secondary" size="sm" onClick={() => setPaused((p) => !p)}>
+        {paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
+        {paused ? 'Resume' : 'Pause'}
+      </ControlButton>
     </div>
   );
 }
@@ -166,86 +457,159 @@ export default function ActionsPage() {
   const displayStatus = status || (ENABLE_DEMO_FALLBACKS ? demoStatus : null);
   const [tab, setTab] = useState('feed');
 
+  const cycleNum = displayStatus?.cycleCount ? String(displayStatus.cycleCount).padStart(2, '0') : '—';
+
   return (
-    <div className="max-w-[1440px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
-      <div className="flex items-end justify-between mb-8">
-        <div>
-          <div className="flex items-baseline gap-3.5 mb-2">
-            <span className="ed-eyebrow">§ X.01</span>
-            <span className="ed-mono text-[10.5px] tracking-[0.22em] uppercase" style={{ color: 'var(--ed-steel-400)' }}>
-              AI execution trail
-            </span>
-          </div>
-          <h1
-            className="ed-display"
-            style={{ fontSize: 40, fontWeight: 500, letterSpacing: '-0.035em', lineHeight: 1, margin: 0 }}
-          >
-            Every decision, <span className="ed-italic" style={{ color: 'var(--ed-gold)' }}>on the record.</span>
-          </h1>
-          <p className="text-[13px] mt-3 max-w-[620px]" style={{ color: 'var(--ed-steel-400)', lineHeight: 1.55 }}>
-            Signed by an operator. Gated by policy. Receipted on-chain. Nothing the agent does escapes this page.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {displayStatus && (
-            <GlassPanel className="px-3 py-1.5 flex items-center gap-4">
-              <div className="flex items-center gap-1.5">
-                <Radio className="w-3 h-3 text-cyan animate-pulse" />
-                <span className="text-[10px] font-mono text-steel/50">Cycles: {displayStatus.cycleCount || 0}</span>
-              </div>
-              <span className="text-[10px] font-mono text-emerald-soft/60">Exec: {displayStatus.totalExecutions || 0}</span>
-              <span className="text-[10px] font-mono text-amber-warn/60">Blocked: {displayStatus.totalBlocked || 0}</span>
-              <span className="text-[10px] font-mono text-steel/40">Skipped: {displayStatus.totalSkipped || 0}</span>
-              {!status && (
-                <span className="text-[9px] font-mono text-gold/60">DEMO</span>
-              )}
-            </GlassPanel>
-          )}
-          <ControlButton variant="gold" onClick={trigger} disabled={loading}>
-            <Zap className="w-3.5 h-3.5" /> {loading ? 'Running...' : 'Trigger Cycle'}
-          </ControlButton>
-        </div>
+    <div className="max-w-[1540px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-2 mb-5">
+        <Link
+          to="/app"
+          className="ed-mono text-[11px] uppercase tracking-[0.18em] inline-flex items-center gap-1.5 whitespace-nowrap transition-colors hover:text-white"
+          style={{ color: 'var(--ed-steel-500)' }}
+        >
+          <ArrowLeft className="w-3 h-3" /> Back to Dashboard
+        </Link>
+        <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-600)' }}>/</span>
+        <span
+          className="ed-mono text-[11px] uppercase tracking-[0.18em]"
+          style={{ color: 'var(--ed-steel-500)' }}
+        >
+          AI Actions
+        </span>
+        <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-600)' }}>/</span>
+        <span
+          className="ed-mono text-[11px] uppercase tracking-[0.18em]"
+          style={{ color: 'var(--ed-steel-100)' }}
+        >
+          Cycle {cycleNum}
+        </span>
       </div>
 
-      {/* Editorial tally strip — 5-col summary of orchestrator counters */}
-      {displayStatus && (
+      {/* Editorial hero header with ghost numeral + inline KPI strip */}
+      <section
+        className="relative rounded-[28px] ed-ghost p-8 lg:p-9 mb-6 overflow-hidden"
+        style={{ background: 'linear-gradient(180deg, var(--ed-surface-0), var(--ed-obsidian))' }}
+      >
+        <div aria-hidden className="absolute inset-0 ed-dotgrid opacity-40 pointer-events-none" />
         <div
-          className="grid gap-3 mb-6"
-          style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}
+          aria-hidden
+          className="absolute pointer-events-none"
+          style={{
+            top: -80,
+            right: -96,
+            width: 360,
+            height: 360,
+            borderRadius: '50%',
+            opacity: 0.12,
+            background: 'radial-gradient(circle, var(--ed-cyan) 0%, transparent 60%)',
+            filter: 'blur(10px)',
+          }}
+        />
+        <div
+          aria-hidden
+          className="absolute hidden lg:block pointer-events-none ed-ghost-numeral"
+          style={{ top: -16, right: 40, fontSize: 160 }}
         >
-          {[
-            { k: 'Cycles · lifetime', v: displayStatus.cycleCount || 0, c: 'var(--ed-steel-100)' },
-            { k: 'Executed', v: displayStatus.totalExecutions || 0, c: 'var(--ed-emerald)' },
-            { k: 'Blocked', v: displayStatus.totalBlocked || 0, c: 'var(--ed-rose)' },
-            { k: 'Skipped', v: displayStatus.totalSkipped || 0, c: 'var(--ed-amber)' },
-            {
-              k: 'Source',
-              v: status ? 'LIVE' : 'DEMO',
-              c: status ? 'var(--ed-cyan)' : 'var(--ed-gold)',
-            },
-          ].map((x, i) => (
-            <div key={i} className="ed-card" style={{ padding: 18 }}>
-              <div
-                className="ed-mono mb-1.5"
-                style={{ fontSize: 10, color: 'var(--ed-steel-500)', letterSpacing: '0.2em' }}
-              >
-                {x.k.toUpperCase()}
-              </div>
-              <div
-                className="ed-display"
-                style={{
-                  fontSize: 26,
-                  color: x.c,
-                  fontWeight: 600,
-                  letterSpacing: '-0.03em',
-                }}
-              >
-                {x.v}
-              </div>
-            </div>
-          ))}
+          L.01
         </div>
-      )}
+
+        <div className="relative grid gap-8 lg:grid-cols-[1.6fr_1fr] items-end">
+          <div className="flex flex-col gap-4 min-w-0">
+            <div className="flex items-center gap-3">
+              <span className="ed-eyebrow">§ L.01 · Execution Log · Cycle {cycleNum}</span>
+              <div className="flex-1 ed-hairline" />
+              <span className="ed-chip ed-chip-emerald whitespace-nowrap">
+                <span className="inline-block rounded-full" style={{ width: 5, height: 5, background: 'var(--ed-emerald)' }} />
+                {status ? 'Streaming' : 'Demo'}
+              </span>
+            </div>
+            <h1
+              className="ed-display"
+              style={{ fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 600, letterSpacing: '-0.025em', lineHeight: 1, margin: 0, color: 'var(--ed-steel-100)' }}
+            >
+              Every decision,{' '}
+              <span className="ed-italic" style={{ fontWeight: 400, color: 'var(--ed-steel-100)' }}>
+                on the record.
+              </span>
+            </h1>
+            <p className="max-w-[620px]" style={{ fontSize: 14, color: 'var(--ed-steel-400)', lineHeight: 1.6 }}>
+              Signed by an operator. Gated by policy. Recorded on-chain. Nothing the agent does escapes{' '}
+              <span className="ed-italic" style={{ color: 'var(--ed-steel-100)' }}>this page.</span>
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-3 w-full items-end">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <span className="ed-chip ed-chip-steel">Range · Live</span>
+              {displayStatus?.executorAddress && (
+                <span className="ed-chip ed-chip-steel">
+                  Executor · {shortHexLabel(displayStatus.executorAddress, 4, 4)}
+                </span>
+              )}
+              {!status && <span className="ed-chip ed-chip-gold">Demo mode</span>}
+            </div>
+            <div className="flex gap-2">
+              <ControlButton variant="secondary" size="md" onClick={trigger} disabled={loading}>
+                <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+                {loading ? 'Running…' : 'Rerun cycle'}
+              </ControlButton>
+              <ControlButton variant="ghost" size="md" disabled>
+                <Download className="w-3 h-3" /> Export CSV
+              </ControlButton>
+            </div>
+          </div>
+        </div>
+
+        {/* Inline KPI strip */}
+        {displayStatus && (
+          <div
+            className="relative grid gap-4 mt-8 pt-8"
+            style={{ gridTemplateColumns: 'repeat(5, 1fr)', borderTop: '1px solid rgba(255,255,255,0.05)' }}
+          >
+            <KPI
+              Icon={Layers}
+              label="Total actions"
+              value={String(
+                (displayStatus.totalExecutions || 0) +
+                (displayStatus.totalBlocked || 0) +
+                (displayStatus.totalSkipped || 0),
+              )}
+              sub={`Since c.${cycleNum}`}
+              tone="info"
+            />
+            <KPI
+              Icon={CheckCircle2}
+              label="Filled"
+              value={String(displayStatus.totalExecutions || 0)}
+              sub="Live pairs"
+              tone="emerald"
+            />
+            <KPI
+              Icon={Shield}
+              label="AI rejected"
+              value={String(displayStatus.totalBlocked || 0)}
+              sub="Policy vetoes"
+              tone="amber"
+            />
+            <KPI
+              Icon={RefreshCw}
+              label="Cycles"
+              value={cycleNum}
+              sub="Lifetime"
+              tone="info"
+            />
+            <KPI
+              Icon={Radio}
+              label="Stream"
+              value={status ? 'LIVE' : 'DEMO'}
+              sub={status ? '100 ms feed' : 'Fallback data'}
+              tone={status ? 'emerald' : 'gold'}
+              mono
+            />
+          </div>
+        )}
+      </section>
 
       <DecisionTracePrimer />
 
@@ -269,20 +633,25 @@ export default function ActionsPage() {
         </GlassPanel>
       )}
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1 mb-5 border-b border-white/[0.06]">
+      {/* Mode switch — pill-style tabs, no border-baseline */}
+      <div className="flex items-center gap-2 mb-5">
         {[
-          { id: 'feed', label: 'Intelligence Feed' },
-          { id: 'journal', label: 'Execution Journal' },
-        ].map(t => (
+          { id: 'feed', label: 'Intelligence feed' },
+          { id: 'journal', label: 'Execution journal' },
+        ].map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-[11px] font-medium tracking-wide transition-all border-b-2 -mb-px
-              ${tab === t.id
-                ? 'text-white border-gold'
-                : 'text-steel/50 border-transparent hover:text-steel/80'
-              }`}
+            className="ed-mono uppercase whitespace-nowrap transition rounded-lg"
+            style={{
+              fontSize: 11.5,
+              letterSpacing: '0.18em',
+              padding: '0 14px',
+              height: 36,
+              color: tab === t.id ? 'var(--ed-steel-100)' : 'var(--ed-steel-500)',
+              background: tab === t.id ? 'rgba(255,255,255,0.08)' : 'transparent',
+              boxShadow: tab === t.id ? 'var(--ed-ghost-border)' : 'none',
+            }}
           >
             {t.label}
           </button>
@@ -295,127 +664,116 @@ export default function ActionsPage() {
   );
 }
 
-// Editorial 3-gate decision trace primer — shown above the action feed to
-// frame what readers are looking at. Static schematic of the signal → policy
-// → execution pipeline every AI action passes through before funds move.
+// Editorial 3-gate control surface — shown above the action feed to frame
+// what readers are looking at. Each gate is the conceptual checkpoint every
+// AI action traverses: operator signal → policy gate → execution. Rows are
+// the concrete mechanics we rely on today (GLM-5-FP8 / commit-reveal /
+// Jaine V3 — the 0G Aristotle deployment).
 function DecisionTracePrimer() {
   const gates = [
     {
-      step: '01',
+      n: '01',
+      Icon: Cpu,
       title: 'Operator signal',
-      status: 'SIGNED',
-      tone: 'var(--ed-cyan)',
-      toneChip: 'cyan',
+      chip: { tone: 'cyan', text: 'Live' },
       rows: [
-        ['model', 'on-chain committed hash'],
-        ['operator', 'staked + reputation-scored'],
-        ['input hash', 'attested inference'],
-        ['attest', '0G Compute · TEE'],
+        ['Model', 'GLM-5-FP8'],
+        ['Decision', 'commit + reveal + sealed'],
+        ['Latency', '~400 ms avg'],
+        ['Inference', '0G Compute · TEE-attested'],
       ],
     },
     {
-      step: '02',
+      n: '02',
+      Icon: Shield,
       title: 'Policy gate',
-      status: 'CHECKED',
-      tone: 'var(--ed-emerald)',
-      toneChip: 'emerald',
+      chip: { tone: 'emerald', text: 'Enforced' },
       rows: [
-        ['drawdown', 'live / max cap'],
-        ['turnover', 'daily rate vs cap'],
-        ['concentration', 'single-asset cap'],
-        ['confidence', 'floor enforced'],
+        ['Max pos', '50% nav cap'],
+        ['Stop-loss', '15% drawdown'],
+        ['Cooldown', '15 min gate'],
+        ['Confidence', '≥ 60% floor'],
       ],
     },
     {
-      step: '03',
+      n: '03',
+      Icon: Zap,
       title: 'Execution',
-      status: 'RECEIPTED',
-      tone: 'var(--ed-gold)',
-      toneChip: 'gold',
+      chip: { tone: 'gold', text: 'Monitored' },
       rows: [
-        ['tx', 'on-chain receipt minted'],
-        ['block', 'next block inclusion'],
-        ['gas', 'native token gas only'],
-        ['commit-reveal', 'sealed mode · optional'],
+        ['Venue', 'Jaine V3 on 0G'],
+        ['Seal', 'commit → reveal'],
+        ['Signer', 'TEE-attested'],
+        ['Settlement', 'on-chain · intent-signed'],
       ],
     },
   ];
   return (
-    <div className="ed-card overflow-hidden mb-6">
-      <div className="px-5 pt-5">
-        <div className="flex items-baseline gap-3.5 mb-2">
-          <span className="ed-eyebrow">§ X.03</span>
-          <span
-            className="ed-mono text-[10.5px] tracking-[0.22em] uppercase"
-            style={{ color: 'var(--ed-steel-400)' }}
-          >
-            Decision trace
-          </span>
-        </div>
-        <h3
-          className="ed-display"
-          style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}
-        >
+    <section
+      className="rounded-2xl ed-ghost relative overflow-hidden mb-6 p-6"
+      style={{ background: 'var(--ed-surface-0)' }}
+    >
+      <div className="flex items-center gap-4 mb-5">
+        <span className="ed-eyebrow">§ L.02 · Control Surface</span>
+        <div className="flex-1 ed-hairline" />
+        <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
           Three gates,{' '}
-          <span className="ed-italic" style={{ color: 'var(--ed-gold)', fontWeight: 400 }}>
-            all logged
-          </span>
-        </h3>
+          <span className="ed-italic" style={{ color: 'var(--ed-steel-100)' }}>all aligned.</span>
+        </span>
       </div>
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-        {gates.map((s, i) => (
+      <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        {gates.map((g) => (
           <div
-            key={i}
-            className="relative"
-            style={{
-              padding: 22,
-              borderTop: '1px solid rgba(255,255,255,0.05)',
-              borderRight: i < 2 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-              marginTop: 16,
-            }}
+            key={g.n}
+            className="rounded-xl ed-ghost p-5"
+            style={{ background: 'rgba(255,255,255,0.02)' }}
           >
-            <div className="flex items-baseline justify-between mb-3.5">
-              <span
-                className="ed-italic"
-                style={{ fontSize: 28, color: s.tone, lineHeight: 1 }}
-              >
-                {s.step}
-              </span>
-              <span className={`ed-chip ed-chip-${s.toneChip}`}>{s.status}</span>
-            </div>
-            <h4
-              className="ed-display"
-              style={{
-                fontSize: 16,
-                fontWeight: 600,
-                margin: '0 0 10px',
-                color: 'var(--ed-steel-50)',
-              }}
-            >
-              {s.title}
-            </h4>
-            {s.rows.map(([k, v], j) => (
+            <div className="flex items-center gap-2 mb-3">
               <div
-                key={j}
-                className="flex justify-between py-1.5"
+                className="h-8 w-8 rounded-lg flex items-center justify-center"
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08)',
+                  color: 'var(--ed-steel-100)',
+                }}
               >
-                <span
-                  className="ed-mono text-[10px]"
-                  style={{ color: 'var(--ed-steel-500)', letterSpacing: '0.14em' }}
-                >
-                  {k.toUpperCase()}
-                </span>
-                <span
-                  className="ed-mono text-[11px]"
-                  style={{ color: 'var(--ed-steel-200)' }}
-                >
-                  {v}
-                </span>
+                <g.Icon className="w-3.5 h-3.5" />
               </div>
-            ))}
+              <div className="flex-1">
+                <div
+                  className="ed-mono uppercase"
+                  style={{ fontSize: 9.5, letterSpacing: '0.22em', color: 'var(--ed-steel-500)' }}
+                >
+                  Gate · {g.n}
+                </div>
+                <div className="mt-0.5" style={{ fontSize: 15, color: 'var(--ed-steel-100)' }}>
+                  {g.title}
+                </div>
+              </div>
+              <span className={`ed-chip ed-chip-${g.chip.tone}`}>{g.chip.text}</span>
+            </div>
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }} className="pt-1">
+              {g.rows.map(([k, v], j) => (
+                <div
+                  key={j}
+                  className="flex items-center justify-between py-1.5"
+                  style={{ borderTop: j === 0 ? 'none' : '1px solid rgba(255,255,255,0.04)' }}
+                >
+                  <span
+                    className="ed-mono uppercase"
+                    style={{ fontSize: 10.5, letterSpacing: '0.18em', color: 'var(--ed-steel-500)' }}
+                  >
+                    {k}
+                  </span>
+                  <span className="ed-mono" style={{ fontSize: 11.5, color: 'var(--ed-steel-100)' }}>
+                    {v}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }

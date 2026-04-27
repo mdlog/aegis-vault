@@ -108,15 +108,17 @@ Every vault deployed grows native TVL, compute usage, storage usage, and gas dem
 ## 4. Growth Roadmap
 
 ### Phase 0 — Foundation Live on 0G Mainnet (Complete, as of 2026-04-27)
-- ✅ V2 vault stack deployed on 0G Aristotle Mainnet (Chain ID 16661, deployed 2026-04-23)
-  - `AegisVaultFactoryV2` at `0x9450ac911D06c81a54007a768d4278929d87A17e`
-  - `OperatorRegistry` at `0xF775D9634bFCe4D0F1F56874873FE6cb35A28CA5`
-  - `OperatorReputation` at `0xc270c579400a45975B2EBff05A2fF80f620080CA`
-- ✅ **V3 stack + KhalaniVenueAdapter deployed 2026-04-27 (canonical for new vaults):**
+- ✅ **V3 vault stack + Khalani cross-chain venue deployed on 0G Aristotle Mainnet (chain ID 16661):**
   - `AegisVaultFactoryV3` at `0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3`
+  - `AegisVault impl (V3)` at `0x0c78257550802bF2fFD201106Fe8096A5211397e`
   - `ExecutionRegistryV3` at `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9`
   - `KhalaniVenueAdapter` at `0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4`
-  - V2 vaults remain operational at original addresses; new vaults route through V3
+  - `JaineVenueAdapterV2` (multi-hop) at `0x261244010A6D87e043b3489D93fA573cdc2274B6`
+- ✅ **Operator marketplace stack redeployed fresh 2026-04-27 (clean post-audit baseline):**
+  - `OperatorRegistry` at `0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9`
+  - `OperatorStaking` at `0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3`
+  - `OperatorReputation` at `0x855380187f223391b55fc381f33429A14d238879`
+  - `InsurancePool` at `0xd5eb21420e9D22b763b94fDb396756d820eCa694`
 - ✅ Audit-pass fixes 1–8 merged + round-2 hardening (255 contract tests):
   factory role separation (Fix #1), owner emergency controls (Fix #2),
   on-chain `maxPositionBps` cap (Fix #3), `consumedKhalaniIds` double-credit
