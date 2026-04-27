@@ -6,6 +6,22 @@
   "scripts": {
     "setup": "bash setup.sh",
     "demo": "node demo.js",
+
+    "test:contracts": "cd contracts && npx hardhat test",
+    "test:sdk": "cd sdk && npm test",
+    "test:orchestrator": "cd orchestrator && npm test",
+    "test:frontend": "cd frontend && npm test",
+    "test": "npm run test:contracts && npm run test:sdk && npm run test:orchestrator && npm run test:frontend",
+
+    "build:contracts": "cd contracts && npx hardhat compile",
+    "build:frontend": "cd frontend && npm run build",
+    "build": "npm run build:contracts && npm run build:frontend",
+
+    "lint:frontend": "cd frontend && npm run lint",
+    "lint": "npm run lint:frontend",
+
+    "ci": "npm run lint && npm test && npm run build",
+
     "dev:node": "cd contracts && npx hardhat node",
     "dev:deploy": "cd contracts && npx hardhat run scripts/deploy.js --network localhost && node scripts/gen-env.js && node scripts/sync-frontend.js",
     "dev:orchestrator": "cd orchestrator && npm start",
