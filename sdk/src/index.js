@@ -28,7 +28,15 @@ import {
   validateManifest,
   parseManifest,
   buildManifest,
+  extractStrategyFromManifest,
 } from './manifest.js';
+import {
+  computeStrategyHash,
+  validateStrategy,
+  fetchOperatorStrategy,
+  summarizeStrategy,
+  supportedStrategySchemaVersions,
+} from './strategy.js';
 import * as wallet from './wallet.js';
 import {
   CHAINS,
@@ -238,6 +246,12 @@ export {
   validateManifest,
   parseManifest,
   buildManifest,
+  extractStrategyFromManifest,
+  computeStrategyHash,
+  validateStrategy,
+  fetchOperatorStrategy,
+  summarizeStrategy,
+  supportedStrategySchemaVersions,
   wallet,
   CHAINS,
   DEFAULT_RPC,

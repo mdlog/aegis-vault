@@ -1,4 +1,51 @@
+import { ZeroHash } from 'ethers';
 import { buildMarketSummary } from './marketData.js';
+
+const ZERO_HASH_LOWER = ZeroHash.toLowerCase();
+
+/**
+ * Pure helper: should the orchestrator route this intent through Khalani
+ * (cross-chain) instead of the on-chain Jaine path?
+ *
+ * Returns true only when (a) the route quoter picked Khalani and (b) the
+ * vault implementation has the `acceptCrossChainFill` function. V1/V2 do
+ * not; V3 and V4 both do. V4's strategy-binding gate doesn't apply to the
+ * Khalani path, so V4 vaults are eligible for Khalani routing without any
+ * extra check.
+ *
+ * Exported for unit testing — the audit identified this gate as a regression
+ * risk after each vault-version cutover.
+ */
+export function shouldUseKhalaniRoute(intent, vaultState) {
+  return (
+    intent?.routeChoice?.route === 'khalani' &&
+    Boolean(vaultState?.isV3 || vaultState?.isV4)
+  );
+}
+
+/**
+ * Pure helper: does the strategy loaded for this vault's operator differ
+ * from the manifest hash the vault has accepted on-chain?
+ *
+ * The check fires only for V4 vaults; V3 vaults have no `acceptedManifestHash`
+ * slot. A mismatch means the depositor has not approved the operator's new
+ * manifest yet (or the operator deviated from what they originally bonded);
+ * the orchestrator skips the cycle so we don't burn gas on a guaranteed
+ * `WrongStrategyHash` revert.
+ *
+ * The legacy "zero hash" backwards-compat valve still passes — a vault
+ * created with `acceptedManifestHash == 0` only accepts intents whose
+ * strategyHash is also zero, which is the orchestrator's behaviour when no
+ * manifest is loaded.
+ */
+export function isStrategyHashMismatch(vaultState, loadedStrategyHash) {
+  if (!vaultState?.isV4) return false;
+  const accepted = vaultState.acceptedManifestHash;
+  if (!accepted || !loadedStrategyHash) return false;
+  const acceptedLower = accepted.toLowerCase();
+  if (acceptedLower === ZERO_HASH_LOWER) return false;
+  return acceptedLower !== loadedStrategyHash.toLowerCase();
+}
 import { fetchPythPrices } from './pythPrice.js';
 import { requestInference } from './inference.js';
 import { preCheckPolicy } from './policyCheck.js';
@@ -336,6 +383,45 @@ async function runVaultCycle(vaultAddress, marketSummary) {
       vaultState.operator = operatorState;
     }
 
+    // ── Strategy manifest load (V4 multi-strategy ext 1+2+6+7) ──
+    // When the operator has published a manifest (manifestURI + manifestHash
+    // set in OperatorRegistry.operatorExtended), fetch + verify + parse it.
+    // Decision engine uses strategy.gates / scoring.weights / rules.
+    // Failure modes (ext 7): each typed error skips the cycle cleanly so a
+    // bad manifest doesn't burn gas on guaranteed reverts.
+    if (operatorState?.manifestURI && operatorState?.manifestHash) {
+      try {
+        const { loadStrategy } = await import('../strategy/loader.js');
+        const result = await loadStrategy({
+          uri: operatorState.manifestURI,
+          expectedHash: operatorState.manifestHash,
+          operatorAddress: vaultState.executor,
+        });
+        vaultState._strategy = result.strategy;
+        vaultState._strategyHash = result.hash;
+        vaultState._strategySchemaVersion = result.schemaVersion;
+        // V4-specific: vault binds an acceptedManifestHash on-chain. The
+        // strategy loaded from the operator's published manifest MUST match
+        // this hash — otherwise the executeIntent will revert with
+        // WrongStrategyHash. Skip cleanly here instead of burning gas.
+        if (isStrategyHashMismatch(vaultState, result.hash)) {
+          const accepted = vaultState.acceptedManifestHash.toLowerCase();
+          const loaded = result.hash.toLowerCase();
+          logger.warn(`    V4 vault accepts strategy ${accepted.slice(0, 10)}... but operator currently publishes ${loaded.slice(0, 10)}... — owner must approve manifest upgrade. Skipping cycle.`);
+          vaultResult.status = 'skipped_strategy_not_accepted_by_vault';
+          vaultResult.reason = 'acceptedManifestHash mismatch';
+          return vaultResult;
+        }
+        logger.info(`    Strategy: ${result.strategy.strategy.id} (${result.strategy.strategy.type}) hash=${result.hash.slice(0, 10)}... v${result.schemaVersion}`);
+      } catch (err) {
+        const errType = err.name || 'StrategyLoadError';
+        logger.warn(`    Strategy load failed (${errType}): ${err.message?.slice(0, 200)} — skipping cycle for this vault`);
+        vaultResult.status = `skipped_strategy_${errType.toLowerCase()}`;
+        vaultResult.reason = err.message;
+        return vaultResult;
+      }
+    }
+
     // AI inference (uses shared market data, vault-specific state & policy)
     const decision = await requestInference(marketSummary, vaultState);
 
@@ -430,6 +516,23 @@ async function runVaultCycle(vaultAddress, marketSummary) {
 
     updatePendingApproval(vaultAddress, null);
 
+    // Sealed-mode vaults bind the AI inference output into the on-chain intent
+    // via a non-zero `attestationReportHash`. Local heuristic fallback produces
+    // no attestation (decision._computeResponse === null), so submitting would
+    // revert with `MissingAttestationReport` (selector 0x277fabd5). Skip the
+    // cycle and wait for the next 0G Compute attempt — better than burning a
+    // commit-reveal pair on a guaranteed revert.
+    if (vaultState.policy?.sealedMode === true && !decision._computeResponse) {
+      logger.warn(`    Sealed-mode vault: AI inference unavailable (using local fallback) — skipping submission to avoid MissingAttestationReport revert. Will retry next cycle.`);
+      vaultResult.status = 'skipped_no_attestation';
+      updateKVState({
+        lastSignal: decision,
+        totalCycles: cycleCount,
+        positionState: vaultPositions,
+      });
+      return vaultResult;
+    }
+
     // Build + submit intent. CoinGecko (the marketSummary source) doesn't
     // list 0G yet, so its `oraclePrices` map is missing 0G. Pyth carries it
     // — merge Pyth into the price map so SELL 0G / BUY 0G can derive a
@@ -469,12 +572,16 @@ async function runVaultCycle(vaultAddress, marketSummary) {
     }
 
     // Phase 3 dispatch: Khalani path when (a) chooseRoute selected Khalani
-    // AND (b) vault is V3 (V1/V2 don't have acceptCrossChainFill). Anything
-    // else falls through to the on-chain Jaine submission via submitIntent.
-    const useKhalani = intent.routeChoice?.route === 'khalani' && vaultState.isV3;
+    // AND (b) vault implementation exposes acceptCrossChainFill. Both V3 and
+    // V4 vaults support it; V4 explicitly excludes the Khalani path from the
+    // strategyHash binding (see AegisVault_v4.acceptCrossChainFill — no
+    // WrongStrategyHash check). Anything else falls through to the on-chain
+    // Jaine submission via submitIntent.
+    const useKhalani = shouldUseKhalaniRoute(intent, vaultState);
     let execResult;
     if (useKhalani) {
-      logger.info(`    Routing via Khalani (V3 vault) — orderId pending`);
+      const versionLabel = vaultState.isV4 ? 'V4' : 'V3';
+      logger.info(`    Routing via Khalani (${versionLabel} vault) — orderId pending`);
       execResult = await submitCrossChainIntent({
         intent,
         routeChoice: intent.routeChoice,

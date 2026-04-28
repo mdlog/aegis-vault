@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "strategy": {
+    "id": "momentum-breakout-v1",
+    "name": "Momentum Breakout v1",
+    "type": "momentum",
+    "timeframe": "15m",
+    "description": "Catch volume-confirmed breakouts. Enters on RSI in expansion zone (55-72), positive MACD histogram, volume z-score > 1.0, and price above EMA 20. Exits when momentum fades (MACD flips, RSI > 78) or stop hit. AI weight low (0.05) — momentum trades are mechanical and the data signal dominates. Tolerates higher ATR than trend-following to allow breakout volatility.",
+    "basedOn": null,
+    "basedOnHash": null
+  },
+  "indicators": {
+    "rsi": {
+      "period": 14,
+      "buyMin": 55,
+      "buyMax": 72,
+      "overbought": 78,
+      "oversold": 30
+    },
+    "macd": {
+      "fast": 12,
+      "slow": 26,
+      "signal": 9,
+      "requireHistogramPositive": true
+    },
+    "ema": {
+      "periods": [20, 50]
+    },
+    "atr": {
+      "period": 14
+    },
+    "vwap": {
+      "enabled": true
+    }
+  },
+  "scoring": {
+    "weights": {
+      "trend": 0.20,
+      "momentum": 0.35,
+      "volatility": 0.15,
+      "liquidity": 0.15,
+      "riskState": 0.10,
+      "aiContext": 0.05
+    }
+  },
+  "rules": {
+    "entry_long": {
+      "expression": "rsi_14 > 55 && rsi_14 < 72 && macd_histogram > 0 && volume_zscore > 1.0 && price > ema_20 && regime in ['TREND_UP_STRONG', 'TREND_UP_WEAK', 'RANGE_NOISY']"
+    },
+    "exit_long": {
+      "expression": "macd_histogram < 0 || rsi_14 > 78 || position.pnl_pct < -2.5"
+    },
+    "size_bps": {
+      "expression": "min(2000, ai.confidence * 1800, vault.maxPositionBps)"
+    }
+  },
+  "gates": {
+    "minEdgeBuy": 65,
+    "minQualityBuy": 60,
+    "minConfidenceBuy": 0.50,
+    "maxRiskBuy": 0.50,
+    "minEdgeSell": 55,
+    "minQualitySell": 50,
+    "allowedBuyRegimes": ["TREND_UP_STRONG", "TREND_UP_WEAK", "RANGE_NOISY"],
+    "allowedSellRegimes": ["TREND_UP_STRONG", "TREND_UP_WEAK", "RANGE_STABLE", "RANGE_NOISY", "TREND_DOWN_WEAK", "TREND_DOWN_STRONG"]
+  },
+  "veto": {
+    "maxAtrPct": 5.0,
+    "rsiOverbought": 78,
+    "rsiOversold": 25,
+    "maxSpreadBps": 25,
+    "maxSlippageBps": 60,
+    "maxConsecutiveLosses": 4
+  },
+  "ai": {
+    "mode": "scoring_input",
+    "model": "zai-org/GLM-5-FP8",
+    "providerAddress": "0xd9966e13a6026Fcca4b13E7ff95c94DE268C471C",
+    "temperature": 0.2,
+    "scoringWeight": 0.05,
+    "systemPromptId": "momentum-default"
+  }
+}

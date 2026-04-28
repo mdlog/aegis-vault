@@ -2,7 +2,7 @@
 
 **AI-managed, risk-controlled trading vaults with contract-enforced guardrails and dual-chain real execution.**
 
-*Version 1.2 · 2026-04-27 (V3 stack: post-audit hardening, Khalani cross-chain adapter, fresh operator marketplace)*
+*Version 1.3 · 2026-04-27 (V3 stack: post-audit hardening, Khalani cross-chain adapter, fresh operator marketplace; V4 multi-strategy architecture subsection added)*
 
 ---
 
@@ -448,6 +448,34 @@ The following are known gaps or roadmapped items, disclosed here so that judges 
 - **Governance** — fresh deployments initialize with a 1-of-1 governor (the deployer). Rotating to a real multisig with external cosigners is a post-deploy operational step, not an automated part of the deployment script.
 - **Fee accrual + HWM in the slim vault** — the V3 slim vault on 0G adds `pause` / `unpause` and the cross-chain fee cap (`setMaxCrossChainFeeBps`), but still does not expose `accrueFees`, `claimFees`, `queueFeeChange`, `applyFeeChange`, `setNavCalculator`, or `updatePolicy`; the Arbitrum slim vault is unchanged from the original deploy and exposes none of these. The frontend hooks for the unimplemented functions show a user-facing "not available in this build" toast. A full fee-bearing vault can be deployed on gas-plentiful chains (Arbitrum) in a follow-up release.
 - **Multichain orchestrator** — the orchestrator currently runs in single-chain mode per process. Running parallel cycles across 0G and Arbitrum from a single process is a scaffolded but not activated feature (see `orchestrator/src/config/chains.js`).
+
+### 10.1 V4 Multi-Strategy Architecture
+
+V4 is a strict superset of V3 that closes the last off-chain trust assumption in the protocol: the operator's *strategy framework*. Today (V3) the orchestrator is a single binary, and operators differentiate themselves through governance-audited JSON manifests that the orchestrator loads at runtime. V4 binds the keccak256 of that manifest into each vault as `acceptedManifestHash`, and `executeIntent` reverts whenever the orchestrator submits an intent whose declared `strategyHash` does not match.
+
+The full design — schema, mini-DSL, AI integration modes, hash binding, and migration model — is documented in [docs/MULTI_STRATEGY_RFC.md](docs/MULTI_STRATEGY_RFC.md). The user-facing migration walkthrough is in [docs/V4_MIGRATION_GUIDE.md](docs/V4_MIGRATION_GUIDE.md); the operator/protocol deployment runbook is in [docs/V4_DEPLOYMENT_PLAN.md](docs/V4_DEPLOYMENT_PLAN.md).
+
+**V3 vs V4 in one table:**
+
+| Concept                | V3                                                                                  | V4                                                                                                |
+| ---------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Strategy enforcement   | **Off-chain.** Operator's manifest is governance-audited and loaded by orchestrator. | **On-chain.** `intent.strategyHash == acceptedManifestHash`, enforced by `AegisVault_v4.executeIntent`. |
+| Schema versioning      | Best-effort                                                                         | Vault enforces `1 ≤ strategySchemaVer ≤ MAX_SUPPORTED_SCHEMA_VER`                                 |
+| Strategy upgrade flow  | Operator publishes; orchestrator picks up immediately                               | Two-step depositor-only timelock: `requestManifestUpgrade` → 24h → `applyManifestUpgrade`         |
+| Provenance event       | None                                                                                | `StrategyApplied(bytes32 strategyHash, uint32 schemaVer)` per executed intent                     |
+| Storage layout         | V3 slot map                                                                         | V3 slot map + appended V4 fields. V4 vaults are independent clones, not in-place upgrades.        |
+| Migration              | n/a                                                                                 | Opt-in, per-vault. V3 stays operational indefinitely. See V4_MIGRATION_GUIDE.md.                  |
+
+**Honest disclosure of what each version actually guarantees:**
+
+- **V3 guarantees on-chain** that (a) every intent is signed by the AI signing key bound to the vault's `attestedSigner`, (b) the attestation report hash is committed before the intent executes (sealed mode), and (c) all policy thresholds — slippage, max position, daily limits, asset whitelist — are checked on-chain. It does **not** guarantee on-chain that the orchestrator computed the intent under any particular strategy. That assurance comes from the operator's stake-bonded governance commitment to a published manifest.
+- **V4 adds the manifest binding to the on-chain enforcement set.** An orchestrator that deviates from the depositor-approved strategy cannot submit a valid intent — the `executeIntent` call reverts before any swap is attempted. Strategy changes still require depositor consent (only the `owner` can call `requestManifestUpgrade`), and the 24-hour timelock means a compromised operator cannot push and accept a malicious manifest in the same block.
+
+V4 does **not** verify that the orchestrator's *implementation* of a given manifest is correct — only that the manifest the orchestrator claims to be using matches the one the depositor accepted. A manifest with subtle logic errors will still execute; the strategy hash binding only blocks deviation from a known-bad to a different (possibly worse) strategy without the depositor noticing.
+
+**Non-coupling with V3.** V3 contracts are not upgraded. V4 ships as a fresh implementation + factory; the only shared state is the `ExecutionRegistry` replay guard. This was a deliberate constraint — EIP-1167 clones cannot grow their storage layout retroactively without breaking the existing slot map. The trade-off is that depositors who want V4's guarantees must opt in by withdrawing from V3 and creating a new V4 vault.
+
+**Phase status (2026-04-27):** Phase 0–2 (RFC, V4 contracts, orchestrator strategy loader + decision engine integration) and Phase 1 V4 contracts are complete. Phase 3 covers tests, migration tooling, SDK / frontend wiring, and the documents listed above. Mainnet deployment of V4 follows once the deployment plan checklist is fully signed off.
 
 ---
 

@@ -12,13 +12,14 @@ import ConfirmModal from '../components/ui/ConfirmModal';
 import { useCreateVault, useApprove, useDeposit, useTokenBalance } from '../hooks/useVault';
 import { useOrchestratorStatus } from '../hooks/useOrchestrator';
 import { useOperatorList, useIsRegistered, useOperator } from '../hooks/useOperatorRegistry';
+import { useOperatorStrategy } from '../hooks/useOperatorStrategy';
 import { formatBps, estimateAnnualFees } from '../hooks/useVaultFees';
 import {
   useOperatorTiers, TIER_LABELS, TIER_COLORS, formatVaultCap,
 } from '../hooks/useOperatorStaking';
 import { demoOperatorTiers, demoOperators } from '../data/demoContent';
 import { ENABLE_DEMO_FALLBACKS, getDeployments, findDeploymentChainId } from '../lib/contracts';
-import { resolveVenueAddress, getChainProfile } from '../lib/chainConfig';
+import { resolveVenueAddress, getChainProfile, isProductionChain } from '../lib/chainConfig';
 import { getPrimaryOrchestratorExecutor } from '../lib/orchestratorStatus';
 import { parseTxError } from '../lib/txErrors';
 import { useDraftState } from '../lib/useDraftState';
@@ -85,8 +86,11 @@ export default function CreateVaultPage() {
   const { isConnected, address: walletAddress } = useAccount();
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
-  const factoryChainId = findDeploymentChainId('aegisVaultFactoryV2')
+  const factoryChainId = findDeploymentChainId('aegisVaultFactoryV3')
+    || findDeploymentChainId('aegisVaultFactoryV2')
     || findDeploymentChainId('aegisVaultFactory');
+  const isProduction = isProductionChain(chainId);
+  const chainProfile = getChainProfile(chainId);
   const {
     createVault,
     isSuccess: createSuccess,
@@ -207,6 +211,17 @@ export default function CreateVaultPage() {
   if (activeExecutorMode === 'orchestrator') resolvedExecutor = detectedExecutor.trim();
   else if (activeExecutorMode === 'marketplace') resolvedExecutor = selectedMarketplaceOperator.trim();
   else resolvedExecutor = customExecutor.trim();
+
+  // Strategy manifest binding (V4): when the selected operator has published
+  // a strategy manifest, fetch its hash so the vault create call binds it as
+  // `acceptedManifestHash`. Without this, the V4 vault is created with the
+  // zero-hash sentinel = "no strategy enforcement" mode (still backwards-compat
+  // but loses the on-chain operator commitment).
+  const operatorRegistryAddr = deployments.operatorRegistry || '';
+  const { manifestHash: operatorManifestHash } = useOperatorStrategy(
+    resolvedExecutor && resolvedExecutor.startsWith('0x') ? resolvedExecutor : null,
+    operatorRegistryAddr || null,
+  );
 
   const executorReady = Boolean(resolvedExecutor) && isAddress(resolvedExecutor);
   const shortExecutor = executorReady
@@ -546,6 +561,9 @@ export default function CreateVaultPage() {
     const maxCrossChainFeeBps = Number.isFinite(config.maxCrossChainFeeBps)
       ? Math.min(200, Math.max(0, Math.round(config.maxCrossChainFeeBps)))
       : 50;
+    // V4 binding: pass the operator's currently-published manifestHash as the
+    // vault's acceptedManifestHash. If operator has no manifest, useCreateVault
+    // wrapper defaults to ZeroHash = no enforcement (backwards-compat path).
     createVault(
       baseAssetAddr,
       resolvedExecutor,
@@ -553,6 +571,7 @@ export default function CreateVaultPage() {
       policyStruct,
       assetAddrs,
       maxCrossChainFeeBps,
+      operatorManifestHash || undefined,
     );
   };
 
@@ -585,7 +604,7 @@ export default function CreateVaultPage() {
 
         {isConnected && (
           <NetworkWarning
-            requiredAddress={deployments.aegisVaultFactoryV2 || deployments.aegisVaultFactory}
+            requiredAddress={deployments.aegisVaultFactoryV3 || deployments.aegisVaultFactoryV2 || deployments.aegisVaultFactory}
             expectedChainId={factoryChainId}
             contractName="Aegis Vault Factory"
           />
@@ -910,8 +929,14 @@ export default function CreateVaultPage() {
                     <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.12em] text-steel/40 mb-1.5">
                       <Info className="w-3 h-3" /> Asset
                     </div>
-                    <div className={`text-sm font-display font-semibold ${selectedBaseAsset.color}`}>Mock {selectedBaseAsset.symbol}</div>
-                    <div className="text-[10px] text-steel/45">{selectedBaseAsset.decimals}-decimal testnet token</div>
+                    <div className={`text-sm font-display font-semibold ${selectedBaseAsset.color}`}>
+                      {isProduction && selectedBaseAsset.symbol === 'USDC' ? 'USDC.e' : selectedBaseAsset.symbol}
+                    </div>
+                    <div className="text-[10px] text-steel/45">
+                      {isProduction
+                        ? `${selectedBaseAsset.decimals}-decimal · live on ${chainProfile?.venueName || 'mainnet'}`
+                        : `${selectedBaseAsset.decimals}-decimal testnet token`}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1287,6 +1312,42 @@ export default function CreateVaultPage() {
                   Confirm your vault parameters before deployment. All policies will be enforced on-chain.
                 </p>
               </div>
+
+              {/* V4 unbound-vault warning. When the active factory is V4 and
+                  the chosen operator has not published a manifest yet, the
+                  factory will bind `acceptedManifestHash = 0x0000…`. The
+                  vault then *only* accepts intents whose strategyHash is
+                  also zero — which is the orchestrator's default Decision
+                  Engine v1 path. The gap to flag: if the operator later
+                  publishes a manifest, the vault will NOT auto-bind to it;
+                  the depositor must go through the 24h timelocked upgrade.
+                  Surface this here so the choice is explicit, not silent. */}
+              {deployments.aegisVaultFactoryV4 && !operatorManifestHash && selectedOperatorData && (
+                <div
+                  className="mb-5 rounded-2xl border p-4 flex items-start gap-3"
+                  style={{
+                    background: 'rgba(255, 178, 60, 0.06)',
+                    borderColor: 'rgba(255, 178, 60, 0.30)',
+                  }}
+                >
+                  <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--ed-amber, #ffb23c)' }} />
+                  <div className="text-[12px] leading-relaxed" style={{ color: 'var(--ed-steel-100)' }}>
+                    <div className="font-semibold mb-1" style={{ color: 'var(--ed-amber, #ffb23c)' }}>
+                      Operator has no published strategy manifest
+                    </div>
+                    <p style={{ color: 'var(--ed-steel-300)' }}>
+                      Your V4 vault will be created with{' '}
+                      <code className="text-[11px]">acceptedManifestHash = 0x0000…</code>.
+                      The vault will only execute intents that match the orchestrator's default
+                      Decision Engine v1. If <span className="text-white/85">{selectedOperatorData.name}</span>{' '}
+                      later publishes a strategy manifest, you will need to approve it via the
+                      24-hour timelocked upgrade flow on the vault detail page — it does <em>not</em>{' '}
+                      bind automatically.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <GlassPanel gold className="p-6">
                 <div className="space-y-4">
                   <div className="flex justify-between py-2 border-b border-white/[0.04]">
@@ -1648,6 +1709,16 @@ export default function CreateVaultPage() {
                             })}
                           </div>
                         )}
+                        {/* Strategy preview surfaces the operator's published
+                            schema-v1 strategy manifest (or a "uses default
+                            engine" hint when none is published). */}
+                        {selectedOperatorData && (deployments.operatorRegistryV2 || deployments.operatorRegistry) && !useDemoMarketplace && (
+                          <OperatorStrategyPreview
+                            operatorAddress={selectedOperatorData.wallet}
+                            registryAddress={deployments.operatorRegistryV2 || deployments.operatorRegistry}
+                            operatorName={selectedOperatorData.name}
+                          />
+                        )}
                       </div>
                     )}
 
@@ -1779,7 +1850,7 @@ export default function CreateVaultPage() {
                   <h3 className="text-lg font-display font-semibold text-white">Vault launch snapshot</h3>
                 </div>
                 <StatusPill
-                  label={executorReady ? 'Demo ready' : 'Needs executor'}
+                  label={executorReady ? (isProduction ? 'Live ready' : 'Demo ready') : 'Needs executor'}
                   variant={executorReady ? 'active' : 'warning'}
                 />
               </div>
@@ -1788,7 +1859,9 @@ export default function CreateVaultPage() {
                 <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
                   <div className="text-[9px] font-mono uppercase tracking-[0.12em] text-steel/40 mb-1">Deposit</div>
                   <div className="text-lg font-display font-semibold text-white">${(config.depositAmount / 1000).toFixed(0)}k</div>
-                  <div className="text-[10px] text-steel/45">USDC seed capital</div>
+                  <div className="text-[10px] text-steel/45">
+                    {isProduction && selectedBaseAsset.symbol === 'USDC' ? 'USDC.e' : selectedBaseAsset.symbol} seed capital
+                  </div>
                 </div>
                 <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
                   <div className="text-[9px] font-mono uppercase tracking-[0.12em] text-steel/40 mb-1">Risk Dial</div>
@@ -1938,4 +2011,248 @@ function SummaryRow({ label, value, valueClass = 'text-white/85' }) {
       <div className={`text-[12px] font-mono ${valueClass}`}>{value}</div>
     </div>
   );
+}
+
+// Strategy weight labels — keeps the UI layer free of references to the
+// schema's internal keys.
+const WEIGHT_LABELS = {
+  trend: 'Trend',
+  momentum: 'Momentum',
+  volatility: 'Volatility',
+  liquidity: 'Liquidity',
+  riskState: 'Risk State',
+  aiContext: 'AI Context',
+};
+
+const AI_MODE_DESCR = {
+  scoring_input: 'AI confidence and risk scores feed the scoring formula.',
+  hard_gate: "AI is a hard filter — decisions are rejected if the model disagrees.",
+  context_only: 'AI provides context only and does not affect decision math.',
+};
+
+function shortHash(h) {
+  if (!h || typeof h !== 'string') return '';
+  return h.length > 14 ? `${h.slice(0, 10)}...${h.slice(-4)}` : h;
+}
+
+// OperatorStrategyPreview
+// -----------------------
+// Lightweight collapsible panel surfaced under the operator picker on
+// CreateVaultPage. Visible only when the selected operator has a published
+// schema-v1 strategy manifest on OperatorRegistry. When the operator hasn't
+// published one (most operators today), shows a small "uses default
+// Decision Engine v1" note so the user understands how trades will be
+// produced.
+//
+// The panel intentionally surfaces:
+//   - identity (id, name, type/timeframe)
+//   - AI binding (model + mode badge)
+//   - scoring weights as horizontal bars (visual feedback for the relative
+//     importance the operator places on each signal class)
+//   - allowed buy regimes + min confidence/edge gates
+//   - manifest hash + raw URI link (so the user can verify out-of-band)
+function OperatorStrategyPreview({ operatorAddress, registryAddress, operatorName }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const {
+    hasManifest, manifestURI, manifestHash, manifestVersion, manifestBonded,
+    summary, error, isLoading,
+  } = useOperatorStrategy(operatorAddress, registryAddress);
+
+  // Most operators on 0G mainnet today don't have a published strategy
+  // manifest — show a soft hint rather than empty state.
+  if (!isLoading && !hasManifest && !error) {
+    return (
+      <div className="mt-3 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2 flex items-start gap-2">
+        <Info className="w-3.5 h-3.5 text-cyan/60 flex-shrink-0 mt-0.5" />
+        <p className="text-[11px] text-steel/55 leading-relaxed">
+          {operatorName || 'This operator'} uses the default <span className="text-white/80">Decision Engine v1</span> —
+          no custom strategy manifest published yet.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-cyan/15 bg-cyan/[0.03] overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-cyan/[0.05] transition-colors"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <Layers className="w-3.5 h-3.5 text-cyan/70 flex-shrink-0" />
+          <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-cyan/80">
+            Operator&apos;s Strategy
+          </span>
+          {summary?.name && (
+            <span className="text-xs font-display text-white truncate">{summary.name}</span>
+          )}
+          {manifestVersion > 0 && (
+            <span className="text-[8px] font-mono text-steel/45 px-1 py-0.5 rounded bg-white/[0.03] border border-white/[0.06]">
+              v{manifestVersion}
+            </span>
+          )}
+          {manifestBonded && (
+            <span className="text-[8px] font-mono text-emerald-soft/70 px-1 py-0.5 rounded bg-emerald-soft/10 border border-emerald-soft/20">
+              BONDED
+            </span>
+          )}
+        </div>
+        <ChevronDown
+          className={`w-3.5 h-3.5 text-cyan/60 flex-shrink-0 transition-transform ${collapsed ? '-rotate-90' : ''}`}
+        />
+      </button>
+
+      {!collapsed && (
+        <div className="px-3 pb-3 pt-1 space-y-3">
+          {isLoading && (
+            <div className="text-[11px] text-steel/45 flex items-center gap-2">
+              <Clock className="w-3 h-3 animate-pulse" />
+              Fetching manifest from {manifestURI ? new URL(resolveDisplayUrl(manifestURI)).host : 'storage'}...
+            </div>
+          )}
+
+          {error && (
+            <div className="rounded-md bg-red-warn/5 border border-red-warn/20 px-3 py-2 flex items-start gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 text-red-warn/70 flex-shrink-0 mt-0.5" />
+              <div className="text-[11px] text-red-warn/80 leading-relaxed break-words">
+                <strong>Manifest verification failed.</strong>{' '}
+                <span className="text-red-warn/60">{error}</span>
+              </div>
+            </div>
+          )}
+
+          {summary && !error && (
+            <>
+              {/* Identity row */}
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="rounded-md bg-white/[0.02] border border-white/[0.05] px-2.5 py-1.5">
+                  <div className="text-[8px] font-mono uppercase text-steel/40 mb-0.5">ID</div>
+                  <div className="font-mono text-white/85 truncate">{summary.id}</div>
+                </div>
+                <div className="rounded-md bg-white/[0.02] border border-white/[0.05] px-2.5 py-1.5">
+                  <div className="text-[8px] font-mono uppercase text-steel/40 mb-0.5">Type · Timeframe</div>
+                  <div className="font-mono text-white/85 truncate">
+                    {summary.type} <span className="text-steel/45">·</span> {summary.timeframe}
+                  </div>
+                </div>
+              </div>
+
+              {/* AI binding */}
+              <div className="rounded-md bg-white/[0.02] border border-white/[0.05] px-2.5 py-2">
+                <div className="flex items-center gap-2 mb-1">
+                  <Cpu className="w-3 h-3 text-gold/70" />
+                  <span className="text-[8px] font-mono uppercase text-steel/40">AI Binding</span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-[11px] text-white/85 truncate">{summary.aiModel}</span>
+                  <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded border ${
+                    summary.aiMode === 'hard_gate'
+                      ? 'text-red-warn/85 bg-red-warn/10 border-red-warn/25'
+                      : summary.aiMode === 'scoring_input'
+                        ? 'text-gold/85 bg-gold/10 border-gold/25'
+                        : 'text-cyan/85 bg-cyan/10 border-cyan/25'
+                  }`}>
+                    {summary.aiMode}
+                  </span>
+                </div>
+                <p className="text-[10px] text-steel/45 mt-1 leading-relaxed">
+                  {AI_MODE_DESCR[summary.aiMode] || ''}
+                </p>
+              </div>
+
+              {/* Scoring weights bars */}
+              {summary.weights && (
+                <div className="rounded-md bg-white/[0.02] border border-white/[0.05] px-2.5 py-2">
+                  <div className="text-[8px] font-mono uppercase text-steel/40 mb-2">Scoring Weights</div>
+                  <div className="space-y-1.5">
+                    {Object.entries(summary.weights)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([key, value]) => {
+                        const pct = Math.max(0, Math.min(1, Number(value) || 0));
+                        const widthPct = `${(pct * 100).toFixed(0)}%`;
+                        return (
+                          <div key={key} className="flex items-center gap-2 text-[10px] font-mono">
+                            <span className="text-steel/55 w-20 flex-shrink-0">
+                              {WEIGHT_LABELS[key] || key}
+                            </span>
+                            <div className="flex-1 h-1.5 rounded-full bg-white/[0.04] overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-cyan/60 to-gold/60 rounded-full transition-all"
+                                style={{ width: widthPct }}
+                              />
+                            </div>
+                            <span className="text-white/75 w-10 text-right tabular-nums">
+                              {(pct * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* Gates */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-md bg-white/[0.02] border border-white/[0.05] px-2.5 py-1.5">
+                  <div className="text-[8px] font-mono uppercase text-steel/40 mb-0.5">Min Confidence</div>
+                  <div className="font-mono text-[11px] text-white/85">
+                    {summary.minConfidence != null ? `${(summary.minConfidence * 100).toFixed(0)}%` : '—'}
+                  </div>
+                </div>
+                <div className="rounded-md bg-white/[0.02] border border-white/[0.05] px-2.5 py-1.5">
+                  <div className="text-[8px] font-mono uppercase text-steel/40 mb-0.5">Min Edge</div>
+                  <div className="font-mono text-[11px] text-white/85">
+                    {summary.minEdge != null ? summary.minEdge : '—'}
+                  </div>
+                </div>
+              </div>
+
+              {summary.allowedRegimes && summary.allowedRegimes.length > 0 && (
+                <div className="rounded-md bg-white/[0.02] border border-white/[0.05] px-2.5 py-2">
+                  <div className="text-[8px] font-mono uppercase text-steel/40 mb-1.5">Allowed Buy Regimes</div>
+                  <div className="flex flex-wrap gap-1">
+                    {summary.allowedRegimes.map((r) => (
+                      <span key={r} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-soft/10 border border-emerald-soft/20 text-emerald-soft/85">
+                        {r}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Hash + URI footer — always present (helps users verify integrity
+              even when fetch fails) */}
+          {hasManifest && (
+            <div className="pt-2 border-t border-white/[0.04] flex items-center justify-between gap-2 text-[10px] font-mono">
+              <div className="text-steel/45 truncate">
+                hash <span className="text-steel/65">{shortHash(manifestHash)}</span>
+              </div>
+              {manifestURI && (
+                <a
+                  href={resolveDisplayUrl(manifestURI)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-cyan/70 hover:text-cyan flex items-center gap-1"
+                >
+                  view raw <ArrowRight className="w-2.5 h-2.5" />
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function resolveDisplayUrl(uri) {
+  if (typeof uri !== 'string') return '#';
+  if (uri.toLowerCase().startsWith('ipfs://')) {
+    const gateway = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_IPFS_GATEWAY) || 'https://ipfs.io/ipfs/';
+    return `${gateway}${uri.slice('ipfs://'.length)}`;
+  }
+  return uri;
 }

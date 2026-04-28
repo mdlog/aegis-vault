@@ -121,9 +121,14 @@ async function backfill() {
   }
 
   let added = 0;
+  let healed = 0;
   for (let i = 0; i < total; i++) {
     const address = await factory.getVaultAt(i);
-    if (vaults.has(address.toLowerCase())) continue;
+    const cached = vaults.get(address.toLowerCase());
+    // Skip only when the cached entry already has the executor populated.
+    // A stale cache without `executor` (e.g. ingested via an event whose ABI
+    // didn't decode the field) gets re-read so the executor index can route.
+    if (cached && cached.executor) continue;
 
     // Read on-chain metadata
     const vault = new ethers.Contract(address, ABIs.AegisVault, getProvider());
@@ -138,12 +143,14 @@ async function backfill() {
       owner,
       executor,
       base_asset: baseAsset,
-      created_block: 0,
-      created_at: Math.floor(Date.now() / 1000),
-      tx_hash: null,
+      created_block: cached?.created_block ?? 0,
+      created_at: cached?.created_at ?? Math.floor(Date.now() / 1000),
+      tx_hash: cached?.tx_hash ?? null,
     });
-    added++;
+    if (cached) healed++; else added++;
   }
+
+  if (healed > 0) logger.info(`Indexer backfill: healed ${healed} vault(s) with missing executor`);
 
   if (added > 0) persist();
   logger.info(`Indexer backfill: ${added}/${total} vaults added`);
@@ -167,11 +174,14 @@ async function pollForNewVaults() {
     const events = await factory.queryFilter(filter, fromBlock, currentBlock);
 
     for (const ev of events) {
-      const { vault, owner, baseAsset, executor, timestamp } = ev.args;
+      // V1/V2 emit `executor`; V3 renamed it to `operator` (and added `venue`
+      // + `requestedMaxCrossChainFeeBps`). Accept both so the same indexer
+      // path covers every factory generation.
+      const { vault, owner, baseAsset, executor, operator, timestamp } = ev.args;
       upsertVault({
         address: vault,
         owner,
-        executor,
+        executor: executor || operator,
         base_asset: baseAsset,
         created_block: ev.blockNumber,
         created_at: Number(timestamp || Math.floor(Date.now() / 1000)),

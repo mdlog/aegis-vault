@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "strategy": {
+    "id": "mean-reversion-v1",
+    "name": "Mean Reversion v1",
+    "type": "mean_reversion",
+    "timeframe": "30m",
+    "description": "Buy oversold extremes, sell at the mean. Enters when RSI < 30 and price below lower Bollinger band, only inside RANGE regimes. Exits on RSI > 50, return to BB middle, or stop. AI runs as hard_gate so a counter-trend entry is rejected unless the model agrees. Avoids trending and panic regimes to prevent catching falling knives.",
+    "basedOn": null,
+    "basedOnHash": null
+  },
+  "indicators": {
+    "rsi": {
+      "period": 14,
+      "buyMin": 25,
+      "buyMax": 35,
+      "overbought": 70,
+      "oversold": 30
+    },
+    "bollinger": {
+      "period": 20,
+      "stdDev": 2
+    },
+    "atr": {
+      "period": 14
+    },
+    "vwap": {
+      "enabled": true
+    },
+    "ema": {
+      "periods": [20, 50]
+    }
+  },
+  "scoring": {
+    "weights": {
+      "trend": 0.10,
+      "momentum": 0.15,
+      "volatility": 0.30,
+      "liquidity": 0.20,
+      "riskState": 0.15,
+      "aiContext": 0.10
+    }
+  },
+  "rules": {
+    "entry_long": {
+      "expression": "rsi_14 < 30 && price < bb_lower && atr_14_pct < 4.0 && regime in ['RANGE_STABLE', 'RANGE_NOISY']"
+    },
+    "exit_long": {
+      "expression": "rsi_14 > 50 || price > bb_middle || position.pnl_pct < -4.0"
+    },
+    "size_bps": {
+      "expression": "clamp(ai.confidence * 1200, 200, 1500)"
+    }
+  },
+  "gates": {
+    "minEdgeBuy": 50,
+    "minQualityBuy": 45,
+    "minConfidenceBuy": 0.45,
+    "maxRiskBuy": 0.55,
+    "minEdgeSell": 45,
+    "minQualitySell": 40,
+    "allowedBuyRegimes": ["RANGE_STABLE", "RANGE_NOISY"],
+    "allowedSellRegimes": ["RANGE_STABLE", "RANGE_NOISY", "TREND_UP_WEAK", "TREND_UP_STRONG", "TREND_DOWN_WEAK", "TREND_DOWN_STRONG"]
+  },
+  "veto": {
+    "maxAtrPct": 4.0,
+    "rsiOverbought": 70,
+    "rsiOversold": 18,
+    "maxSpreadBps": 35,
+    "maxSlippageBps": 60,
+    "maxConsecutiveLosses": 4
+  },
+  "ai": {
+    "mode": "hard_gate",
+    "model": "zai-org/GLM-5-FP8",
+    "providerAddress": "0xd9966e13a6026Fcca4b13E7ff95c94DE268C471C",
+    "temperature": 0.3,
+    "systemPromptId": "mean-reversion-default"
+  }
+}

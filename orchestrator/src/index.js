@@ -112,6 +112,24 @@ process.on('SIGTERM', () => {
   shutdown('SIGTERM');
 });
 
+// Keep the orchestrator alive across transient RPC failures (0G mainnet
+// occasionally times out mid-cycle on `evmrpc.0g.ai`). Without this, a single
+// `request timeout` from a stray `await provider.call()` crashes the entire
+// process — the next cycle is 5 minutes away and the API server goes down too.
+// Logged + reported to Sentry so we can still see them, just not fatally.
+process.on('unhandledRejection', (reason) => {
+  const msg = reason?.message || String(reason);
+  logger.warn(`unhandledRejection (continuing): ${msg.slice(0, 200)}`);
+  Sentry.captureException(reason instanceof Error ? reason : new Error(msg), {
+    tags: { phase: 'unhandled_rejection' },
+  });
+});
+
+process.on('uncaughtException', (err) => {
+  logger.error(`uncaughtException (continuing): ${err.message?.slice(0, 200)}`);
+  Sentry.captureException(err, { tags: { phase: 'uncaught_exception' } });
+});
+
 main().catch((err) => {
   logger.error(`Fatal error: ${err.message}`);
   Sentry.captureException(err, { tags: { phase: 'main_bootstrap' } });

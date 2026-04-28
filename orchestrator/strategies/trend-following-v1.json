@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "strategy": {
+    "id": "trend-following-v1",
+    "name": "Trend Following v1",
+    "type": "trend_following",
+    "timeframe": "1h",
+    "description": "Ride established trends with strict regime filter. Enters when price is above 20/50/200 EMA stack with positive MACD histogram and RSI in mid-bullish zone (40-65). Exits on RSI overbought, EMA cross-down, or stop. Best fit: directional markets with persistent momentum. Avoids range chop by gating on TREND_UP regimes only.",
+    "basedOn": null,
+    "basedOnHash": null
+  },
+  "indicators": {
+    "rsi": {
+      "period": 14,
+      "buyMin": 40,
+      "buyMax": 65,
+      "overbought": 75,
+      "oversold": 30
+    },
+    "macd": {
+      "fast": 12,
+      "slow": 26,
+      "signal": 9,
+      "requireHistogramPositive": true
+    },
+    "ema": {
+      "periods": [20, 50, 200]
+    },
+    "atr": {
+      "period": 14
+    },
+    "vwap": {
+      "enabled": true
+    }
+  },
+  "scoring": {
+    "weights": {
+      "trend": 0.35,
+      "momentum": 0.20,
+      "volatility": 0.10,
+      "liquidity": 0.15,
+      "riskState": 0.10,
+      "aiContext": 0.10
+    }
+  },
+  "rules": {
+    "entry_long": {
+      "expression": "rsi_14 > 40 && rsi_14 < 65 && macd_histogram > 0 && ema_20 > ema_50 && ema_50 > ema_200 && regime in ['TREND_UP_STRONG', 'TREND_UP_WEAK']"
+    },
+    "exit_long": {
+      "expression": "rsi_14 > 75 || ema_20 < ema_50 || position.pnl_pct < -3.0"
+    },
+    "size_bps": {
+      "expression": "min(2000, ai.confidence * 1500, vault.maxPositionBps)"
+    }
+  },
+  "gates": {
+    "minEdgeBuy": 60,
+    "minQualityBuy": 55,
+    "minConfidenceBuy": 0.55,
+    "maxRiskBuy": 0.45,
+    "minEdgeSell": 50,
+    "minQualitySell": 45,
+    "allowedBuyRegimes": ["TREND_UP_STRONG", "TREND_UP_WEAK"],
+    "allowedSellRegimes": ["TREND_UP_STRONG", "TREND_UP_WEAK", "RANGE_STABLE", "RANGE_NOISY", "TREND_DOWN_WEAK", "TREND_DOWN_STRONG"]
+  },
+  "veto": {
+    "maxAtrPct": 3.0,
+    "rsiOverbought": 75,
+    "rsiOversold": 25,
+    "maxSpreadBps": 30,
+    "maxSlippageBps": 50,
+    "maxConsecutiveLosses": 3
+  },
+  "ai": {
+    "mode": "scoring_input",
+    "model": "zai-org/GLM-5-FP8",
+    "providerAddress": "0xd9966e13a6026Fcca4b13E7ff95c94DE268C471C",
+    "temperature": 0.3,
+    "scoringWeight": 0.10,
+    "systemPromptId": "trend-following-default"
+  }
+}

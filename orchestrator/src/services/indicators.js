@@ -167,49 +167,123 @@ export function computeMTFAlignment(prices) {
 }
 
 /**
+ * Bollinger Bands — middle = SMA(period), upper/lower = ±stdDev * sigma.
+ * Returns null when insufficient history; caller should fall back gracefully.
+ */
+export function computeBollingerBands(prices, period = 20, stdDev = 2) {
+  if (!prices || prices.length < period) return null;
+  const slice = prices.slice(-period);
+  const mean = slice.reduce((s, p) => s + p, 0) / period;
+  const variance = slice.reduce((s, p) => s + (p - mean) ** 2, 0) / period;
+  const sigma = Math.sqrt(variance);
+  return {
+    middle: mean,
+    upper: mean + stdDev * sigma,
+    lower: mean - stdDev * sigma,
+  };
+}
+
+/**
  * Compute all indicators for a symbol from price history
  * @param {object} data - { prices: number[], volumes: number[], highs?: number[], lows?: number[] }
  * @param {number} currentPrice
  * @param {number} currentVolume
  * @returns {object} Full indicator set
  */
-export function computeAllIndicators(data, currentPrice, currentVolume = 0) {
+export function computeAllIndicators(data, currentPrice, currentVolume = 0, indicatorConfig = null) {
   const { prices = [], volumes = [], highs, lows } = data;
   const closes = prices;
 
-  const ema20 = computeEMA(closes, 20) || currentPrice;
-  const ema50 = computeEMA(closes, 50) || currentPrice;
-  const ema200 = computeEMA(closes, 200) || currentPrice;
-  const rsi14 = computeRSI(closes, 14);
-  const macd = computeMACD(closes);
-  const atr14Pct = computeATR(highs, lows, closes, 14);
+  // Strategy-driven parameters with fallback defaults. When `indicatorConfig`
+  // is provided (from strategy.indicators), per-operator parameter overrides
+  // apply; otherwise we use the historical Aegis defaults.
+  const cfg = indicatorConfig || {};
+  const rsiPeriod      = cfg.rsi?.period      ?? 14;
+  const macdFast       = cfg.macd?.fast       ?? 12;
+  const macdSlow       = cfg.macd?.slow       ?? 26;
+  const macdSignal     = cfg.macd?.signal     ?? 9;
+  const atrPeriod      = cfg.atr?.period      ?? 14;
+  const emaPeriods     = (cfg.ema?.periods && cfg.ema.periods.length > 0)
+    ? cfg.ema.periods
+    : [20, 50, 200];
+  const bbPeriod       = cfg.bollinger?.period ?? 20;
+  const bbStdDev       = cfg.bollinger?.stdDev ?? 2;
+
+  // EMAs at strategy-configured periods. Always emit ema_20/ema_50/ema_200
+  // (DSL identifiers expect these specific names) plus any extras.
+  const emas = {};
+  for (const period of new Set([...emaPeriods, 20, 50, 200])) {
+    emas[`ema_${period}`] = computeEMA(closes, period) || currentPrice;
+  }
+
+  const rsi = computeRSI(closes, rsiPeriod);
+  // MACD parameters fed via custom periods. Existing computeMACD uses fixed
+  // 12/26/9 internally — we only override when caller passes non-default values
+  // (avoids regressions for vaults without manifest).
+  const macd = (macdFast === 12 && macdSlow === 26 && macdSignal === 9)
+    ? computeMACD(closes)
+    : computeMACDWithParams(closes, macdFast, macdSlow, macdSignal);
+  const atrPct = computeATR(highs, lows, closes, atrPeriod);
   const realizedVol1hPct = computeRealizedVol(closes, 24);
   const volumeZScore = computeVolumeZScore(volumes, currentVolume);
   const priceVsVwapPct = computePriceVsVWAP(closes.slice(-50), volumes.slice(-50), currentPrice);
   const mtfAlignment = computeMTFAlignment(closes);
   const ema20Slope = computeEMASlope(closes, 20);
   const ema50Slope = computeEMASlope(closes, 50);
+  const bb = computeBollingerBands(closes, bbPeriod, bbStdDev);
 
+  // Backwards-compat indicator names use period 14 even if strategy chose
+  // a different RSI period (so legacy DSL templates referencing `rsi_14` still
+  // work). Strategies wanting custom RSI period should reference `rsi`
+  // (the canonical period-aware name).
   return {
     price: currentPrice,
-    ema_20: ema20,
-    ema_50: ema50,
-    ema_200: ema200,
+    current_price: currentPrice,
+    ...emas,
     ema_20_slope: ema20Slope,
     ema_50_slope: ema50Slope,
-    rsi_14: rsi14,
+    rsi: rsi,
+    rsi_14: rsiPeriod === 14 ? rsi : computeRSI(closes, 14),
     macd_histogram: macd.histogram,
     macd_line: macd.macdLine,
     macd_signal: macd.signalLine,
-    atr_14_pct: atr14Pct,
+    atr_pct: atrPct,
+    atr_14_pct: atrPeriod === 14 ? atrPct : computeATR(highs, lows, closes, 14),
     realized_vol_1h_pct: realizedVol1hPct,
     volume_zscore: volumeZScore,
     price_vs_vwap_pct: priceVsVwapPct,
+    vwap_distance_pct: priceVsVwapPct,  // alias used by some strategy templates
     mtf_alignment: mtfAlignment,
+    // Bollinger Bands — null-safe defaults (current price = middle, ±2% bands)
+    // so DSL evaluation never NaN's when history is insufficient.
+    bb_middle: bb?.middle ?? currentPrice,
+    bb_upper:  bb?.upper  ?? currentPrice * 1.02,
+    bb_lower:  bb?.lower  ?? currentPrice * 0.98,
     // Placeholders — would need order book data for real values
     spread_bps: 8,
     slippage_estimate_bps: 15,
     distance_to_local_resistance_pct: 2.0,
     distance_to_local_support_pct: 3.0,
   };
+}
+
+/**
+ * MACD with strategy-configured fast/slow/signal periods.
+ * Mirrors computeMACD logic but accepts non-default windows.
+ */
+function computeMACDWithParams(prices, fast, slow, signalPeriod) {
+  if (!prices || prices.length < slow) return { histogram: 0, macdLine: 0, signalLine: 0 };
+  const emaFast = computeEMA(prices, fast);
+  const emaSlow = computeEMA(prices, slow);
+  const macdLine = emaFast - emaSlow;
+  const macdValues = [];
+  for (let i = slow; i <= prices.length; i++) {
+    const eF = computeEMA(prices.slice(0, i), fast);
+    const eS = computeEMA(prices.slice(0, i), slow);
+    macdValues.push(eF - eS);
+  }
+  const signalLine = macdValues.length >= signalPeriod
+    ? computeEMA(macdValues, signalPeriod)
+    : macdLine;
+  return { histogram: macdLine - signalLine, macdLine, signalLine };
 }

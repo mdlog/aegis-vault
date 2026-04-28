@@ -11,9 +11,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(__dirname, '../../.env'), override: true });
 
 function readDeploymentsFile() {
+  // Default to the V3 mainnet source-of-truth that `deploy-fresh-mainnet.js`
+  // writes. The older `deployments.json` is the original V1 deploy and is
+  // no longer updated by any deploy script — pointing at it leaves the
+  // orchestrator on stale factory / registry / operator-stack addresses.
   const candidatePath = process.env.DEPLOYMENTS_FILE
     ? resolve(__dirname, '../../', process.env.DEPLOYMENTS_FILE)
-    : resolve(__dirname, '../../../contracts/deployments.json');
+    : resolve(__dirname, '../../../contracts/deployments-mainnet.json');
 
   if (!existsSync(candidatePath)) {
     return { path: candidatePath, data: null };
@@ -55,14 +59,36 @@ const config = {
   chainId: derivedChainId,
   privateKey: process.env.PRIVATE_KEY || '',
   deploymentsFile: deploymentFile.path,
+  // Records which factory ABI generation matches `contracts.vaultFactory`.
+  // V4 added a 7th createVault arg (acceptedManifestHash) and a wider
+  // VaultDeployed event (8 args). V3 added two args to the V2 event.
+  // Indexer must load the matching ABI or queryFilter returns nothing
+  // for new vaults. Honors a VAULT_FACTORY_ADDRESS env override only if
+  // it matches a known V4/V3/V2 deployment key — otherwise falls back to v1.
+  factoryVersion: (() => {
+    const override = process.env.VAULT_FACTORY_ADDRESS;
+    const match = (addr, ref) => addr && ref && addr.toLowerCase() === ref.toLowerCase();
+    if (override) {
+      if (match(override, deploymentDefaults.aegisVaultFactoryV4)) return 'v4';
+      if (match(override, deploymentDefaults.aegisVaultFactoryV3)) return 'v3';
+      if (match(override, deploymentDefaults.aegisVaultFactoryV2)) return 'v2';
+      return 'v1';
+    }
+    if (deploymentDefaults.aegisVaultFactoryV4) return 'v4';
+    if (deploymentDefaults.aegisVaultFactoryV3) return 'v3';
+    if (deploymentDefaults.aegisVaultFactoryV2) return 'v2';
+    return 'v1';
+  })(),
 
-  // Contract addresses — resolution priority: V3 → V2 → V1 (env override
+  // Contract addresses — resolution priority: V4 → V3 → V2 → V1 (env override
   // always wins). Post-`deploy-fresh-mainnet.js` runs only V3 keys are
   // present and V1/V2 unsuffixed keys are absent from the deployments file;
   // chains that haven't been re-deployed still get the legacy fallback.
+  // V4 keys appear once the V4 deploy script has been run.
   contracts: {
     vaultFactory: firstNonEmpty(
       process.env.VAULT_FACTORY_ADDRESS,
+      deploymentDefaults.aegisVaultFactoryV4,
       deploymentDefaults.aegisVaultFactoryV3,
       deploymentDefaults.aegisVaultFactoryV2,
       deploymentDefaults.aegisVaultFactory

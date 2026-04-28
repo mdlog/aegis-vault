@@ -8,11 +8,28 @@
 import { REGIMES } from './regimeClassifier.js';
 
 /**
- * Evaluate 15 hard veto conditions.
+ * Evaluate hard veto conditions.
+ *
+ * Threshold resolution priority (most specific wins):
+ *   1. strategy.veto.* (operator manifest, V4 multi-strategy)
+ *   2. policy.* (vault policy, set at create)
+ *   3. Hardcoded defaults
+ *
+ * Strategy can only be MORE conservative than vault policy (the policy is a
+ * hard ceiling). Strategy values that exceed vault policy get clamped to
+ * the policy ceiling — never the other way around.
+ *
+ * @param {object} indicators
+ * @param {object} vaultState
+ * @param {object} policy
+ * @param {string} regime
+ * @param {object} aiView
+ * @param {object|null} strategy  — V4 strategy manifest (optional)
  * @returns {{ veto: boolean, reasons: string[] }}
  */
-export function evaluateHardVeto(indicators, vaultState, policy, regime, aiView) {
+export function evaluateHardVeto(indicators, vaultState, policy, regime, aiView, strategy = null) {
   const reasons = [];
+  const sv = strategy?.veto || {};
 
   // 1. Vault paused
   if (policy.pause) reasons.push('vault_paused');
@@ -47,23 +64,51 @@ export function evaluateHardVeto(indicators, vaultState, policy, regime, aiView)
   }
 
   // 8. Too many consecutive losses
-  if ((vaultState.consecutive_losses || 0) >= 3) {
+  // Strategy override wins when set — operator commits to whatever bound they
+  // declared in the manifest. Falls back to default (3) when unspecified.
+  const maxLosses = sv.maxConsecutiveLosses ?? 3;
+  if ((vaultState.consecutive_losses || 0) >= maxLosses) {
     reasons.push('consecutive_losses_exceeded');
   }
 
-  // 9. Spread too wide
-  if ((indicators.spread_bps || 0) > (policy.max_spread_bps || 20)) {
+  // 9. Spread too wide. Vault policy ceiling preserved (HARD limit). Strategy
+  // can tighten by passing a smaller value via sv.maxSpreadBps.
+  const maxSpread = sv.maxSpreadBps != null
+    ? Math.min(sv.maxSpreadBps, policy.max_spread_bps ?? 20)
+    : (policy.max_spread_bps ?? 20);
+  if ((indicators.spread_bps || 0) > maxSpread) {
     reasons.push('spread_too_wide');
   }
 
-  // 10. Slippage too high
-  if ((indicators.slippage_estimate_bps || 0) > (policy.max_slippage_bps || 30)) {
+  // 10. Slippage too high. Same intersection rule as spread.
+  const maxSlippage = sv.maxSlippageBps != null
+    ? Math.min(sv.maxSlippageBps, policy.max_slippage_bps ?? 30)
+    : (policy.max_slippage_bps ?? 30);
+  if ((indicators.slippage_estimate_bps || 0) > maxSlippage) {
     reasons.push('slippage_too_high');
   }
 
-  // 11. Extreme volatility
-  if ((indicators.atr_14_pct || 0) > 3.8) {
+  // 11. Extreme volatility. Strategy override wins (operator's commitment).
+  // No hardcoded ceiling because volatility tolerance is fundamentally a
+  // strategy choice (mean-reversion wants low ATR; momentum tolerates higher).
+  // Default 3.8 only applies when strategy doesn't declare.
+  // Period-aware: prefer `atr_pct` (strategy-configured period) over `atr_14_pct`
+  // when the strategy customised atr.period — otherwise both are equal.
+  const maxAtrPct = sv.maxAtrPct ?? 3.8;
+  const atrValue = indicators.atr_pct ?? indicators.atr_14_pct ?? 0;
+  if (atrValue > maxAtrPct) {
     reasons.push('extreme_volatility');
+  }
+
+  // 11b. Strategy-specific RSI veto (overbought / oversold knockout)
+  // Period-aware: prefer strategy-configured `rsi` over fixed-14 `rsi_14`
+  // when present.
+  const rsiValue = indicators.rsi ?? indicators.rsi_14 ?? 50;
+  if (sv.rsiOverbought != null && rsiValue > sv.rsiOverbought) {
+    reasons.push('rsi_overbought_strategy_veto');
+  }
+  if (sv.rsiOversold != null && rsiValue < sv.rsiOversold) {
+    reasons.push('rsi_oversold_strategy_veto');
   }
 
   // 12. Market data stale (check if timestamp is old)

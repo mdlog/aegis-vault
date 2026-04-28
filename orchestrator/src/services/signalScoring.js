@@ -76,17 +76,31 @@ export function computeRiskStateScore(vaultState, policy) {
   return clamp(score);
 }
 
+// Default weights (used when no strategy manifest provides custom ones).
+// Must sum to 1.0. Loader validates this for strategy-supplied weights.
+const DEFAULT_EDGE_WEIGHTS = {
+  trend: 0.25,
+  momentum: 0.20,
+  volatility: 0.15,
+  liquidity: 0.15,
+  riskState: 0.15,
+  aiContext: 0.10,
+};
+
 /**
- * Compute final edge score with weighted formula
+ * Compute final edge score with weighted formula. Accepts an optional
+ * `weights` object from strategy.scoring.weights; falls back to defaults
+ * when null/undefined (V3 vault without manifest).
  */
-export function computeFinalEdgeScore(scores) {
+export function computeFinalEdgeScore(scores, weights = null) {
+  const w = weights || DEFAULT_EDGE_WEIGHTS;
   return Math.round(
-    0.25 * scores.trend +
-    0.20 * scores.momentum +
-    0.15 * scores.volatility +
-    0.15 * scores.liquidity +
-    0.15 * scores.riskState +
-    0.10 * scores.aiContext
+    w.trend      * scores.trend +
+    w.momentum   * scores.momentum +
+    w.volatility * scores.volatility +
+    w.liquidity  * scores.liquidity +
+    w.riskState  * scores.riskState +
+    w.aiContext  * scores.aiContext
   );
 }
 
@@ -104,10 +118,12 @@ export function computeTradeQualityScore({ finalEdgeScore, executionScore, timin
 }
 
 /**
- * Compute all scores from indicators + vault state + AI context
+ * Compute all scores from indicators + vault state + AI context.
+ * Accepts an optional strategy.scoring.weights object via `weights` param;
+ * falls back to default weights when not provided.
  * @returns {object} All subscores + final_edge_score + trade_quality_score
  */
-export function computeAllScores(indicators, vaultState, policy, aiContextScore = 50) {
+export function computeAllScores(indicators, vaultState, policy, aiContextScore = 50, weights = null) {
   const trend = computeTrendScore(indicators);
   const momentum = computeMomentumScore(indicators);
   const volatility = computeVolatilityScore(indicators);
@@ -115,7 +131,7 @@ export function computeAllScores(indicators, vaultState, policy, aiContextScore 
   const riskState = computeRiskStateScore(vaultState, policy);
 
   const scores = { trend, momentum, volatility, liquidity, riskState, aiContext: aiContextScore };
-  const finalEdgeScore = computeFinalEdgeScore(scores);
+  const finalEdgeScore = computeFinalEdgeScore(scores, weights);
 
   return {
     trend_score: trend,

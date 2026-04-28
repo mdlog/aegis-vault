@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "strategy": {
+    "id": "market-neutral-v1",
+    "name": "Market Neutral v1",
+    "type": "market_neutral",
+    "timeframe": "1h",
+    "description": "Paired long/short basis trade. Schema v1 currently expresses only the long leg on-chain (no short DSL hook); the short side will be added in V2 once perp/synthetic adapters land. Enters long leg on RSI < 40 inside RANGE regimes with calm ATR; exits at RSI > 60, drawdown stop, or 24h holding cap. AI gets weight 0.15 because regime + correlation read is the hardest part of basis trading.",
+    "basedOn": null,
+    "basedOnHash": null
+  },
+  "indicators": {
+    "rsi": {
+      "period": 14,
+      "buyMin": 25,
+      "buyMax": 40,
+      "overbought": 70,
+      "oversold": 30
+    },
+    "macd": {
+      "fast": 12,
+      "slow": 26,
+      "signal": 9
+    },
+    "ema": {
+      "periods": [20, 50, 200]
+    },
+    "atr": {
+      "period": 14
+    },
+    "vwap": {
+      "enabled": true
+    }
+  },
+  "scoring": {
+    "weights": {
+      "trend": 0.10,
+      "momentum": 0.15,
+      "volatility": 0.20,
+      "liquidity": 0.20,
+      "riskState": 0.20,
+      "aiContext": 0.15
+    }
+  },
+  "rules": {
+    "entry_long": {
+      "expression": "rsi_14 < 40 && atr_14_pct < 3.0 && regime in ['RANGE_STABLE', 'RANGE_NOISY']"
+    },
+    "exit_long": {
+      "expression": "rsi_14 > 60 || position.pnl_pct < -2.0 || position.holding_seconds > 86400"
+    },
+    "size_bps": {
+      "expression": "clamp(ai.confidence * 1000, 100, 1500)"
+    }
+  },
+  "gates": {
+    "minEdgeBuy": 40,
+    "minQualityBuy": 40,
+    "minConfidenceBuy": 0.40,
+    "maxRiskBuy": 0.50,
+    "minEdgeSell": 35,
+    "minQualitySell": 35,
+    "allowedBuyRegimes": ["RANGE_STABLE", "RANGE_NOISY", "TREND_UP_WEAK"],
+    "allowedSellRegimes": ["RANGE_STABLE", "RANGE_NOISY", "TREND_UP_WEAK", "TREND_UP_STRONG", "TREND_DOWN_WEAK", "TREND_DOWN_STRONG"]
+  },
+  "veto": {
+    "maxAtrPct": 3.5,
+    "rsiOverbought": 72,
+    "rsiOversold": 20,
+    "maxSpreadBps": 30,
+    "maxSlippageBps": 50,
+    "maxConsecutiveLosses": 5
+  },
+  "ai": {
+    "mode": "scoring_input",
+    "model": "zai-org/GLM-5-FP8",
+    "providerAddress": "0xd9966e13a6026Fcca4b13E7ff95c94DE268C471C",
+    "temperature": 0.3,
+    "scoringWeight": 0.15,
+    "systemPromptId": "market-neutral-default"
+  }
+}

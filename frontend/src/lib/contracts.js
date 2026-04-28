@@ -1,23 +1,52 @@
-import AegisVaultABI from './abi/AegisVault.json';
-import AegisVaultFactoryABI from './abi/AegisVaultFactory.json';
-import AegisVault_v3ABI from './abi/AegisVault_v3.json';
-import AegisVaultFactoryV3ABI from './abi/AegisVaultFactoryV3.json';
-import KhalaniVenueAdapterABI from './abi/KhalaniVenueAdapter.json';
-import ExecutionRegistryABI from './abi/ExecutionRegistry.json';
-import OperatorRegistryABI from './abi/OperatorRegistry.json';
-import ProtocolTreasuryABI from './abi/ProtocolTreasury.json';
-import OperatorStakingABI from './abi/OperatorStaking.json';
-import InsurancePoolABI from './abi/InsurancePool.json';
-import OperatorReputationABI from './abi/OperatorReputation.json';
-import AegisGovernorABI from './abi/AegisGovernor.json';
-import MockERC20ABI from './abi/MockERC20.json';
+import AegisVaultRaw from './abi/AegisVault.json';
+import AegisVaultFactoryRaw from './abi/AegisVaultFactory.json';
+import AegisVault_v3Raw from './abi/AegisVault_v3.json';
+import AegisVaultFactoryV3Raw from './abi/AegisVaultFactoryV3.json';
+import AegisVault_v4Raw from './abi/AegisVault_v4.json';
+import AegisVaultFactoryV4Raw from './abi/AegisVaultFactoryV4.json';
+import KhalaniVenueAdapterRaw from './abi/KhalaniVenueAdapter.json';
+import ExecutionRegistryRaw from './abi/ExecutionRegistry.json';
+import OperatorRegistryRaw from './abi/OperatorRegistry.json';
+import ProtocolTreasuryRaw from './abi/ProtocolTreasury.json';
+import OperatorStakingRaw from './abi/OperatorStaking.json';
+import InsurancePoolRaw from './abi/InsurancePool.json';
+import OperatorReputationRaw from './abi/OperatorReputation.json';
+import AegisGovernorRaw from './abi/AegisGovernor.json';
+import MockERC20Raw from './abi/MockERC20.json';
 import generatedDeployments from './deployments.generated.json';
+
+// Some ABI JSONs are bare arrays (older exports); the V3 audit redeploy emits
+// full Hardhat artifacts shaped `{ contractName, abi: [...] }`. viem expects
+// a bare array — `.filter is not a function` is the symptom of feeding it the
+// wrapper object. Normalize at the import boundary so call sites stay simple.
+const unwrap = (raw) => (Array.isArray(raw) ? raw : raw?.abi ?? []);
+
+const AegisVaultABI = unwrap(AegisVaultRaw);
+const AegisVaultFactoryABI = unwrap(AegisVaultFactoryRaw);
+const AegisVault_v3ABI = unwrap(AegisVault_v3Raw);
+const AegisVaultFactoryV3ABI = unwrap(AegisVaultFactoryV3Raw);
+// V4 ABIs are imported and unwrapped here for forward compatibility — no V4
+// vault is deployed yet, so these aren't wired into any page. Phase 4 (vault
+// deploy + manifest binding) will start consuming them.
+const AegisVault_v4ABI = unwrap(AegisVault_v4Raw);
+const AegisVaultFactoryV4ABI = unwrap(AegisVaultFactoryV4Raw);
+const KhalaniVenueAdapterABI = unwrap(KhalaniVenueAdapterRaw);
+const ExecutionRegistryABI = unwrap(ExecutionRegistryRaw);
+const OperatorRegistryABI = unwrap(OperatorRegistryRaw);
+const ProtocolTreasuryABI = unwrap(ProtocolTreasuryRaw);
+const OperatorStakingABI = unwrap(OperatorStakingRaw);
+const InsurancePoolABI = unwrap(InsurancePoolRaw);
+const OperatorReputationABI = unwrap(OperatorReputationRaw);
+const AegisGovernorABI = unwrap(AegisGovernorRaw);
+const MockERC20ABI = unwrap(MockERC20Raw);
 
 export {
   AegisVaultABI,
   AegisVaultFactoryABI,
   AegisVault_v3ABI,
   AegisVaultFactoryV3ABI,
+  AegisVault_v4ABI,
+  AegisVaultFactoryV4ABI,
   KhalaniVenueAdapterABI,
   ExecutionRegistryABI,
   OperatorRegistryABI,

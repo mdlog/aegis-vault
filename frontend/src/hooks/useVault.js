@@ -1,7 +1,7 @@
 import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { parseUnits, formatUnits, decodeEventLog } from 'viem';
 import { toast } from 'sonner';
-import { AegisVaultABI, AegisVaultFactoryABI, AegisVaultFactoryV3ABI, MockERC20ABI, getDeployments } from '../lib/contracts.js';
+import { AegisVaultABI, AegisVault_v4ABI, AegisVaultFactoryABI, AegisVaultFactoryV3ABI, AegisVaultFactoryV4ABI, MockERC20ABI, getDeployments } from '../lib/contracts.js';
 
 /**
  * Slim AegisVault (the build currently deployed on 0G mainnet) exposes only:
@@ -262,36 +262,52 @@ export function useOwnerVaults(factoryAddress, ownerAddress) {
 export function useVaultList(factoryAddress, ownerAddress) {
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
+  const factoryV4 = deployments.aegisVaultFactoryV4 || '';
   const factoryV3 = deployments.aegisVaultFactoryV3 || '';
   const factoryV2 = deployments.aegisVaultFactoryV2 || '';
-  const factoryV1 = (factoryAddress && factoryAddress !== factoryV3 && factoryAddress !== factoryV2)
+  const factoryV1 = (factoryAddress && factoryAddress !== factoryV4
+                                    && factoryAddress !== factoryV3
+                                    && factoryAddress !== factoryV2)
     ? factoryAddress
     : '';
 
+  // V4 + V3 + V2 + V1 factories all expose getOwnerVaults with the same
+  // signature — the AegisVaultFactoryABI (V1/V2 ABI) covers the read shape
+  // for every generation. We don't need V4-specific ABI for this list query.
   const { data: ownerListsRaw, isLoading: addrsLoading } = useReadContracts({
     contracts: [
+      factoryV4 && { address: factoryV4, abi: AegisVaultFactoryABI, functionName: 'getOwnerVaults', args: [ownerAddress] },
       factoryV3 && { address: factoryV3, abi: AegisVaultFactoryABI, functionName: 'getOwnerVaults', args: [ownerAddress] },
       factoryV2 && { address: factoryV2, abi: AegisVaultFactoryABI, functionName: 'getOwnerVaults', args: [ownerAddress] },
       factoryV1 && { address: factoryV1, abi: AegisVaultFactoryABI, functionName: 'getOwnerVaults', args: [ownerAddress] },
     ].filter(Boolean),
-    query: { enabled: !!ownerAddress && !!(factoryV3 || factoryV2 || factoryV1), refetchInterval: 30000 },
+    query: { enabled: !!ownerAddress && !!(factoryV4 || factoryV3 || factoryV2 || factoryV1), refetchInterval: 30000 },
   });
 
   // Stitch addresses from each factory back to a version label.
+  // Index advances only for present factories so the position math is robust
+  // when some factory addresses are empty (typical mid-rollout state).
   const versionedAddrs = [];
-  if (factoryV3 && ownerListsRaw?.[0]?.result) {
-    for (const addr of ownerListsRaw[0].result) versionedAddrs.push({ addr, version: 'v3' });
+  let idx = 0;
+  if (factoryV4) {
+    if (ownerListsRaw?.[idx]?.result) {
+      for (const addr of ownerListsRaw[idx].result) versionedAddrs.push({ addr, version: 'v4' });
+    }
+    idx++;
+  }
+  if (factoryV3) {
+    if (ownerListsRaw?.[idx]?.result) {
+      for (const addr of ownerListsRaw[idx].result) versionedAddrs.push({ addr, version: 'v3' });
+    }
+    idx++;
   }
   if (factoryV2) {
-    const idx = factoryV3 ? 1 : 0;
     if (ownerListsRaw?.[idx]?.result) {
       for (const addr of ownerListsRaw[idx].result) versionedAddrs.push({ addr, version: 'v2' });
     }
+    idx++;
   }
   if (factoryV1) {
-    let idx = 0;
-    if (factoryV3) idx++;
-    if (factoryV2) idx++;
     if (ownerListsRaw?.[idx]?.result) {
       for (const addr of ownerListsRaw[idx].result) versionedAddrs.push({ addr, version: 'v1' });
     }
@@ -550,8 +566,9 @@ export function useWithdrawAllNonBase() {
 }
 
 /**
- * Probe vault.version() on-chain. Returns 'v2' for v2 vaults, 'v1' (default)
- * otherwise. Non-blocking: while the read is in flight we assume v1 so the
+ * Probe vault.version() on-chain. Returns 'v4' / 'v3' / 'v2' / 'v1'. V1
+ * vaults don't have a version() function — the call reverts and we default
+ * to 'v1'. Non-blocking: while the read is in flight we assume v1 so the
  * UI stays conservative.
  */
 export function useVaultVersion(vaultAddress) {
@@ -561,8 +578,178 @@ export function useVaultVersion(vaultAddress) {
     functionName: 'version',
     query: { enabled: !!vaultAddress, retry: false },
   });
-  // v1 vaults don't have version() — call reverts, data stays undefined.
-  return { version: data === 'v2' ? 'v2' : 'v1', isLoading };
+  const version =
+    data === 'v4' ? 'v4'
+    : data === 'v3' ? 'v3'
+    : data === 'v2' ? 'v2'
+    : 'v1';
+  return { version, isLoading };
+}
+
+/**
+ * V2, V3, and V4 vaults expose `withdrawToken` + `withdrawAllNonBase` —
+ * the multi-asset rescue surface that lets users withdraw any allowed
+ * asset the vault holds, not just the base asset. V1 vaults are base-only.
+ */
+export function vaultSupportsMultiAssetWithdraw(vaultVersion) {
+  return vaultVersion === 'v2' || vaultVersion === 'v3' || vaultVersion === 'v4';
+}
+
+// ── V4 manifest binding & upgrade flow ──
+//
+// V4 vaults bind an `acceptedManifestHash` at create time. When the operator
+// publishes a new strategy, the vault owner must approve it through a
+// 24-hour timelock:
+//
+//   1. requestManifestUpgrade(newHash) — queues a pending hash
+//   2. (wait MANIFEST_UPGRADE_TIMELOCK = 24h)
+//   3. applyManifestUpgrade()         — promotes pending → accepted
+//
+// Owner can also cancelManifestUpgrade() at any time before apply.
+//
+// These hooks are V4-only. Calling them on a V3 vault would revert
+// (function not found) — gate on `useVaultVersion(vault).version === 'v4'`.
+
+const ZERO_HASH_FRONT = '0x' + '0'.repeat(64);
+
+/**
+ * Read all V4 manifest-binding state in one batch:
+ *   - acceptedManifestHash      → currently active commitment
+ *   - pendingManifestHash       → hash queued by requestManifestUpgrade (zero if none)
+ *   - manifestUpgradeRequestedAt → unix timestamp the upgrade was queued
+ *
+ * Returns `null` for fields when the vault isn't V4 or the read is still
+ * loading — caller should branch on `isLoading` + `hasManifestSupport`.
+ */
+export function useVaultManifestHash(vaultAddress, opts = {}) {
+  const { enabled = true } = opts;
+
+  const reads = useReadContracts({
+    contracts: vaultAddress ? [
+      { address: vaultAddress, abi: AegisVault_v4ABI, functionName: 'acceptedManifestHash' },
+      { address: vaultAddress, abi: AegisVault_v4ABI, functionName: 'pendingManifestHash' },
+      { address: vaultAddress, abi: AegisVault_v4ABI, functionName: 'manifestUpgradeRequestedAt' },
+    ] : [],
+    query: { enabled: !!vaultAddress && enabled, retry: false },
+  });
+
+  const data = reads.data || [];
+  // wagmi returns each read as { result, status } — propagate undefined when
+  // the call reverted (V3 vault without the V4 surface).
+  const acceptedManifestHash = data[0]?.result ?? null;
+  const pendingManifestHash = data[1]?.result ?? null;
+  const requestedAtRaw = data[2]?.result;
+  const manifestUpgradeRequestedAt = requestedAtRaw != null
+    ? Number(requestedAtRaw)
+    : 0;
+
+  // True only if all three reads succeeded — i.e. this really is a V4 vault.
+  const hasManifestSupport =
+    !!acceptedManifestHash && data[0]?.status === 'success';
+
+  // 24-hour timelock from the contract constant (MANIFEST_UPGRADE_TIMELOCK).
+  const TIMELOCK_SECONDS = 24 * 3600;
+  const hasPendingUpgrade =
+    !!pendingManifestHash && pendingManifestHash !== ZERO_HASH_FRONT;
+  const readyAt = hasPendingUpgrade
+    ? manifestUpgradeRequestedAt + TIMELOCK_SECONDS
+    : 0;
+
+  return {
+    acceptedManifestHash,
+    pendingManifestHash,
+    manifestUpgradeRequestedAt,
+    hasManifestSupport,
+    hasPendingUpgrade,
+    readyAt,
+    isLoading: reads.isLoading,
+    refetch: reads.refetch,
+  };
+}
+
+/**
+ * Compare a vault's accepted hash against the operator's currently published
+ * hash. Returns a small status object that the UI can render directly:
+ *
+ *   { match: true }                                — hashes equal (incl. case)
+ *   { match: false, reason: 'unbound' }            — vault accepts zero hash
+ *   { match: false, reason: 'no-operator-manifest'} — operator hasn't published
+ *   { match: false, reason: 'drift' }              — both set but differ
+ */
+export function diffVaultOperatorManifest(vaultAcceptedHash, operatorPublishedHash) {
+  const accepted = vaultAcceptedHash ? vaultAcceptedHash.toLowerCase() : null;
+  const published = operatorPublishedHash ? operatorPublishedHash.toLowerCase() : null;
+
+  const acceptedZero = !accepted || accepted === ZERO_HASH_FRONT;
+  const publishedZero = !published || published === ZERO_HASH_FRONT;
+
+  if (!acceptedZero && !publishedZero && accepted === published) return { match: true };
+  if (acceptedZero && publishedZero) return { match: true, reason: 'both-unbound' };
+  if (acceptedZero) return { match: false, reason: 'unbound' };
+  if (publishedZero) return { match: false, reason: 'no-operator-manifest' };
+  return { match: false, reason: 'drift' };
+}
+
+/**
+ * Vault owner: queue a manifest upgrade. Subject to the contract's
+ * `MANIFEST_UPGRADE_TIMELOCK` (24h) before `applyManifestUpgrade` can promote
+ * the queued hash.
+ */
+export function useRequestManifestUpgrade() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const requestManifestUpgrade = (vaultAddress, newHash) => {
+    writeContract({
+      address: vaultAddress,
+      abi: AegisVault_v4ABI,
+      functionName: 'requestManifestUpgrade',
+      args: [newHash],
+    });
+  };
+
+  return { requestManifestUpgrade, hash, isPending, isConfirming, isSuccess, error };
+}
+
+/**
+ * Vault owner: promote `pendingManifestHash` to `acceptedManifestHash`.
+ * Reverts with `ManifestTimelockActive` if called before the 24h window
+ * elapses, or `NoPendingManifestUpgrade` if no upgrade is queued.
+ */
+export function useApplyManifestUpgrade() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const applyManifestUpgrade = (vaultAddress) => {
+    writeContract({
+      address: vaultAddress,
+      abi: AegisVault_v4ABI,
+      functionName: 'applyManifestUpgrade',
+      args: [],
+    });
+  };
+
+  return { applyManifestUpgrade, hash, isPending, isConfirming, isSuccess, error };
+}
+
+/**
+ * Vault owner: discard a queued manifest upgrade before it's applied.
+ * Useful when the owner queued the wrong hash or the operator rolled back.
+ */
+export function useCancelManifestUpgrade() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const cancelManifestUpgrade = (vaultAddress) => {
+    writeContract({
+      address: vaultAddress,
+      abi: AegisVault_v4ABI,
+      functionName: 'cancelManifestUpgrade',
+      args: [],
+    });
+  };
+
+  return { cancelManifestUpgrade, hash, isPending, isConfirming, isSuccess, error };
 }
 
 // ── Write: Pause / Unpause ── (full-vault only)
@@ -586,31 +773,70 @@ export function useCreateVault() {
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
 
-  // Cutover priority: V3 factory > V2 factory > V1 factory.
+  // Cutover priority: V4 factory > V3 factory > V2 factory > V1 factory.
+  //   V4 binds an `acceptedManifestHash` at create + adds strategyHash /
+  //     strategySchemaVer to the EIP-712 ExecutionIntent typehash. The UI
+  //     should pass `acceptedManifestHash` derived from the selected
+  //     operator's currently-published manifest (zero hash = "no strategy
+  //     binding required" backwards-compat mode).
   //   V3 unlocks Khalani cross-chain fills (acceptCrossChainFill) and seals
-  //   maxCrossChainFeeBps at vault creation. V2 added rescueToken /
-  //   withdrawAllNonBase. V1 is the original on-chain swap-only stack.
-  const useV3 = !!deployments.aegisVaultFactoryV3;
+  //     maxCrossChainFeeBps at vault creation.
+  //   V2 added rescueToken / withdrawAllNonBase.
+  //   V1 is the original on-chain swap-only stack.
+  const useV4 = !!deployments.aegisVaultFactoryV4;
+  const useV3 = !useV4 && !!deployments.aegisVaultFactoryV3;
   const activeFactory =
-    deployments.aegisVaultFactoryV3
+    deployments.aegisVaultFactoryV4
+    || deployments.aegisVaultFactoryV3
     || deployments.aegisVaultFactoryV2
     || deployments.aegisVaultFactory;
-  const activeFactoryAbi = useV3 ? AegisVaultFactoryV3ABI : AegisVaultFactoryABI;
+  const activeFactoryAbi = useV4
+    ? AegisVaultFactoryV4ABI
+    : useV3 ? AegisVaultFactoryV3ABI : AegisVaultFactoryABI;
 
-  // V3 factory signature:
+  // V4 factory signature (7 args):
+  //   createVault(operator, baseAsset, venue, policy, allowedAssets, maxCrossChainFeeBps, acceptedManifestHash)
+  // V3 factory signature (6 args):
   //   createVault(operator, baseAsset, venue, policy, allowedAssets, maxCrossChainFeeBps)
-  // V1/V2 factory signature:
+  // V1/V2 factory signature (5 args):
   //   createVault(baseAsset, executor, venue, policy, allowedAssets)
-  // The wrapper accepts both modern (V3) and legacy (V1/V2) call shapes; UI
-  // callers pass `maxCrossChainFeeBps` (0–200) for V3 vaults — ignored on V1/V2.
-  const createVault = (baseAsset, executor, venue, policy, allowedAssets, maxCrossChainFeeBps) => {
-    if (useV3) {
-      const cap = Number.isFinite(maxCrossChainFeeBps) ? Number(maxCrossChainFeeBps) : 50;
+  //
+  // Wrapper signature is forward-compatible: callers pass
+  // `maxCrossChainFeeBps` (0-200) and `acceptedManifestHash` (bytes32 hex).
+  // Both are ignored on legacy factories. acceptedManifestHash defaults to
+  // ZeroHash = "no strategy binding" mode.
+  const createVault = (
+    baseAsset,
+    executor,
+    venue,
+    policy,
+    allowedAssets,
+    maxCrossChainFeeBps,
+    acceptedManifestHash,
+  ) => {
+    const cap = Number.isFinite(maxCrossChainFeeBps) ? Number(maxCrossChainFeeBps) : 50;
+    const manifestHash = (typeof acceptedManifestHash === 'string'
+      && acceptedManifestHash.startsWith('0x')
+      && acceptedManifestHash.length === 66)
+      ? acceptedManifestHash
+      : '0x0000000000000000000000000000000000000000000000000000000000000000';
+
+    if (useV4) {
       writeContract({
         address: activeFactory,
         abi: activeFactoryAbi,
         functionName: 'createVault',
-        // V3: _operator first, _baseAsset second — caller (msg.sender) becomes owner.
+        // V4: operator, baseAsset, venue, policy, allowedAssets, maxCrossChainFeeBps, acceptedManifestHash
+        args: [executor, baseAsset, venue, policy, allowedAssets, cap, manifestHash],
+      });
+      return;
+    }
+    if (useV3) {
+      writeContract({
+        address: activeFactory,
+        abi: activeFactoryAbi,
+        functionName: 'createVault',
+        // V3: operator first, baseAsset second
         args: [executor, baseAsset, venue, policy, allowedAssets, cap],
       });
       return;

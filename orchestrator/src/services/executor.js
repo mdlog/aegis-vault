@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-import { ABIs, getVaultContract, getShardedVaultContract, computeIntentHash, computeCommitHash, getProvider, getSigner, EXECUTION_INTENT_TYPES, CROSS_CHAIN_INTENT_TYPES, computeCrossChainIntentHash } from '../config/contracts.js';
+import { ABIs, getVaultContract, getShardedVaultContract, computeIntentHash, computeIntentHashV4, computeCommitHash, getProvider, getSigner, EXECUTION_INTENT_TYPES, EXECUTION_INTENT_TYPES_V4, CROSS_CHAIN_INTENT_TYPES, computeCrossChainIntentHash } from '../config/contracts.js';
 import { buildAssetAddressMap, getTrackedAsset, normalizeTradeSymbol } from './assets.js';
 import { withRetry } from '../utils/retry.js';
 import { chooseRoute } from './quoteRouter.js';
@@ -30,6 +30,42 @@ function isNonceExpiredError(err) {
   const msg = `${err?.code || ''} ${err?.message || ''} ${err?.shortMessage || ''}`;
   return msg.includes('NONCE_EXPIRED') ||
     /nonce (has already been used|too low|expired)/i.test(msg);
+}
+
+/**
+ * Decode a vault revert blob into a human-readable reason string. Centralised
+ * so the catch-block in `submitIntent` and any future executor entry point
+ * (Khalani fill, manifest upgrade, ...) all share the same custom-error
+ * dictionary. Exported for unit testing — the V4 audit flagged silent error
+ * fall-throughs as a real ops problem and we want a regression test against
+ * that.
+ */
+const INTENT_ERROR_IFACE = new ethers.Interface([
+  // V3 surface
+  'error PolicyCheckFailed(string)',
+  'error IntentHashMismatch()',
+  'error IntentVaultMismatch()',
+  'error AutoExecutionDisabled()',
+  'error SwapOutputMismatch()',
+  'error OnlyExecutor()',
+  'error VaultPaused()',
+  // V4 strategy-binding surface — without these, mismatches surface as
+  // raw 4-byte selectors and ops cannot tell which guardrail tripped.
+  'error WrongStrategyHash()',
+  'error UnsupportedSchemaVersion()',
+]);
+
+export function decodeIntentSubmitError(err) {
+  const fallback = err?.message || String(err);
+  if (!err?.data) return fallback;
+  try {
+    const decoded = INTENT_ERROR_IFACE.parseError(err.data);
+    return decoded.args.length > 0
+      ? `${decoded.name}: ${decoded.args[0]}`
+      : decoded.name;
+  } catch {
+    return fallback;
+  }
 }
 
 async function resetNonceManager(contract, err) {
@@ -89,19 +125,37 @@ const DEFAULT_SLIPPAGE_BPS = 50;
  * Track 2: Compute the TEE attestation report hash from a 0G Compute response.
  * Binds the inference output to a verifiable provider+chatId on-chain.
  *
+ * V4 multi-strategy extension: when `strategyHash` + `strategySchemaVer` are
+ * provided, they are folded into the attestation hash. This gives Phase 1
+ * enforcement (V3 vault) some on-chain trace of which strategy produced the
+ * intent, even before V4 vaults bind strategyHash as a first-class field.
+ * Auditors can recompute the hash from journal {provider, chatId, model,
+ * content, strategyHash, schemaVer} and compare to on-chain log.
+ *
  * Honest disclosure: this is provider-attestation (signed by the registered
  * 0G Compute provider key). True TEE-grade attestation depends on whether the
  * selected provider runs in SGX/TDX hardware. We hash everything we have so the
  * vault can be audited against the original 0G Compute call.
  */
-export function computeAttestationReportHash(computeResponse) {
+export function computeAttestationReportHash(computeResponse, strategyHash = null, strategySchemaVer = 0) {
   if (!computeResponse) return ethers.ZeroHash;
   const { provider, chatId, content, model } = computeResponse;
   const contentDigest = ethers.keccak256(ethers.toUtf8Bytes(content || ''));
+  // When no strategy is bound, preserve V3 hash shape (4-tuple) for backwards
+  // compatibility with existing journal entries + on-chain audits.
+  if (!strategyHash || strategyHash === ethers.ZeroHash) {
+    return ethers.keccak256(
+      ethers.AbiCoder.defaultAbiCoder().encode(
+        ['address', 'string', 'string', 'bytes32'],
+        [provider || ethers.ZeroAddress, chatId || '', model || '', contentDigest]
+      )
+    );
+  }
+  // V4 extended hash shape — includes strategy provenance.
   return ethers.keccak256(
     ethers.AbiCoder.defaultAbiCoder().encode(
-      ['address', 'string', 'string', 'bytes32'],
-      [provider || ethers.ZeroAddress, chatId || '', model || '', contentDigest]
+      ['address', 'string', 'string', 'bytes32', 'bytes32', 'uint32'],
+      [provider || ethers.ZeroAddress, chatId || '', model || '', contentDigest, strategyHash, strategySchemaVer]
     )
   );
 }
@@ -222,8 +276,21 @@ export async function buildExecutionIntent(decision, vaultState, oraclePrices = 
 
   logger.info(`  Slippage ${slippageBps / 100}% | venue quote: ${venueQuote?.toString() ?? 'n/a'} | oracle floor: ${oracleMinOut.toString()} | minAmountOut: ${minAmountOut.toString()}`);
 
-  // Track 2: bind the TEE attestation report hash into the intent
-  const attestationReportHash = computeAttestationReportHash(computeResponse);
+  // Track 2 + V4: bind TEE attestation report hash + strategy provenance into intent.
+  // strategyHash + schemaVer are forwarded from vaultState._strategyHash /
+  // _strategySchemaVersion (set by orchestrator when a manifest was loaded).
+  const attestationReportHash = computeAttestationReportHash(
+    computeResponse,
+    vaultState._strategyHash || null,
+    vaultState._strategySchemaVersion || 0,
+  );
+
+  // Detect vault generation. V4 vaults expose `version() -> "v4"` and require
+  // strategyHash + strategySchemaVer as first-class EIP-712 fields. V3/V2/V1
+  // vaults still use the legacy 10-field intent.
+  const isV4 = vaultState._vaultVersion === 'v4'
+    || vaultState.vaultVersion === 'v4'
+    || vaultState.policy?.vaultVersion === 'v4';
 
   const intent = {
     intentHash: ethers.ZeroHash, // computed below
@@ -240,8 +307,16 @@ export async function buildExecutionIntent(decision, vaultState, oraclePrices = 
     reasonSummary: (decision.reason || '').substring(0, 200),
   };
 
-  // Compute intent hash (now binds attestationReportHash on-chain)
-  intent.intentHash = computeIntentHash(intent);
+  // V4: bind strategyHash + strategySchemaVer as first-class fields on the
+  // intent struct. The on-chain V4 typehash includes these so signature
+  // verification fails if the orchestrator doesn't provide them.
+  if (isV4) {
+    intent.strategyHash = vaultState._strategyHash || ethers.ZeroHash;
+    intent.strategySchemaVer = vaultState._strategySchemaVersion ?? 0;
+    intent.intentHash = computeIntentHashV4(intent);
+  } else {
+    intent.intentHash = computeIntentHash(intent);
+  }
 
   // Attach the chosen route so the orchestrator can dispatch to either the
   // Jaine submission path (executeIntent) or the Khalani path
@@ -317,7 +392,11 @@ async function signIntentHashWithTeeKey(intentHash, intent) {
     chainId: config.chainId,
     verifyingContract: intent.vault,
   };
-  const value = {
+  // Detect V4 intent by presence of strategyHash field. V4 vaults reject
+  // signatures that omit strategyHash + strategySchemaVer because the
+  // typehash is different.
+  const isV4 = 'strategyHash' in intent && 'strategySchemaVer' in intent;
+  const baseValue = {
     vault: intent.vault,
     assetIn: intent.assetIn,
     assetOut: intent.assetOut,
@@ -329,7 +408,11 @@ async function signIntentHashWithTeeKey(intentHash, intent) {
     riskScoreBps: intent.riskScoreBps,
     attestationReportHash: intent.attestationReportHash || ethers.ZeroHash,
   };
-  const sig = await wallet.signTypedData(domain, EXECUTION_INTENT_TYPES, value);
+  const value = isV4
+    ? { ...baseValue, strategyHash: intent.strategyHash || ethers.ZeroHash, strategySchemaVer: intent.strategySchemaVer ?? 0 }
+    : baseValue;
+  const types = isV4 ? EXECUTION_INTENT_TYPES_V4 : EXECUTION_INTENT_TYPES;
+  const sig = await wallet.signTypedData(domain, types, value);
   return { signer: wallet.address, signature: sig };
 }
 
@@ -348,16 +431,23 @@ async function signIntentHashWithTeeKey(intentHash, intent) {
  */
 export async function submitIntent(intent, opts = {}) {
   try {
+    // Detect V4 from intent shape: presence of strategyHash + strategySchemaVer
+    // means buildExecutionIntent assembled a V4 intent, so we MUST use V4 ABI
+    // for executeIntent — otherwise the encoder packs only 10 fields and the
+    // V4 vault rejects with a typehash mismatch.
+    const isV4Intent = 'strategyHash' in intent && 'strategySchemaVer' in intent;
+    const versionHint = isV4Intent ? 'v4' : null;
+
     // Use sharded vault contract: each vault routes tx through its assigned
     // wallet-pool shard, avoiding nonce collisions when multiple vaults execute
     // in parallel. Falls back to single-signer getVaultContract() if pool errors.
     let vault;
     try {
-      vault = await getShardedVaultContract(intent.vault);
+      vault = await getShardedVaultContract(intent.vault, versionHint);
     } catch {
-      vault = getVaultContract(intent.vault);
+      vault = getVaultContract(intent.vault, versionHint);
     }
-    const iface = new ethers.Interface(ABIs.AegisVault);
+    const iface = new ethers.Interface(isV4Intent && ABIs.AegisVaultV4 ? ABIs.AegisVaultV4 : ABIs.AegisVault);
 
     const sealedMode = !!opts.sealedMode;
 
@@ -451,25 +541,9 @@ export async function submitIntent(intent, opts = {}) {
     };
 
   } catch (err) {
-    // Parse revert reason (L-2 fix: decode all custom errors)
-    let reason = err.message;
-    if (err.data) {
-      try {
-        const iface = new ethers.Interface([
-          'error PolicyCheckFailed(string)',
-          'error IntentHashMismatch()',
-          'error IntentVaultMismatch()',
-          'error AutoExecutionDisabled()',
-          'error SwapOutputMismatch()',
-          'error OnlyExecutor()',
-          'error VaultPaused()',
-        ]);
-        const decoded = iface.parseError(err.data);
-        reason = decoded.args.length > 0
-          ? `${decoded.name}: ${decoded.args[0]}`
-          : decoded.name;
-      } catch (_) {}
-    }
+    // Parse revert reason via the shared custom-error dictionary so V3 + V4
+    // reverts all decode to a human-readable name.
+    const reason = decodeIntentSubmitError(err);
 
     logger.error(`Intent submission failed: ${reason}`);
     return {

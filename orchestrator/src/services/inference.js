@@ -130,6 +130,10 @@ export async function requestInference(marketSummary, vaultState) {
       asset: decisionAsset,
     },
     symbol: `${decisionAsset}/USDC`,
+    // Strategy manifest (V4 ext 1+2 wiring) — passed through from cycle when
+    // operator publishes a manifest. Null means "no manifest, use defaults"
+    // (current V3 vault behavior).
+    strategy: vaultState._strategy || null,
   });
 
   // ── Step 6: Convert to simple format for executor ──

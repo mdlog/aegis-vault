@@ -97,6 +97,31 @@ export async function readOperatorState(operatorAddress) {
     logger.debug(`operatorReader: staking read failed for ${operatorAddress}: ${err.message}`);
   }
 
+  // ── Manifest commitment (V4 multi-strategy ext 6) ──
+  // Pulls operator's published strategy manifest URI + hash from
+  // OperatorRegistry.operatorExtended. Orchestrator strategyLoader uses
+  // these to fetch + verify + parse the strategy at cycle time.
+  // Graceful degradation: contract may not have publishManifest yet OR
+  // operator may not have published one — both leave manifestURI null.
+  try {
+    const registry = getOperatorRegistryContract();
+    if (registry && state.registered && typeof registry.getOperatorExtended === 'function') {
+      const ext = await registry.getOperatorExtended(operatorAddress);
+      const manifestHashStr = ext.manifestHash;
+      const isZeroHash = !manifestHashStr || manifestHashStr === ethers.ZeroHash;
+      if (!isZeroHash && ext.manifestURI && ext.manifestURI.length > 0) {
+        state.manifestURI = ext.manifestURI;
+        state.manifestHash = manifestHashStr;
+        state.manifestVersion = Number(ext.manifestVersion || 0);
+        state.manifestBonded = ext.manifestBonded || false;
+        state.aiModelCommitted = ext.aiModel || null;
+        state.aiProviderCommitted = ext.aiProvider || null;
+      }
+    }
+  } catch (err) {
+    logger.debug(`operatorReader: extended/manifest read failed for ${operatorAddress}: ${err.message}`);
+  }
+
   // Reputation
   try {
     const reputation = getOperatorReputationContract();

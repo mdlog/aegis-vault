@@ -35,11 +35,50 @@ export async function readVaultState(vaultAddress) {
     // when chooseRoute prefers Khalani.
     let vaultVersion = null;
     let isV3 = false;
+    let isV4 = false;
     try {
       const v = await vault.version();
       vaultVersion = String(v);
       isV3 = vaultVersion === 'v3';
+      isV4 = vaultVersion === 'v4';
     } catch { /* v1/v2 vault — leave nulls */ }
+
+    // V4: read acceptedManifestHash so the orchestrator can validate that
+    // the strategy it loaded for this operator matches what the vault accepts.
+    // Must use the V4-specific ABI here — the legacy/V3 ABI doesn't include
+    // the acceptedManifestHash() getter, so a default `vault.acceptedManifestHash()`
+    // call would fail with "function not found" rather than reading the value.
+    //
+    // We also read the pending-upgrade slots (`pendingManifestHash` +
+    // `manifestUpgradeRequestedAt`) so ops dashboards can flag vaults whose
+    // depositor has queued a strategy switch but is still inside the 24h
+    // timelock. Has no effect on intent submission — `executeIntent` keeps
+    // using `acceptedManifestHash` until `applyManifestUpgrade()` finalises
+    // the swap — but log visibility helps catch silent operator changes.
+    let acceptedManifestHash = null;
+    let pendingManifestHash = null;
+    let manifestUpgradeRequestedAt = 0;
+    if (isV4) {
+      try {
+        const v4Vault = getVaultContract(vaultAddress, 'v4');
+        acceptedManifestHash = await v4Vault.acceptedManifestHash();
+        pendingManifestHash = await v4Vault.pendingManifestHash();
+        manifestUpgradeRequestedAt = Number(await v4Vault.manifestUpgradeRequestedAt());
+        if (
+          pendingManifestHash &&
+          pendingManifestHash !== ethers.ZeroHash &&
+          manifestUpgradeRequestedAt > 0
+        ) {
+          const readyAt = manifestUpgradeRequestedAt + 24 * 3600;
+          const remainingSec = Math.max(0, readyAt - Math.floor(Date.now() / 1000));
+          logger.info(
+            `    Pending manifest upgrade for ${vaultAddress}: ` +
+            `${pendingManifestHash.slice(0, 10)}... ` +
+            `(ready in ~${Math.ceil(remainingSec / 3600)}h)`
+          );
+        }
+      } catch { /* getter missing — treat as zero */ }
+    }
 
     // Parse the summary tuple
     const [
@@ -93,6 +132,11 @@ export async function readVaultState(vaultAddress) {
       venue,
       version: vaultVersion,
       isV3,
+      isV4,
+      acceptedManifestHash,
+      pendingManifestHash,
+      manifestUpgradeRequestedAt,
+      _vaultVersion: vaultVersion,
       baseDecimals: Number(baseDecimals),
       nav: totalNav,
       navSource: navData?.source || 'base-asset-balance',

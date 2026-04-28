@@ -23,6 +23,7 @@ import {
   useDeposit, useUpdatePolicy, useTokenBalance, useVaultList, useTransferToken,
   useSetExecutor, useTokenDecimals, useWrapNative,
   useVaultVersion, useWithdrawToken, useWithdrawAllNonBase, useVaultAssetBalances,
+  vaultSupportsMultiAssetWithdraw,
 } from '../hooks/useVault';
 import { useOperatorList, useOperator, useIsRegistered } from '../hooks/useOperatorRegistry';
 import {
@@ -42,6 +43,7 @@ import {
 } from '../hooks/useVaultFees';
 import ControlButton from '../components/ui/ControlButton';
 import CrossChainDepositCard from '../components/dashboard/CrossChainDepositCard';
+import V4ManifestPanel from '../components/dashboard/V4ManifestPanel';
 import TokenIcon from '../components/ui/TokenIcon';
 import PerformanceChart from '../components/charts/PerformanceChart';
 import {
@@ -594,9 +596,9 @@ export default function VaultDetailPage() {
     URL.revokeObjectURL(url);
   };
 
-  // Withdraw tab: per-token balance inside the vault (v2) or base asset
+  // Withdraw tab: per-token balance inside the vault (v2/v3) or base asset
   // balance (v1). Reads from vaultAssetRows when a non-base token is picked.
-  const selectedWithdrawRow = vaultVersion === 'v2' && ticketWithdrawSymbol
+  const selectedWithdrawRow = vaultSupportsMultiAssetWithdraw(vaultVersion) && ticketWithdrawSymbol
     ? vaultAssetRows.find((row) => {
         const meta = depositTokens.find((t) => t.address?.toLowerCase() === row.address?.toLowerCase());
         return meta?.symbol === ticketWithdrawSymbol;
@@ -833,6 +835,20 @@ export default function VaultDetailPage() {
                 dailyActions={dailyActions}
               />
             </div>
+
+            {/* V4 strategy manifest binding — drift detection + 24h-timelocked
+                upgrade flow. Renders a no-op for V3/V2/V1 vaults. */}
+            <V4ManifestPanel
+              vaultAddress={vaultAddr}
+              operatorAddress={executorAddr}
+              vaultVersion={vaultVersion}
+              isOwner={
+                isConnected &&
+                liveVault?.owner &&
+                address &&
+                liveVault.owner.toLowerCase() === address.toLowerCase()
+              }
+            />
 
             <div className="ed-rise" style={{ '--ed-rise-d': '180ms' }}>
               <CapitalTicket
@@ -1771,13 +1787,14 @@ function CapitalTicket({
   // baseAsset lookup is still loading.
   const baseToken = tokens.find((t) => t.isBase) || tokens[0];
 
-  // v2 withdraw: show EVERY allowed asset the vault can hold. Tokens with
-  // zero current balance are still visible so the user sees the full menu —
-  // only the on-chain balance distinguishes "has funds" from "empty". v1
-  // vaults don't support non-base withdraw so the selector collapses to base.
-  const isV2 = vaultVersion === 'v2';
+  // V2 + V3 withdraw: show EVERY allowed asset the vault can hold. Tokens
+  // with zero current balance are still visible so the user sees the full
+  // menu — only the on-chain balance distinguishes "has funds" from "empty".
+  // V1 vaults don't support non-base withdraw so the selector collapses to
+  // base.
+  const supportsMultiAsset = vaultSupportsMultiAssetWithdraw(vaultVersion);
   const withdrawableTokens = (() => {
-    if (!isV2) return baseToken ? [baseToken] : [];
+    if (!supportsMultiAsset) return baseToken ? [baseToken] : [];
     const rows = vaultAssetRows
       .map((row) => {
         const meta = tokens.find((t) => t.address?.toLowerCase() === row.address?.toLowerCase());
@@ -1869,7 +1886,7 @@ function CapitalTicket({
         )}
 
         {/* V1 vault — single base asset, no rescue path */}
-        {tab === 'withdraw' && !isV2 && tokens.length > 1 && (
+        {tab === 'withdraw' && !supportsMultiAsset && tokens.length > 1 && (
           <div className="px-3 pt-1 pb-2">
             <Eyebrow tone="muted" className="!block mb-1.5">Settlement token</Eyebrow>
             <div className="flex items-center gap-1.5">
@@ -1895,8 +1912,8 @@ function CapitalTicket({
           </div>
         )}
 
-        {/* V2 vault — full multi-asset withdraw via withdrawToken / withdraw */}
-        {tab === 'withdraw' && isV2 && withdrawableTokens.length > 0 && (
+        {/* V2 + V3 vault — full multi-asset withdraw via withdrawToken / withdraw */}
+        {tab === 'withdraw' && supportsMultiAsset && withdrawableTokens.length > 0 && (
           <div className="px-3 pt-1 pb-2">
             <Eyebrow tone="muted" className="!block mb-1.5">Withdraw token</Eyebrow>
             <div className="flex gap-1.5 flex-wrap">
@@ -2791,7 +2808,7 @@ function WithdrawModal({
   // Pre-selected token from the CapitalTicket withdraw picker (optional).
   initialWithdrawSymbol = null,
 }) {
-  const isV2 = vaultVersion === 'v2';
+  const isV2 = vaultSupportsMultiAssetWithdraw(vaultVersion);
 
   // For v2: build a display row per allowed asset that has a positive vault
   // balance, picking symbol/decimals from the depositTokens registry so

@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "strategy": {
+    "id": "arbitrage-stable-v1",
+    "name": "Arbitrage Stable v1",
+    "type": "arbitrage",
+    "timeframe": "5m",
+    "description": "Conservative spread-capture between stablecoins (USDC/USDT/DAI). Enters when stable trades >15 bps below VWAP fair value with low ATR; exits at +5 bps. Sizing is large because risk per trade is tiny. Liquidity dominates the scoring weight set (0.40) since stable arb requires deep books. AI is context_only — math is mechanical, model just sanity-checks regime.",
+    "basedOn": null,
+    "basedOnHash": null
+  },
+  "indicators": {
+    "vwap": {
+      "enabled": true
+    },
+    "atr": {
+      "period": 14
+    },
+    "rsi": {
+      "period": 14,
+      "overbought": 95,
+      "oversold": 5
+    }
+  },
+  "scoring": {
+    "weights": {
+      "trend": 0.05,
+      "momentum": 0.05,
+      "volatility": 0.10,
+      "liquidity": 0.40,
+      "riskState": 0.30,
+      "aiContext": 0.10
+    }
+  },
+  "rules": {
+    "entry_long": {
+      "expression": "vwap_distance_pct < -0.15 && atr_14_pct < 0.5 && regime != 'PANIC_VOLATILE' && regime != 'LOW_LIQUIDITY'"
+    },
+    "exit_long": {
+      "expression": "vwap_distance_pct > 0.05 || position.pnl_pct < -0.30"
+    },
+    "size_bps": {
+      "expression": "min(2000, vault.maxPositionBps)"
+    }
+  },
+  "gates": {
+    "minEdgeBuy": 30,
+    "minQualityBuy": 25,
+    "minConfidenceBuy": 0.30,
+    "maxRiskBuy": 0.20,
+    "minEdgeSell": 25,
+    "minQualitySell": 20,
+    "allowedBuyRegimes": ["TREND_UP_STRONG", "TREND_UP_WEAK", "RANGE_STABLE", "RANGE_NOISY", "TREND_DOWN_WEAK", "TREND_DOWN_STRONG"],
+    "allowedSellRegimes": ["TREND_UP_STRONG", "TREND_UP_WEAK", "RANGE_STABLE", "RANGE_NOISY", "TREND_DOWN_WEAK", "TREND_DOWN_STRONG", "PANIC_VOLATILE", "LOW_LIQUIDITY"]
+  },
+  "veto": {
+    "maxAtrPct": 1.0,
+    "rsiOverbought": 95,
+    "rsiOversold": 5,
+    "maxSpreadBps": 5,
+    "maxSlippageBps": 10,
+    "maxConsecutiveLosses": 6
+  },
+  "ai": {
+    "mode": "context_only",
+    "model": "zai-org/GLM-5-FP8",
+    "providerAddress": "0xd9966e13a6026Fcca4b13E7ff95c94DE268C471C",
+    "temperature": 0.1,
+    "systemPromptId": "arbitrage-stable-default"
+  }
+}

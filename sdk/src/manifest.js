@@ -160,6 +160,36 @@ export function parseManifest(text) {
 }
 
 /**
+ * Extract an embedded strategy block from an operator manifest, if present.
+ *
+ * Most legacy manifests bind the operator's policy/fees/allowedAssets shape
+ * defined here, but the multi-strategy V4 architecture lets operators embed
+ * (or hash-reference) a full schema-v1 strategy manifest under
+ * `manifest.strategy` — this helper pulls it out so callers can hand it to
+ * `validateStrategy` / `computeStrategyHash` from `./strategy.js`.
+ *
+ * Returns:
+ *   - the strategy object if `manifest.strategy.schemaVersion === 1`
+ *     (looks like a strategy manifest)
+ *   - `null` otherwise (legacy manifests where `strategy` is the free-form
+ *     `{ summary, thesis, venues, ... }` blob, or where the field is absent)
+ *
+ * Intentionally non-throwing — this is a "best-effort" reader.
+ *
+ * @param {object} manifest
+ * @returns {object | null}
+ */
+export function extractStrategyFromManifest(manifest) {
+  if (!manifest || typeof manifest !== 'object') return null;
+  const s = manifest.strategy;
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
+  if (s.schemaVersion === 1 && s.scoring && s.indicators && s.ai) {
+    return s;
+  }
+  return null;
+}
+
+/**
  * Build a manifest object from structured params. Applies sensible defaults
  * (`version: "1.0.0"`, `publishedAt: now`, empty strategy notes). The result
  * still passes `validateManifest` — callers can extend it freely before
