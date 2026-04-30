@@ -15,6 +15,21 @@
 
 ---
 
+## Hackathon submission — Why we should win
+
+Track 2 (Verifiable Finance) on 0G — graded on **production rigor + integration depth + verifiable AI**, not a demo behind a slide deck.
+
+- **Sealed-strategy commit-reveal is live, not mocked.** First sealed-mode execution on 0G mainnet: BUY 0G tx [`0x0d7334b8…`](https://chainscan.0g.ai/tx/0x0d7334b8) on **2026-04-27** — orchestrator pre-commits `keccak(intentHash, attestationReportHash)` at block N, reveals at ≥ N+1, and `SealedLib.ecrecover()` verifies the TEE signature on-chain against `policy.attestedSigner`. Strategy params never leave the TEE; MEV searchers cannot front-run the intent.
+- **AI inference runs on 0G Compute and the output is cryptographically bound to the trade.** GLM-5-FP8 via the 0G serving broker, output hash committed into the EIP-712 `ExecutionIntent`, attested by the TEE signer key — the same key the on-chain vault verifies. Local heuristic fallback is gated off in `STRICT_MODE=1`.
+- **End-to-end real money path proven on 0G mainnet.** First public execution [`0x7efe51ac…`](https://chainscan.0g.ai/tx/0x7efe51ac) on **2026-04-24**: AI decision → policy guardrails (`ExecLib`) → real swap on Jaine DEX → settlement → reputation update on `OperatorReputation`. No middleman, no upgradeable backdoor.
+- **Audit-grade contract suite.** 235 Hardhat tests passing, Slither **fail-on-high**, EIP-1167 minimal proxies (~2.7 KB) so 0G's per-block gas limit is respected. The full marketplace — `OperatorRegistry` + `Staking` + `Reputation` + `InsurancePool` + multisig `AegisGovernor` — is deployed and addressable in the table below.
+- **Verifiable AI is visible in the UI, not buried in logs.** The dashboard surfaces a **`Sealed · TEE`** chip on every sealed vault and a **`TEE`** badge on every attested action in the AI Intelligence Feed — each linking to the real commit transaction on the explorer. A juror can verify the chain-of-trust without reading code.
+- **Cross-chain via Khalani, not bridged trust.** V3 ships the Khalani venue adapter so a 0G-native intent can settle on Arbitrum without giving the orchestrator custody on the destination chain.
+
+Read the architecture deep-dive in [ARCHITECTURE.md](ARCHITECTURE.md) and the full submission writeup in [HACKATHON_SUBMISSION.md](HACKATHON_SUBMISSION.md).
+
+---
+
 ## What it is
 
 Aegis Vault lets a user deposit stablecoins into a vault, pick an AI operator from an on-chain marketplace, and let autonomous execution happen inside a narrow, enforced policy. The AI can only *propose* trades; the vault contract enforces every rule (max position, stop-loss, cooldowns, slippage, allowed assets, fee caps, cross-chain replay protection). Every decision is logged, every fee is split 80/20 with the protocol treasury, every slash is governance-gated, and every operator carries on-chain reputation that users can sort on.
@@ -72,7 +87,13 @@ Orchestrator (Node.js) ── 0G Compute (GLM-5-FP8) ── Pyth (multi-asset NA
 
 **Slim build**: `AegisVault` is 3.4 KB (was 16 KB) so it fits 0G's per-block gas limit. Heavy logic is in 3 external libraries; the factory deploys vaults as EIP-1167 minimal proxies (~2.7 KB each).
 
-**Sealed mode** (optional per vault): strategy params never leave the TEE. The orchestrator commits `keccak(intentHash, reportHash)` at block N, executes at block ≥ N+1, and `SealedLib` verifies the ECDSA signature against `policy.attestedSigner`. `attestationReportHash` binds the execution to the specific 0G Compute provider + chat session.
+**Sealed-strategy mode** — opt-in per vault, **live on 0G mainnet** ([first sealed reveal `0x0d7334b8…` on 2026-04-27](https://chainscan.0g.ai/tx/0x0d7334b8)). Three properties, all enforced on-chain:
+
+1. **MEV-resistant.** Orchestrator commits `keccak(intentHash, attestationReportHash)` at block N; `SealedLib` only accepts the matching reveal at block ≥ N+1. A searcher reading the mempool sees nothing they can act on — the asset, side, and size are inside the hashed intent until the reveal block.
+2. **TEE-bound.** `attestationReportHash` pins the execution to the exact 0G Compute provider + session that produced the inference. The intent ECDSA signature is verified by `SealedLib.ecrecover()` against `policy.attestedSigner`; an unattested orchestrator wallet cannot forge intents even if it holds executor privileges.
+3. **Strategy-confidential.** The model prompt, weights, and decision context never leave the TEE. The chain only sees a hash. The vault's `policy.attestedSigner` is the only thing the verifier needs to trust — and it's a single ECDSA address, not a model.
+
+Frontend renders a `Sealed · TEE` chip on every sealed vault and a `TEE` badge on every attested action so a juror — or any user — can verify the chain-of-trust by clicking through to the commit tx on the explorer.
 
 ## Security guarantees
 
