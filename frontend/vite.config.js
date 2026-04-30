@@ -11,10 +11,23 @@ export default defineConfig({
   resolve: {
     dedupe: ['react', 'react-dom'],
   },
-  // Ensure markdown ESM packages are pre-bundled together so React is not
-  // duplicated in the vite dep cache.
+  // Pre-bundle the wallet stack + markdown ESM packages at startup so Vite
+  // does not re-optimize mid-session. Mid-session re-optimization produces a
+  // new browserHash, which leaves already-loaded modules referencing the old
+  // hash — two wagmi instances → two React Contexts → useContext returns null
+  // and every wagmi hook crashes with "Invalid hook call".
   optimizeDeps: {
-    include: ['react', 'react-dom', 'react-markdown', 'remark-gfm'],
+    include: [
+      'react',
+      'react-dom',
+      'react-markdown',
+      'remark-gfm',
+      'wagmi',
+      'wagmi/connectors',
+      'viem',
+      '@rainbow-me/rainbowkit',
+      '@tanstack/react-query',
+    ],
   },
   server: {
     host: '0.0.0.0',
