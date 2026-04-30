@@ -201,8 +201,24 @@ export function logPolicyCheck(decision, result, context = {}) {
 
 /**
  * Log an execution result
+ *
+ * `context.sealedMode` + `context.attestedSigner` are pulled from the live
+ * vault policy at execution time so the journal — and therefore the UI
+ * action-feed — can render a "TEE-attested" badge with the attesting signer
+ * and link both the commit and reveal txs in the explorer. `result.commitTxHash`
+ * is set by `submitIntent` only when the sealed branch ran; on public-mode
+ * vaults it stays null.
  */
 export function logExecution(intent, result, decision = null, context = {}) {
+  const sealed = !!context.sealedMode;
+  const attestationReportHash = intent?.attestationReportHash || null;
+  // Treat zero-hash as "no attestation present" so the UI doesn't render a
+  // TEE-attested badge for an empty commitment.
+  const ZERO_HASH = '0x' + '0'.repeat(64);
+  const teeAttested = sealed
+    && attestationReportHash
+    && attestationReportHash.toLowerCase() !== ZERO_HASH;
+
   return appendJournal({
     type: 'execution',
     vault: context.vault || intent?.vault || null,
@@ -213,6 +229,14 @@ export function logExecution(intent, result, decision = null, context = {}) {
     success: result.success,
     txHash: result.txHash || null,
     error: result.error || null,
+    // Sealed-mode + TEE attestation metadata. Consumed by the dashboard
+    // ActionFeed to render the "TEE-attested" badge and commit-tx link.
+    sealedMode: sealed,
+    teeAttested: !!teeAttested,
+    attestedSigner: context.attestedSigner || null,
+    attestationReportHash: attestationReportHash,
+    commitTxHash: result.commitTxHash || null,
+    commitBlockNumber: result.commitBlockNumber || null,
   });
 }
 

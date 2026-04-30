@@ -57,7 +57,7 @@ import {
 } from '../components/editorial/atoms';
 import { cx, ACCENTS } from '../components/editorial/tokens';
 import {
-  Shield, AlertTriangle, ArrowLeft, Check, CheckCircle, Copy,
+  Shield, ShieldCheck, AlertTriangle, ArrowLeft, Check, CheckCircle, Copy,
   Cpu, Download, ExternalLink, Hourglass, Layers, PauseCircle, PlayCircle, Plus,
   RefreshCw, Settings, Sparkles, TrendingUp, Wallet, X, Zap,
 } from 'lucide-react';
@@ -699,6 +699,8 @@ export default function VaultDetailPage() {
             decisionCounts={decisionCounts}
             orchStatus={orchStatus}
             isConnected={isConnected}
+            sealedMode={!!effectivePolicy?.sealedMode}
+            attestedSigner={effectivePolicy?.attestedSigner || ''}
             onDeposit={openDepositModal}
             onWithdraw={openWithdrawModal}
             onEditPolicy={openPolicyModal}
@@ -1048,8 +1050,13 @@ function VaultHero({
   vaultAvatarSymbol, vaultTitle, vaultExplorerHref,
   isPaused, showDemoVault, mandateType, mandateChipTone, executorIsInactive,
   cycleCount, nav, lastExecTs, baseAssetSymbol, executions, decisionCounts,
-  orchStatus, isConnected, onDeposit, onWithdraw, onEditPolicy, onPause, pausePending, unpausePending,
+  orchStatus, isConnected, sealedMode = false, attestedSigner = '',
+  onDeposit, onWithdraw, onEditPolicy, onPause, pausePending, unpausePending,
 }) {
+  const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
+  const hasAttestedSigner = sealedMode
+    && attestedSigner
+    && attestedSigner.toLowerCase() !== ZERO_ADDR;
   const kpis = [
     {
       icon: Layers, label: 'NAV · TVL',
@@ -1120,6 +1127,18 @@ function VaultHero({
               {isPaused ? 'Paused' : 'Active'}
             </Chip>
             {mandateType !== 'Unknown' && <Chip tone={mandateChipTone} dense>{mandateType}</Chip>}
+            {sealedMode && (
+              <Chip
+                tone="emerald"
+                dense
+                leading={<ShieldCheck className="w-3 h-3" />}
+                title={hasAttestedSigner
+                  ? `Sealed strategy mode\nIntent hashes signed by TEE-attested key:\n${attestedSigner}\nVerified on-chain by SealedLib.ecrecover()`
+                  : 'Sealed strategy mode — commit-reveal with TEE attestation'}
+              >
+                Sealed · TEE
+              </Chip>
+            )}
             {executorIsInactive && <Chip tone="rose" dense leading={<AlertTriangle className="w-3 h-3" />}>Operator {executorIsInactive.reason}</Chip>}
             {showDemoVault && <Chip tone="gold" dense>Demo</Chip>}
           </div>

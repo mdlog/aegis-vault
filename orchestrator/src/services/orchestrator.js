@@ -603,7 +603,11 @@ async function runVaultCycle(vaultAddress, marketSummary) {
       });
     }
     vaultResult.executionResult = execResult;
-    logExecution(intent, execResult, decision, { vault: vaultAddress });
+    logExecution(intent, execResult, decision, {
+      vault: vaultAddress,
+      sealedMode: vaultState.policy?.sealedMode === true,
+      attestedSigner: vaultState.policy?.attestedSigner,
+    });
     syncExecutionToOG(intent, execResult, decision).catch(() => {});
 
     if (execResult.success) {

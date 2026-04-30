@@ -6,7 +6,7 @@ import StatusPill from '../ui/StatusPill';
 import GlassPanel from '../ui/GlassPanel';
 import SectionLabel from '../ui/SectionLabel';
 import ExplorerAnchor from '../ui/ExplorerAnchor';
-import { Activity, ArrowUpRight, ArrowDownRight, Pause, ShieldOff, FileText, Cpu, Plus } from 'lucide-react';
+import { Activity, ArrowUpRight, ArrowDownRight, Pause, ShieldOff, FileText, Cpu, Plus, ShieldCheck } from 'lucide-react';
 
 const typeIcons = {
   buy: <ArrowUpRight className="w-3.5 h-3.5 text-emerald-soft" />,
@@ -73,6 +73,44 @@ function getIcon(entry) {
     if (a === 'hold') return typeIcons.hold;
   }
   return typeIcons[entry.type] || typeIcons.hold;
+}
+
+// Render a TEE-attested badge when the executed intent went through the
+// sealed-mode commit-reveal flow with a real attestation report hash. The
+// hover tooltip shows the recovered TEE signer + attestation report hash so
+// a juror can verify the chain-of-trust without cracking open devtools.
+function TeeAttestedBadge({ entry, chainId }) {
+  if (!entry?.teeAttested) return null;
+  const commitHref = getExplorerTxHref(chainId, entry.commitTxHash);
+  const signer = entry.attestedSigner || '';
+  const report = entry.attestationReportHash || '';
+  const tooltip = [
+    'TEE-attested execution',
+    signer ? `Signer: ${signer}` : null,
+    report ? `Report: ${report.slice(0, 10)}…${report.slice(-6)}` : null,
+    entry.commitTxHash ? `Commit tx: ${entry.commitTxHash.slice(0, 10)}…` : null,
+  ].filter(Boolean).join('\n');
+
+  const pill = (
+    <span
+      title={tooltip}
+      className="inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border text-emerald-soft/80 bg-emerald-soft/5 border-emerald-soft/20"
+    >
+      <ShieldCheck className="w-3 h-3" />
+      TEE
+    </span>
+  );
+
+  // Click-through to the commit tx when we have it — that's the proof that
+  // the orchestrator pre-committed before revealing.
+  if (commitHref) {
+    return (
+      <a href={commitHref} target="_blank" rel="noreferrer" className="hover:opacity-90">
+        {pill}
+      </a>
+    );
+  }
+  return pill;
 }
 
 export default function ActionFeed({ limit = 20, fallbackEntries = [] }) {
@@ -171,6 +209,7 @@ export default function ActionFeed({ limit = 20, fallbackEntries = [] }) {
                     }`}>
                       {usingFallback ? 'DEMO' : 'LIVE'}
                     </span>
+                    <TeeAttestedBadge entry={entry} chainId={chainId} />
                   </div>
 
                   {/* v1: Regime + Scores bar */}

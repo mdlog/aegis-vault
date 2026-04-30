@@ -460,10 +460,14 @@ export async function submitIntent(intent, opts = {}) {
     }
 
     let attestationSig = '0x';
+    let commitTxHash = null;
+    let commitBlockNumber = null;
+    let teeSigner = null;
     if (sealedMode) {
       // Step 1: Sign intent hash with the TEE-attested signer key
       const { signer, signature } = await signIntentHashWithTeeKey(intent.intentHash, intent);
       attestationSig = signature;
+      teeSigner = signer;
       logger.info(`  TEE signer: ${signer}`);
       if (opts.attestedSigner && signer.toLowerCase() !== opts.attestedSigner.toLowerCase()) {
         throw new Error(`TEE signer mismatch: vault expects ${opts.attestedSigner} but TEE_SIGNER_PRIVATE_KEY produces ${signer}`);
@@ -474,6 +478,8 @@ export async function submitIntent(intent, opts = {}) {
       logger.info(`  Commit hash: ${commitHash.substring(0, 10)}...`);
       const commitTx = await vault.commitIntent(commitHash);
       const commitReceipt = await commitTx.wait();
+      commitTxHash = commitReceipt.hash;
+      commitBlockNumber = commitReceipt.blockNumber;
       logger.info(`  Commit mined at block ${commitReceipt.blockNumber}`);
 
       // Step 3: Wait at least one fresh block before reveal (with timeout)
@@ -538,6 +544,12 @@ export async function submitIntent(intent, opts = {}) {
       blockNumber: receipt.blockNumber,
       amountIn: intent.amountIn.toString(),
       amountOut,
+      // Sealed-mode telemetry — null when the public branch ran. Consumed by
+      // logExecution() to anchor the journal entry's TEE-attested badge to a
+      // verifiable on-chain commit + the recovered TEE signer.
+      commitTxHash,
+      commitBlockNumber,
+      teeSigner,
     };
 
   } catch (err) {
