@@ -9,7 +9,7 @@ import "../ExecutionRegistry.sol";
 import "./ExecLibV4.sol";
 import "../libraries/SealedLib.sol";
 import "../libraries/IOLib.sol";
-import "../libraries/CrossChainLib.sol";
+import "./CrossChainLibV4.sol";
 
 /**
  * @title AegisVault_v4
@@ -449,7 +449,7 @@ contract AegisVault_v4 is ReentrancyGuard {
     }
 
     function acceptCrossChainFill(
-        CrossChainLib.CrossChainIntent calldata intent,
+        CrossChainLibV4.CrossChainIntent calldata intent,
         bytes calldata teeSignature,
         uint256 actualAmountOut,
         uint256 actualFeeBps
@@ -461,7 +461,17 @@ contract AegisVault_v4 is ReentrancyGuard {
         if (intent.vault != address(this)) revert CrossChain_BadVault();
         if (block.timestamp > intent.expiresAt) revert CrossChain_Expired();
 
-        bytes32 intentHash = CrossChainLib.verifySignature(
+        // V4 strategy binding on the cross-chain path. Without these checks an
+        // operator (or a stolen TEE key) could deviate from the user-approved
+        // manifest by routing trades through Khalani — `executeIntent` enforces
+        // strategyHash but the previous V3 cross-chain path did not.
+        if (
+            intent.strategySchemaVer < 1
+            || intent.strategySchemaVer > MAX_SUPPORTED_SCHEMA_VER
+        ) revert UnsupportedSchemaVersion();
+        if (intent.strategyHash != acceptedManifestHash) revert WrongStrategyHash();
+
+        bytes32 intentHash = CrossChainLibV4.verifySignature(
             intent,
             address(this),
             block.chainid,

@@ -288,7 +288,34 @@ const CROSS_CHAIN_INTENT_TYPES = {
   ],
 };
 
-export { CROSS_CHAIN_INTENT_TYPES };
+// V4 cross-chain typed data — mirrors V3 with `strategyHash` +
+// `strategySchemaVer` appended. Keep the V3 constant unchanged so the V3
+// vaults already on mainnet keep recovering the same TEE signer; V4 vaults
+// use the new typehash (different by construction, which intentionally
+// prevents a V3 signature from being replayed against a V4 vault).
+const CROSS_CHAIN_INTENT_TYPES_V4 = {
+  CrossChainIntent: [
+    { name: 'vault',                 type: 'address' },
+    { name: 'assetIn',               type: 'address' },
+    { name: 'assetOut',              type: 'address' },
+    { name: 'amountIn',              type: 'uint256' },
+    { name: 'minAmountOut',          type: 'uint256' },
+    { name: 'createdAt',             type: 'uint256' },
+    { name: 'expiresAt',             type: 'uint256' },
+    { name: 'confidenceBps',         type: 'uint16'  },
+    { name: 'riskScoreBps',          type: 'uint16'  },
+    { name: 'attestationReportHash', type: 'bytes32' },
+    { name: 'routeChainId',          type: 'uint64'  },
+    { name: 'maxFeeBps',             type: 'uint16'  },
+    { name: 'routePolicyHash',       type: 'bytes32' },
+    { name: 'khalaniIntentId',       type: 'bytes32' },
+    { name: 'prevBalance',           type: 'uint256' },
+    { name: 'strategyHash',          type: 'bytes32' },
+    { name: 'strategySchemaVer',     type: 'uint32'  },
+  ],
+};
+
+export { CROSS_CHAIN_INTENT_TYPES, CROSS_CHAIN_INTENT_TYPES_V4 };
 
 /// @notice Compute EIP-712 digest for a CrossChainIntent.
 ///         Domain mirrors ExecutionIntent (`AegisVault` v `1`) so the same
@@ -301,6 +328,17 @@ export function computeCrossChainIntentHash(intent, vaultAddr) {
     verifyingContract: vaultAddr,
   };
   return ethers.TypedDataEncoder.hash(domain, CROSS_CHAIN_INTENT_TYPES, intent);
+}
+
+/// @notice Compute EIP-712 digest for a V4 CrossChainIntent (with strategyHash).
+export function computeCrossChainIntentHashV4(intent, vaultAddr) {
+  const domain = {
+    name: 'AegisVault',
+    version: '1',
+    chainId: config.chainId,
+    verifyingContract: vaultAddr,
+  };
+  return ethers.TypedDataEncoder.hash(domain, CROSS_CHAIN_INTENT_TYPES_V4, intent);
 }
 
 // Track 2: commit hash binds intent + attestation. Used for sealed-mode commit-reveal.
