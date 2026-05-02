@@ -592,6 +592,7 @@ async function runVaultCycle(vaultAddress, marketSummary) {
         intent,
         routeChoice: intent.routeChoice,
         vaultAddress,
+        vaultState,
       });
       if (!execResult.success) {
         logger.warn(`    Khalani submission failed: ${execResult.error}. Falling back to Jaine.`);

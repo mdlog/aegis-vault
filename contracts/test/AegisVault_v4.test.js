@@ -132,22 +132,22 @@ async function signV4Intent(wallet, vaultAddr, intent) {
 // Deploy + link all libraries needed by AegisVault_v4 and return the linked
 // implementation contract.
 async function deployV4Impl() {
-  const ExecLibV4     = await ethers.getContractFactory("ExecLibV4");
-  const SealedLib     = await ethers.getContractFactory("SealedLib");
-  const IOLib         = await ethers.getContractFactory("IOLib");
-  const CrossChainLib = await ethers.getContractFactory("CrossChainLib");
+  const ExecLibV4       = await ethers.getContractFactory("ExecLibV4");
+  const SealedLib       = await ethers.getContractFactory("SealedLib");
+  const IOLib           = await ethers.getContractFactory("IOLib");
+  const CrossChainLibV4 = await ethers.getContractFactory("CrossChainLibV4");
 
-  const execLib   = await ExecLibV4.deploy();    await execLib.waitForDeployment();
-  const sealedLib = await SealedLib.deploy();    await sealedLib.waitForDeployment();
-  const ioLib     = await IOLib.deploy();        await ioLib.waitForDeployment();
-  const ccLib     = await CrossChainLib.deploy(); await ccLib.waitForDeployment();
+  const execLib   = await ExecLibV4.deploy();      await execLib.waitForDeployment();
+  const sealedLib = await SealedLib.deploy();      await sealedLib.waitForDeployment();
+  const ioLib     = await IOLib.deploy();          await ioLib.waitForDeployment();
+  const ccLib     = await CrossChainLibV4.deploy(); await ccLib.waitForDeployment();
 
   const VaultV4 = await ethers.getContractFactory("AegisVault_v4", {
     libraries: {
-      ExecLibV4:     await execLib.getAddress(),
-      SealedLib:     await sealedLib.getAddress(),
-      IOLib:         await ioLib.getAddress(),
-      CrossChainLib: await ccLib.getAddress(),
+      ExecLibV4:       await execLib.getAddress(),
+      SealedLib:       await sealedLib.getAddress(),
+      IOLib:           await ioLib.getAddress(),
+      CrossChainLibV4: await ccLib.getAddress(),
     },
   });
   const impl = await VaultV4.deploy();

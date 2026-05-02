@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-import { ABIs, getVaultContract, getShardedVaultContract, computeIntentHash, computeIntentHashV4, computeCommitHash, getProvider, getSigner, EXECUTION_INTENT_TYPES, EXECUTION_INTENT_TYPES_V4, CROSS_CHAIN_INTENT_TYPES, computeCrossChainIntentHash } from '../config/contracts.js';
+import { ABIs, getVaultContract, getShardedVaultContract, computeIntentHash, computeIntentHashV4, computeCommitHash, getProvider, getSigner, EXECUTION_INTENT_TYPES, EXECUTION_INTENT_TYPES_V4, CROSS_CHAIN_INTENT_TYPES, CROSS_CHAIN_INTENT_TYPES_V4, computeCrossChainIntentHash } from '../config/contracts.js';
 import { buildAssetAddressMap, getTrackedAsset, normalizeTradeSymbol } from './assets.js';
 import { withRetry } from '../utils/retry.js';
 import { chooseRoute } from './quoteRouter.js';
@@ -619,6 +619,14 @@ const KHALANI_POLL_INTERVAL_MS = 5_000;
 const KHALANI_POLL_TIMEOUT_MS  = 5 * 60_000; // 5 minutes total
 const KHALANI_TERMINAL_STATES  = new Set(['filled', 'refunded', 'failed']);
 
+// Default cross-chain intent TTL must comfortably exceed the orchestrator
+// poll deadline, otherwise a slow solver settles AFTER the intent expires
+// and `acceptCrossChainFill` reverts with `CrossChain_Expired` even though
+// the deposit was funded — funds end up in the vault without a totalDeposited
+// credit. 2x the poll timeout gives the on-chain accept call enough head-room
+// for re-org and gas-bumping retries.
+const KHALANI_DEFAULT_TTL_SEC = (KHALANI_POLL_TIMEOUT_MS / 1000) * 2 + 60; // 660s
+
 async function signCrossChainIntentTyped(intent, vaultAddr) {
   const teeKey = process.env.TEE_SIGNER_PRIVATE_KEY;
   if (!teeKey) {
@@ -631,7 +639,12 @@ async function signCrossChainIntentTyped(intent, vaultAddr) {
     chainId: config.chainId,
     verifyingContract: vaultAddr,
   };
-  const sig = await wallet.signTypedData(domain, CROSS_CHAIN_INTENT_TYPES, intent);
+  // Detect V4 cross-chain intents by the presence of strategyHash +
+  // strategySchemaVer. V4 vaults reject V3-shaped signatures because the
+  // typehash is different by design (replay safety across vault versions).
+  const isV4 = 'strategyHash' in intent && 'strategySchemaVer' in intent;
+  const types = isV4 ? CROSS_CHAIN_INTENT_TYPES_V4 : CROSS_CHAIN_INTENT_TYPES;
+  const sig = await wallet.signTypedData(domain, types, intent);
   return { signer: wallet.address, signature: sig };
 }
 
@@ -682,7 +695,7 @@ async function pollOrderUntilTerminal(executorAddr, orderId, deadlineMs) {
  *   - vaultAddress     vault to call acceptCrossChainFill on
  * @returns { success, txHash?, amountOut?, error? }
  */
-export async function submitCrossChainIntent({ intent, routeChoice, vaultAddress, _deps }) {
+export async function submitCrossChainIntent({ intent, routeChoice, vaultAddress, vaultState, _deps }) {
   if (!routeChoice || routeChoice.route !== 'khalani') {
     return { success: false, error: 'route_not_khalani' };
   }
@@ -713,18 +726,49 @@ export async function submitCrossChainIntent({ intent, routeChoice, vaultAddress
   const erc20 = erc20Factory(intent.assetOut, signer);
   const prevBalance = await erc20.balanceOf(vaultAddress);
 
-  // Step 2 — build the CrossChainIntent struct that matches CrossChainLib's
-  // EIP-712 typehash. Field order MUST stay aligned with CROSS_CHAIN_INTENT_TYPES.
+  // Step 2 — build the CrossChainIntent struct that matches the on-chain
+  // EIP-712 typehash. V4 vaults expect strategyHash + strategySchemaVer as
+  // first-class fields (CrossChainLibV4); V3 vaults use the legacy struct
+  // (CrossChainLib). The vaultState flags drive the shape selection.
+  const isV4 = Boolean(vaultState?.isV4 || _deps?.isV4);
   const now = BigInt(Math.floor(Date.now() / 1000));
-  const ttlSec = BigInt(routeChoice?.khalaniRoute?.ttlSec || 600); // 10 min default
+  // Default TTL must exceed the poll deadline by a comfortable margin so a
+  // slow solver settles BEFORE the on-chain expiry — otherwise the deposit
+  // funds get stuck in the vault with no totalDeposited credit. Defer to
+  // routeChoice.khalaniRoute.ttlSec when it's already large enough; otherwise
+  // bump up to the safe default.
+  const requestedTtl = BigInt(routeChoice?.khalaniRoute?.ttlSec || 0);
+  const ttlSec = requestedTtl > BigInt(KHALANI_DEFAULT_TTL_SEC)
+    ? requestedTtl
+    : BigInt(KHALANI_DEFAULT_TTL_SEC);
   const routePolicyHash = ethers.keccak256(ethers.toUtf8Bytes(
     `khalani:${routeChoice.routeId}:${routeChoice.quoteId}`
   ));
-  const khalaniIntentId = routeChoice.khalaniRoute?.intentId
-    ? ethers.zeroPadValue(routeChoice.khalaniRoute.intentId, 32)
-    : ethers.keccak256(ethers.toUtf8Bytes(routeChoice.routeId));
+  // Stable derivation that survives a future Khalani API exposing `intentId`
+  // as a first-class field. The previous code switched between `keccak(routeId)`
+  // (no intentId) and `zeroPadValue(intentId)` (with intentId) — two
+  // different bytes32 for the SAME logical fill — so a mid-deploy API
+  // upgrade could let the per-vault `consumedKhalaniIds` map mark each
+  // derivation independently and double-credit one physical fill.
+  //
+  // Combining quoteId + routeId + vault + parent intent hash + (optional)
+  // upstream intentId makes the value uniquely tied to ONE settlement and
+  // independent of which API surface is currently in use.
+  const upstreamIntentId = routeChoice.khalaniRoute?.intentId || '';
+  const khalaniIntentId = ethers.keccak256(
+    ethers.solidityPacked(
+      ['string', 'string', 'address', 'bytes32', 'string'],
+      [
+        String(routeChoice.quoteId),
+        String(routeChoice.routeId),
+        vaultAddress,
+        intent.intentHash || ethers.ZeroHash,
+        String(upstreamIntentId),
+      ],
+    ),
+  );
 
-  const ccIntent = {
+  const baseIntent = {
     vault:                 vaultAddress,
     assetIn:               intent.assetIn,
     assetOut:              intent.assetOut,
@@ -741,6 +785,13 @@ export async function submitCrossChainIntent({ intent, routeChoice, vaultAddress
     khalaniIntentId,
     prevBalance,
   };
+  const ccIntent = isV4
+    ? {
+        ...baseIntent,
+        strategyHash:      intent.strategyHash || vaultState?._strategyHash || ethers.ZeroHash,
+        strategySchemaVer: Number(intent.strategySchemaVer ?? vaultState?._strategySchemaVer ?? 1),
+      }
+    : baseIntent;
 
   // Step 3 — TEE-sign the typed-data digest. The vault recovers the signer
   // and requires it to equal `policy.attestedSigner`.
