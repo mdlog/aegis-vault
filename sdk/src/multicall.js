@@ -13,16 +13,28 @@
 
 import { Contract, Interface } from 'ethers';
 import Multicall3ABI from './abi/Multicall3.json' with { type: 'json' };
-import { MULTICALL3_ADDRESS } from './config.js';
+import { MULTICALL3_ADDRESS, hasMulticall3 } from './config.js';
 
 export class MulticallClient {
   /**
    * @param {object} [opts]
    * @param {string} [opts.address]   Override address (defaults to canonical Multicall3)
+   * @param {number} [opts.chainId]   When provided, asserts Multicall3 is known
+   *                                  to be deployed on this chain. Without this
+   *                                  the SDK silently routes calls to the
+   *                                  canonical address even on chains that
+   *                                  never had Multicall3 deployed, which fails
+   *                                  far from the call site.
    * @param {import('ethers').ContractRunner} opts.runner
    */
-  constructor({ address, runner } = {}) {
+  constructor({ address, runner, chainId } = {}) {
     if (!runner) throw new Error('MulticallClient: runner is required');
+    if (!address && chainId !== undefined && !hasMulticall3(chainId)) {
+      throw new Error(
+        `MulticallClient: Multicall3 is not known to be deployed on chain ${chainId}. ` +
+        `Pass an explicit \`address\` to override, or use direct contract reads instead.`,
+      );
+    }
     this.address = address || MULTICALL3_ADDRESS;
     this.contract = new Contract(this.address, Multicall3ABI, runner);
   }
@@ -74,8 +86,15 @@ export class MulticallClient {
     const interfaces = new Map();
     const specs = calls.map((c) => {
       if (c.contract) {
+        // ethers v6 Contract exposes `.target`. The `.address` fallback was a
+        // v5 carryover that never resolved to a real value under v6 — drop it
+        // and fail loudly so a missing target surfaces here, not as an opaque
+        // "invalid address" deep inside aggregate3.
+        if (!c.contract.target) {
+          throw new Error('MulticallClient.batch: contract is missing .target (need ethers v6+)');
+        }
         return {
-          target: c.contract.target || c.contract.address,
+          target: c.contract.target,
           iface: c.contract.interface,
           method: c.method,
           args: c.args || [],

@@ -57,6 +57,7 @@ import {
   logCycle, logDecision, logPolicyCheck, logExecution, logAlert,
   syncKVToOGStorage, appendToOGStorage,
   syncDecisionToOG, syncExecutionToOG,
+  isIntentSubmitted, recordSubmittedIntent,
 } from './storage.js';
 import { initOGStorage, isOGStorageAvailable, readVaultStateFromOG } from './ogStorage.js';
 import { initOGCompute, getOGComputeStatus } from './ogCompute.js';
@@ -72,8 +73,12 @@ import logger from '../utils/logger.js';
 
 let cycleCount = 0;
 
-// Track 2: idempotency — skip duplicate intent hashes within session
-const submittedIntents = new Set();
+// Track 2: idempotency — backed by storage.js so the dedup survives
+// orchestrator restarts. An in-process Set used to be enough, but a crash
+// between broadcast and confirm would let the next cycle re-issue a fresh
+// intent (different `createdAt` → different hash) for the same logical
+// decision. With the persisted store, both the original intentHash and
+// the on-chain receipt are recorded; replays are caught by either path.
 let running = false;
 
 // ── Per-vault position tracking (persists across cycles) ──
@@ -564,8 +569,9 @@ async function runVaultCycle(vaultAddress, marketSummary) {
 
     logger.info(`    Intent: ${intent.intentHash.substring(0, 18)}...`);
 
-    // Idempotency check: skip if this intent was already submitted this session
-    if (submittedIntents.has(intent.intentHash)) {
+    // Idempotency check: skip if this intent was already submitted in any
+    // previous cycle (persisted across orchestrator restarts).
+    if (isIntentSubmitted(intent.intentHash)) {
       logger.warn(`    Intent ${intent.intentHash.substring(0, 18)} already submitted — skipping duplicate`);
       vaultResult.status = 'skipped_duplicate';
       return vaultResult;
@@ -611,7 +617,7 @@ async function runVaultCycle(vaultAddress, marketSummary) {
     syncExecutionToOG(intent, execResult, decision).catch(() => {});
 
     if (execResult.success) {
-      submittedIntents.add(intent.intentHash);
+      recordSubmittedIntent(intent.intentHash, execResult.txHash || null);
       logger.info(`    ✓ Executed on-chain. TX: ${execResult.txHash}`);
       vaultResult.status = 'executed';
 
@@ -627,16 +633,27 @@ async function runVaultCycle(vaultAddress, marketSummary) {
       if (decision.action === 'buy') {
         volumeUsd6 = BigInt(intent.amountIn);
       } else if (decision.action === 'sell') {
-        const sellFraction = (decision.sell_fraction_bps || decision.size_bps || 10000) / 10000;
-        const notionalUsd = (positionState.current_position_notional_usd || 0) * sellFraction;
-        volumeUsd6 = BigInt(Math.round(notionalUsd * 1_000_000));
-        if (positionState.position_cost_basis_usd > 0) {
-          const costBasisSold = positionState.position_cost_basis_usd * sellFraction;
-          const realizedPnlUsd = notionalUsd - costBasisSold;
-          pnlUsd6 = BigInt(Math.round(realizedPnlUsd * 1_000_000));
+        // Compute the sell notional + realized PnL in 6-decimal BigInts.
+        // Going through Number * fraction first lost precision once notionals
+        // crossed ~10M USDC and let occasional `sellFractionBps > 10000`
+        // (an off-by-one from the decision engine) flip the sign of the
+        // remaining-position math via 1 - fraction. Clamp to [0, 10000] up
+        // front, then keep everything in scaled BigInts.
+        const sellFractionBps = BigInt(Math.max(0, Math.min(
+          Number(decision.sell_fraction_bps || decision.size_bps || 10000),
+          10000,
+        )));
+        const notionalUsd6 = BigInt(Math.round((positionState.current_position_notional_usd || 0) * 1_000_000));
+        volumeUsd6 = (notionalUsd6 * sellFractionBps) / 10000n;
+        const costBasisFullUsd6 = BigInt(Math.round((positionState.position_cost_basis_usd || 0) * 1_000_000));
+        if (costBasisFullUsd6 > 0n) {
+          const costBasisSoldUsd6 = (costBasisFullUsd6 * sellFractionBps) / 10000n;
+          pnlUsd6 = volumeUsd6 - costBasisSoldUsd6;
         }
       }
-      recordExecutionToReputation(vaultState.executor, volumeUsd6, pnlUsd6, true).catch(() => {});
+      recordExecutionToReputation(vaultState.executor, volumeUsd6, pnlUsd6, true).catch((err) => {
+        logger.warn(`recordExecutionToReputation failed (will retry next cycle): ${err.message}`);
+      });
 
       // Update position tracking
       if (decision.action === 'buy') {
@@ -647,7 +664,13 @@ async function runVaultCycle(vaultAddress, marketSummary) {
         positionState.current_position_pnl_pct = 0;
         positionState.consecutive_losses = 0;
       } else if (decision.action === 'sell') {
-        const sellFraction = decision.sell_fraction_bps || decision.size_bps || 10000;
+        // Clamp to [0, 10000] up front so a stale decision with sellFraction
+        // > 10000 (off-by-one from the engine) cannot turn fractionRemaining
+        // negative — the previous Math.max(0, ...) just masked the bug.
+        const sellFraction = Math.max(0, Math.min(
+          Number(decision.sell_fraction_bps || decision.size_bps || 10000),
+          10000,
+        ));
         if (sellFraction >= 10000) {
           positionState.current_position_side = 'flat';
           positionState.current_position_asset = null;

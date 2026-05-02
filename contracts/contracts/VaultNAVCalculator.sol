@@ -51,6 +51,11 @@ contract VaultNAVCalculator {
     error PriceStale(bytes32 feedId, uint256 publishTime, uint256 nowTs);
     error PriceLowConfidence(bytes32 feedId, uint64 conf, uint256 price);
     error PriceNonPositive(bytes32 feedId);
+    /// @notice Asset decimals out of the supported range (0..18). Without this
+    ///         guard an admin typo (e.g. `decimals=255`) would be accepted and
+    ///         later overflow `denomPow = decimals + |expo|` inside calculateNAV.
+    error AssetDecimalsOutOfRange(uint8 decimals);
+    error InvalidAsset(address token);
 
     modifier onlyAdmin() {
         if (msg.sender != admin) revert OnlyAdmin();
@@ -89,6 +94,13 @@ contract VaultNAVCalculator {
     // ── Admin: Configure tracked assets ──
 
     function addAsset(address token, bytes32 priceFeedId, uint8 decimals, bool isStablecoin) external onlyAdmin {
+        if (token == address(0)) revert InvalidAsset(token);
+        // Solidity's checked arithmetic still allows uint256 exponents up to
+        // type(uint256).max in the `10 ** denomPow` expressions inside
+        // calculateNAV; the practical bound is 18 (ERC-20 convention) plus
+        // the typical Pyth |expo| of 8. Anything above 18 indicates an admin
+        // mistake and would silently produce garbage NAV values.
+        if (decimals > 18) revert AssetDecimalsOutOfRange(decimals);
         assets.push(AssetConfig(token, priceFeedId, decimals, isStablecoin));
         emit AssetAdded(token, priceFeedId, decimals);
     }

@@ -494,6 +494,13 @@ export default function CreateVaultPage() {
   // every value the multi-phase flow needs so later edits to the form can't
   // desync approve/deposit from the actual on-chain create.
   const executeDeploy = () => {
+    // Reentrance guard: even with the modal-confirm gate, a fast double-click
+    // would trigger two `createVault` calls before `deployPhase` flipped to
+    // `creating`. Each call queues its own wallet popup and starts an
+    // independent multi-phase ref. Bail if a deploy is already in flight.
+    if (deployPhase !== 'idle' && deployPhase !== 'error') {
+      return;
+    }
     setConfirmOpen(false);
     const attestSignerOverride = customAttestedSigner.trim();
     const teeAttestedSigner = config.sealedMode

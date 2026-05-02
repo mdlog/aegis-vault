@@ -42,16 +42,41 @@ function writeJsonAtomic(targetPath, value) {
 
 /**
  * Read the current KV state
+ *
+ * If the file exists but is unparseable (truncated by a crashed write,
+ * corrupted on disk, hand-edited mistake), preserve the broken file under
+ * `.corrupted.<ts>` for forensics rather than silently fall back to defaults.
+ * Returning defaults masks corruption so the next cycle would forget every
+ * tracked intent / position — losing state is exactly the failure mode that
+ * lets the same intent be re-issued and double-executed across a restart.
  */
 export function readKVState() {
-  try {
-    if (existsSync(KV_FILE)) {
-      return JSON.parse(readFileSync(KV_FILE, 'utf8'));
-    }
-  } catch (err) {
-    logger.warn(`Failed to read KV state: ${err.message}`);
+  if (!existsSync(KV_FILE)) {
+    return getDefaultKVState();
   }
-  return getDefaultKVState();
+  let raw;
+  try {
+    raw = readFileSync(KV_FILE, 'utf8');
+  } catch (err) {
+    logger.error(`Failed to read KV state: ${err.message}. Falling back to defaults.`);
+    return getDefaultKVState();
+  }
+  if (!raw.trim()) {
+    logger.warn('KV state file is empty — using defaults');
+    return getDefaultKVState();
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    const backupPath = `${KV_FILE}.corrupted.${Date.now()}`;
+    try {
+      renameSync(KV_FILE, backupPath);
+      logger.error(`KV state JSON parse failed: ${err.message}. Quarantined to ${backupPath} so on-disk state is not silently overwritten.`);
+    } catch (renameErr) {
+      logger.error(`KV state JSON parse failed: ${err.message}. Quarantine rename also failed: ${renameErr.message}.`);
+    }
+    return getDefaultKVState();
+  }
 }
 
 /**
@@ -89,8 +114,55 @@ function getDefaultKVState() {
     totalExecutions: 0,
     totalBlocked: 0,
     totalSkipped: 0,
+    submittedIntents: {},
     updatedAt: new Date().toISOString(),
   };
+}
+
+// ── Intent deduplication (persisted) ──
+//
+// Set retention: 24h covers the longest cooldown + intent expiry window we
+// configure in practice. Older entries are pruned on read so the file does
+// not grow unbounded across long-lived deployments.
+
+const SUBMITTED_INTENT_TTL_MS = 24 * 60 * 60 * 1000;
+
+function pruneSubmittedIntents(submitted) {
+  if (!submitted || typeof submitted !== 'object') return {};
+  const cutoff = Date.now() - SUBMITTED_INTENT_TTL_MS;
+  const out = {};
+  for (const [hash, meta] of Object.entries(submitted)) {
+    const ts = typeof meta === 'object' ? Number(meta?.ts) : Number(meta);
+    if (Number.isFinite(ts) && ts >= cutoff) out[hash] = meta;
+  }
+  return out;
+}
+
+/**
+ * Test whether a given intent hash has already been submitted. Backed by
+ * disk so the dedup survives orchestrator restarts — without persistence,
+ * a crash between broadcast and confirm would let the next cycle re-issue
+ * a fresh intent (different `createdAt` → different hash) for the same
+ * logical decision and double-execute on chains where cooldown has elapsed.
+ */
+export function isIntentSubmitted(intentHash) {
+  if (!intentHash) return false;
+  const state = readKVState();
+  const submitted = pruneSubmittedIntents(state.submittedIntents || {});
+  return Boolean(submitted[intentHash.toLowerCase()]);
+}
+
+/**
+ * Mark an intent hash as submitted. Stored with a timestamp so old entries
+ * can be expired. Caller passes the tx hash so future audits can correlate
+ * the dedup key with the on-chain receipt.
+ */
+export function recordSubmittedIntent(intentHash, txHash = null) {
+  if (!intentHash) return;
+  const state = readKVState();
+  const submitted = pruneSubmittedIntents(state.submittedIntents || {});
+  submitted[intentHash.toLowerCase()] = { ts: Date.now(), txHash: txHash || null };
+  updateKVState({ submittedIntents: submitted });
 }
 
 // ── Journal (append-only log) ──

@@ -57,6 +57,14 @@ export class TokenClient {
    * Saves a wallet prompt + ~$pennies of gas on the hot path when users
    * re-deposit into the same vault.
    *
+   * Race-safe: when an existing nonzero allowance must be raised, we first
+   * reset it to 0 in a separate transaction. The classic ERC-20 issue is that
+   * a malicious or compromised spender can spend the *old* allowance after
+   * seeing the new approve in the mempool, then spend the new allowance once
+   * mined — totalling (old + new) instead of new. Resetting first closes that
+   * window and keeps the SDK compatible with strict tokens (USDT) that revert
+   * on a non-zero → non-zero approval.
+   *
    * @param {string} spender
    * @param {bigint} amount
    * @param {string} [owner]  Defaults to the runner's address (when runner is a signer)
@@ -64,8 +72,18 @@ export class TokenClient {
   async ensureAllowance(spender, amount, owner) {
     const ownerAddr = owner || await this._resolveOwner();
     const current = await this.contract.allowance(ownerAddr, spender);
-    if (BigInt(current) >= BigInt(amount)) return null;
-    return this.contract.approve(spender, amount);
+    const currentBn = BigInt(current);
+    const targetBn = BigInt(amount);
+    if (currentBn >= targetBn) return null;
+    if (currentBn > 0n) {
+      const resetTx = await this.contract.approve(spender, 0n);
+      // Wait for confirmation so the next approve cannot be reordered ahead
+      // of the reset. `wait()` resolves with the receipt; we do not need it.
+      if (typeof resetTx?.wait === 'function') {
+        await resetTx.wait();
+      }
+    }
+    return this.contract.approve(spender, targetBn);
   }
 
   async _resolveOwner() {
