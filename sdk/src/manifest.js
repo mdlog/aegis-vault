@@ -12,7 +12,33 @@
 // Uploading (IPFS / 0G Storage / HTTPS) is left to the caller because the
 // choice of storage layer is deployment-specific.
 
-import { keccak256, toUtf8Bytes } from 'ethers';
+import { keccak256, toUtf8Bytes, getAddress } from 'ethers';
+
+/**
+ * Strict address check. Accepts:
+ *   - all-lowercase 0x-hex (40 nibbles, no checksum claim)
+ *   - all-uppercase 0x-hex
+ *   - mixed-case hex that passes EIP-55 checksum
+ *
+ * Rejects mixed-case strings whose checksum is wrong (typo guard) by relying
+ * on ethers' `getAddress()` to throw on bad checksum.
+ *
+ * @param {string} addr
+ * @returns {boolean}
+ */
+function isValidAddress(addr) {
+  if (typeof addr !== 'string') return false;
+  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) return false;
+  const allLower = addr === addr.toLowerCase();
+  const allUpper = addr === addr.toUpperCase().replace(/^0X/, '0x');
+  if (allLower || allUpper) return true;
+  try {
+    getAddress(addr);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const REQUIRED_TOP_KEYS = ['name', 'version', 'operator', 'mandate', 'policy', 'fees', 'allowedAssets'];
 const REQUIRED_POLICY_KEYS = ['maxPositionBps', 'confidenceThresholdBps', 'stopLossBps', 'cooldownSeconds', 'maxActionsPerDay'];
@@ -103,8 +129,8 @@ export function validateManifest(manifest) {
   if (typeof manifest.name !== 'string' || !manifest.name.trim()) {
     throw new Error('validateManifest: `name` must be a non-empty string');
   }
-  if (!/^0x[a-fA-F0-9]{40}$/.test(manifest.operator)) {
-    throw new Error('validateManifest: `operator` must be a 0x-prefixed 20-byte address');
+  if (!isValidAddress(manifest.operator)) {
+    throw new Error('validateManifest: `operator` must be a valid 20-byte address (mixed-case must pass EIP-55 checksum)');
   }
   if (!['Conservative', 'Balanced', 'Tactical'].includes(manifest.mandate)) {
     throw new Error('validateManifest: `mandate` must be Conservative | Balanced | Tactical');
@@ -137,9 +163,9 @@ export function validateManifest(manifest) {
     const asset = manifest.allowedAssets[i];
     if (!asset || typeof asset !== 'object' ||
         typeof asset.symbol !== 'string' ||
-        !/^0x[a-fA-F0-9]{40}$/.test(asset.address) ||
+        !isValidAddress(asset.address) ||
         typeof asset.decimals !== 'number') {
-      throw new Error(`validateManifest: allowedAssets[${i}] must have { symbol, address (0x…20b), decimals }`);
+      throw new Error(`validateManifest: allowedAssets[${i}] must have { symbol, address (0x…20b, EIP-55 if mixed-case), decimals }`);
     }
   }
 }

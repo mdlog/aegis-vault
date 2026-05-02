@@ -329,13 +329,26 @@ export async function buildExecutionIntent(decision, vaultState, oraclePrices = 
 }
 
 /**
- * Calculate USDC amount from basis points of vault NAV, capped by available base balance.
+ * Calculate USDC amount from basis points of vault NAV, capped by available
+ * base balance. All arithmetic is performed in 6-decimal fixed-point BigInts
+ * — the previous floating-point form (nav * sizeBps / 10000 → toFixed(6))
+ * accumulated precision loss above NAV ~ 10M USDC where double-precision
+ * mantissa stops representing every 6-decimal value exactly.
  */
 function calculateBuyAmountFromBps(sizeBps, vaultState) {
-  const desiredUsd = ((vaultState.nav || 0) * sizeBps) / 10000;
+  const SCALE = 1_000_000n; // 6 decimals
+  const navUsd = Number(vaultState.nav || 0);
+  const navUsd6 = BigInt(Math.round(navUsd * 1_000_000));
+  const sizeBpsBig = BigInt(Math.max(0, Math.min(Number(sizeBps) || 0, 10000)));
+  const desiredUsd6 = (navUsd6 * sizeBpsBig) / 10000n;
+
   const spendableUsd = Math.max(0, vaultState.baseBalance ?? vaultState.balance ?? 0);
-  const amountUsd = Math.min(desiredUsd, spendableUsd);
-  return ethers.parseUnits(amountUsd.toFixed(6), 6);
+  const spendableUsd6 = BigInt(Math.round(spendableUsd * 1_000_000));
+
+  const amountUsd6 = desiredUsd6 < spendableUsd6 ? desiredUsd6 : spendableUsd6;
+  // amountUsd6 already has 6-decimal precision: pass straight to the contract
+  // surface without round-tripping through a JS Number.
+  return amountUsd6 < 0n ? 0n : amountUsd6;
 }
 
 function calculateSellAmountFromHoldings(vaultState, symbol, fractionBps) {

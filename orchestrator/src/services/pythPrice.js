@@ -28,6 +28,12 @@ let priceCache = {};
 let lastFetch = 0;
 const CACHE_TTL = 15_000; // 15 seconds
 
+// Reject Hermes prices whose publish time is older than this. Hermes is
+// supposed to be sub-second, so anything past 5 minutes means the upstream
+// is degraded and we should fail the cycle rather than size positions on
+// stale data. Mirrors `MAX_PRICE_AGE` on VaultNAVCalculator.
+const MAX_PRICE_STALENESS_SEC = 300;
+
 /**
  * Fetch latest prices from Pyth Hermes API
  * @returns {{ BTC: number, ETH: number, USDC: number }} Prices in USD
@@ -44,18 +50,36 @@ export async function fetchPythPrices() {
 
     const prices = {};
     const symbols = ['BTC', 'ETH', 'USDC', '0G'];
+    const nowSec = Math.floor(Date.now() / 1000);
+    const stale = [];
 
     for (let i = 0; i < updates.parsed.length; i++) {
       const feed = updates.parsed[i];
       const price = Number(feed.price.price) * Math.pow(10, feed.price.expo);
       const conf = Number(feed.price.conf) * Math.pow(10, feed.price.expo);
+      const publishTime = Number(feed.price.publish_time);
+      const ageSec = nowSec - publishTime;
+
+      if (Number.isFinite(ageSec) && ageSec > MAX_PRICE_STALENESS_SEC) {
+        stale.push(`${symbols[i]} (${ageSec}s)`);
+      }
 
       prices[symbols[i]] = {
         price,
         confidence: conf,
-        publishTime: feed.price.publish_time,
+        publishTime,
+        ageSec,
         feedId: feed.id,
       };
+    }
+
+    if (stale.length > 0) {
+      const msg = `Pyth prices stale beyond ${MAX_PRICE_STALENESS_SEC}s: ${stale.join(', ')}`;
+      if (config.strictMode) {
+        logger.error(`${msg}. Aborting cycle in STRICT_MODE.`);
+        throw new Error(`pyth_price_stale: ${stale.join(', ')}`);
+      }
+      logger.warn(msg);
     }
 
     priceCache = prices;

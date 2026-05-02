@@ -14,7 +14,13 @@ export default function NetworkWarning({
   const chainId = useChainId();
   const { switchChain, isPending } = useSwitchChain();
 
+  // `requiredAddress` is the contract address resolved for the connected
+  // chain (e.g. `contracts.operatorRegistry[chainId]`). When it is truthy
+  // the contract IS deployed on this chain — no warning needed. When the
+  // wallet is not connected yet (`chainId` undefined) we suppress the
+  // banner so unwallet'd visitors don't see a chain-mismatch message.
   if (requiredAddress) return null;
+  if (!chainId) return null;
 
   const currentLabel = getNetworkLabel(chainId);
   const targetLabel = expectedChainId ? getNetworkLabel(expectedChainId) : null;

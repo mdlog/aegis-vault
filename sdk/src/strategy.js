@@ -16,8 +16,18 @@
 // canonicaliser (`canonicalizeJson` from manifest.js) so we don't ship two
 // copies of the canonical JSON serializer.
 
-import { keccak256, toUtf8Bytes } from 'ethers';
+import { keccak256, toUtf8Bytes, getAddress } from 'ethers';
 import { canonicalizeJson } from './manifest.js';
+
+/** Stricter address check: rejects mixed-case strings whose EIP-55 checksum is wrong. */
+function isValidAddress(addr) {
+  if (typeof addr !== 'string') return false;
+  if (!HEX20.test(addr)) return false;
+  const allLower = addr === addr.toLowerCase();
+  const allUpper = addr === addr.toUpperCase().replace(/^0X/, '0x');
+  if (allLower || allUpper) return true;
+  try { getAddress(addr); return true; } catch { return false; }
+}
 
 // ── Enum tables (mirror schema-v1.json + orchestrator/validator.js) ──
 
@@ -142,11 +152,11 @@ export async function fetchOperatorStrategy({
   ipfsGateway = 'https://ipfs.io/ipfs/',
   _contractFactory,
 }) {
-  if (!operatorAddress || !HEX20.test(operatorAddress)) {
-    throw new Error('fetchOperatorStrategy: operatorAddress must be a 0x-prefixed 20-byte hex address');
+  if (!isValidAddress(operatorAddress)) {
+    throw new Error('fetchOperatorStrategy: operatorAddress must be a valid 20-byte address (mixed-case requires EIP-55 checksum)');
   }
-  if (!registryAddress || !HEX20.test(registryAddress)) {
-    throw new Error('fetchOperatorStrategy: registryAddress must be a 0x-prefixed 20-byte hex address');
+  if (!isValidAddress(registryAddress)) {
+    throw new Error('fetchOperatorStrategy: registryAddress must be a valid 20-byte address (mixed-case requires EIP-55 checksum)');
   }
   if (!provider) {
     throw new Error('fetchOperatorStrategy: provider is required (pass an ethers signer or provider)');

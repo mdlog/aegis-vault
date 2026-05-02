@@ -69,11 +69,18 @@ library IOLib {
         require(amount > 0, "0");
         require(amount <= IERC20(baseAssetAddr).balanceOf(address(this)), "b");
         uint256 fee = (amount * exitFeeBps) / 10000;
+        // Only deduct fee from the owner's payout when we actually have a
+        // recipient to forward it to. Previously the owner always lost `fee`
+        // to dead air whenever feeRecipient was unset, leaving the fee stuck
+        // in the vault as opaque dust.
         if (fee > 0 && feeRecipient != address(0)) {
             IERC20(baseAssetAddr).safeTransfer(feeRecipient, fee);
+            IERC20(baseAssetAddr).safeTransfer(ownerAddr, amount - fee);
+            emit VaultEvents.Withdrawn(address(this), ownerAddr, amount - fee);
+        } else {
+            IERC20(baseAssetAddr).safeTransfer(ownerAddr, amount);
+            emit VaultEvents.Withdrawn(address(this), ownerAddr, amount);
         }
-        IERC20(baseAssetAddr).safeTransfer(ownerAddr, amount - fee);
-        emit VaultEvents.Withdrawn(address(this), ownerAddr, amount - fee);
     }
 
     /// @notice v3 deposit with 80/20 fee split between feeRecipient (operator)
@@ -117,15 +124,21 @@ library IOLib {
         require(amount <= IERC20(baseAssetAddr).balanceOf(address(this)), "b");
 
         uint256 fee = (amount * exitFeeBps) / 10000;
+        // Only deduct fee from the owner's payout when there is a recipient
+        // to forward it to. Without the recipient guard, an unset
+        // feeRecipient causes the owner to lose `fee` to vault dust on every
+        // withdraw — silently misallocates funds against the depositor.
         if (fee > 0 && feeRecipient != address(0)) {
             (uint256 operatorAmt, uint256 protocolAmt) = _splitFee(fee, protocolTreasury);
             if (operatorAmt > 0) IERC20(baseAssetAddr).safeTransfer(feeRecipient, operatorAmt);
             if (protocolAmt > 0) IERC20(baseAssetAddr).safeTransfer(protocolTreasury, protocolAmt);
             emit VaultEvents.ExitFeeCharged(address(this), ownerAddr, amount, fee);
             emit VaultEvents.FeesClaimed(address(this), feeRecipient, operatorAmt, protocolAmt);
+            IERC20(baseAssetAddr).safeTransfer(ownerAddr, amount - fee);
+            emit VaultEvents.Withdrawn(address(this), ownerAddr, amount - fee);
+        } else {
+            IERC20(baseAssetAddr).safeTransfer(ownerAddr, amount);
+            emit VaultEvents.Withdrawn(address(this), ownerAddr, amount);
         }
-
-        IERC20(baseAssetAddr).safeTransfer(ownerAddr, amount - fee);
-        emit VaultEvents.Withdrawn(address(this), ownerAddr, amount - fee);
     }
 }

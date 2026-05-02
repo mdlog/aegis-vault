@@ -31,14 +31,29 @@ function makeClient({ allowance = 0n, ownerAddr = '0xOWNER' } = {}) {
   return { client, calls };
 }
 
-test('ensureAllowance: submits approve when current allowance < amount', async () => {
-  const { client, calls } = makeClient({ allowance: 100n });
+test('ensureAllowance: submits approve when current allowance is 0', async () => {
+  // Zero → nonzero is the safe path: no reset is needed because the spender
+  // cannot drain a zero allowance ahead of the new approve.
+  const { client, calls } = makeClient({ allowance: 0n });
   const tx = await client.ensureAllowance('0xSPENDER', 500n);
   assert.equal(tx.hash, '0xAPPROVE');
   assert.deepEqual(calls.map((c) => c.name), ['allowance', 'approve']);
   assert.equal(calls[0].args[0], '0xOWNER');
   assert.equal(calls[0].args[1], '0xSPENDER');
   assert.equal(calls[1].args[1], 500n);
+});
+
+test('ensureAllowance: resets to 0 first when raising a nonzero allowance', async () => {
+  // ERC-20 zero → nonzero race: a malicious spender who saw the new approve
+  // in the mempool could drain the OLD allowance, then drain the NEW one
+  // once mined. Resetting to 0 first closes that window. This test pins
+  // the safe behaviour so a future "optimisation" cannot regress it.
+  const { client, calls } = makeClient({ allowance: 100n });
+  const tx = await client.ensureAllowance('0xSPENDER', 500n);
+  assert.equal(tx.hash, '0xAPPROVE');
+  assert.deepEqual(calls.map((c) => c.name), ['allowance', 'approve', 'approve']);
+  assert.equal(calls[1].args[1], 0n, 'first approve must zero the allowance');
+  assert.equal(calls[2].args[1], 500n, 'second approve sets the new amount');
 });
 
 test('ensureAllowance: returns null when allowance already covers amount', async () => {

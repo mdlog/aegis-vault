@@ -151,9 +151,19 @@ export function createApp(overrides = {}) {
     }));
     logger.info(`CORS allowlist active: ${allowedOrigins.join(', ')}`);
   } else {
-    if (config.strictMode) {
-      logger.error('STRICT_MODE: CORS_ALLOWED_ORIGINS is empty. Refusing to enable wildcard CORS.');
-      throw new Error('cors_allowlist_required_in_strict_mode');
+    // Fail closed when there's any sign we're running in production: STRICT_MODE,
+    // NODE_ENV=production, or a Sentry environment that says production. The
+    // wildcard CORS path is dev-only and an empty allowlist on a production
+    // deploy used to silently expose `/api/journal` and `/api/state` to any
+    // origin that knew the URL.
+    const looksProduction = (
+      config.strictMode ||
+      process.env.NODE_ENV === 'production' ||
+      process.env.SENTRY_ENVIRONMENT === 'production'
+    );
+    if (looksProduction) {
+      logger.error('CORS_ALLOWED_ORIGINS is empty in a production-like environment. Refusing to enable wildcard CORS.');
+      throw new Error('cors_allowlist_required_in_production');
     }
     app.use(cors());
     logger.warn('CORS in wildcard mode (dev only). Set CORS_ALLOWED_ORIGINS for production.');
@@ -356,9 +366,19 @@ export function createApp(overrides = {}) {
     }
   });
 
+  // KV keys are user-supplied via the URL path. Restrict the character set
+  // and reject path-traversal sequences so the key cannot escape into a
+  // namespace the SDK / kvSet does not own. Whitelist the prefixes that the
+  // orchestrator itself writes — anything else is out of scope for this
+  // endpoint and should not be reachable from the public surface.
+  const ALLOWED_KV_PREFIXES = ['vault-', 'decision-', 'execution-', 'cycle-', 'manifest-'];
   app.get('/api/og/kv/:key', requireOperatorAuth, async (req, res) => {
+    const key = String(req.params.key || '');
+    if (!/^[a-zA-Z0-9._-]{1,128}$/.test(key) || !ALLOWED_KV_PREFIXES.some((p) => key.startsWith(p))) {
+      return res.status(400).json({ error: 'invalid_kv_key' });
+    }
     try {
-      const value = await kvGetFn(req.params.key);
+      const value = await kvGetFn(key);
       res.json(value || { error: 'Key not found' });
     } catch (err) {
       res.status(500).json({ error: err.message });

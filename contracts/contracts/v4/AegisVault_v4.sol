@@ -193,6 +193,14 @@ contract AegisVault_v4 is ReentrancyGuard {
         require(_owner != address(0) && _baseAsset != address(0) && _executor != address(0) && _registry != address(0), "0");
         require(_policy.performanceFeeBps <= 3000 && _policy.managementFeeBps <= 500 && _policy.entryFeeBps <= 200 && _policy.exitFeeBps <= 200, "f");
         require(assets_.length <= MAX_ALLOWED_ASSETS, "too many assets");
+        // BPS fields must be <= 10_000 (100%). Without this guard a depositor
+        // (or a buggy factory) could set confidenceThresholdBps > 10_000, which
+        // is unreachable by any valid intent and silently freezes the vault on
+        // both executeIntent and acceptCrossChainFill paths.
+        require(
+            _policy.confidenceThresholdBps <= 10_000 && _policy.maxPositionBps <= 10_000,
+            "policyBps"
+        );
         if (_maxCrossChainFeeBps > MAX_CROSS_CHAIN_FEE_BPS_CAP) revert CrossChain_FeeCapTooHigh();
 
         owner = _owner;
@@ -230,6 +238,21 @@ contract AegisVault_v4 is ReentrancyGuard {
 
     function withdraw(uint256 amount) external {
         require(msg.sender == owner && !policy.paused, "w");
+        // Decrement totalDeposited so maxPositionBps continues to bound trade
+        // size against the *current* principal, not against the high-water
+        // mark of every deposit ever made. Without this, a depositor who
+        // withdraws most of their principal would leave the on-chain trade
+        // cap pegged to the original deposit and effectively unbounded
+        // relative to the funds remaining in the vault.
+        //
+        // A withdrawal larger than totalDeposited represents a draw against
+        // realized PnL (e.g. base-asset gains parked in the vault); clamp to
+        // zero rather than underflow.
+        if (amount >= totalDeposited) {
+            totalDeposited = 0;
+        } else {
+            totalDeposited -= amount;
+        }
         IOLib.doWithdrawV3(
             address(baseAsset),
             owner,

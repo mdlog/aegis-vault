@@ -36,9 +36,16 @@ if (!process.env.OPERATOR_KEY) {
   process.exit(0);
 }
 
+const rawKey = process.env.OPERATOR_KEY.trim();
+if (!/^0x[a-fA-F0-9]{64}$/.test(rawKey)) {
+  console.error('ERROR: OPERATOR_KEY must be a 0x-prefixed 32-byte hex string (66 chars).');
+  console.error('Never paste keys into shell history or commit them. Use a secure secret manager.');
+  process.exit(1);
+}
+
 const { ethers } = await import('ethers');
 const provider = new ethers.JsonRpcProvider('https://evmrpc.0g.ai');
-const signer = new ethers.Wallet(process.env.OPERATOR_KEY, provider);
+const signer = new ethers.Wallet(rawKey, provider);
 
 const sdk = new AegisSDK({ chainId: 16661, signer });
 
