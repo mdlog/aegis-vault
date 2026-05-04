@@ -55,8 +55,20 @@ export async function fetchPythPrices() {
 
     for (let i = 0; i < updates.parsed.length; i++) {
       const feed = updates.parsed[i];
-      const price = Number(feed.price.price) * Math.pow(10, feed.price.expo);
-      const conf = Number(feed.price.conf) * Math.pow(10, feed.price.expo);
+      const feedId = feed?.id ?? FEED_IDS[symbols[i]];
+      const expo = feed.price?.expo;
+      if (typeof expo !== 'number' || !Number.isFinite(expo) || expo > 0 || expo < -32) {
+        // Pyth USD prices have negative expo (typically -8 to -12). Reject anything
+        // out of plausible range — likely a corrupted feed or API surface change.
+        logger.warn(`Pyth feed ${feedId} returned implausible expo=${expo}, skipping`);
+        continue;
+      }
+      const price = Number(feed.price.price) * Math.pow(10, expo);
+      const conf = Number(feed.price.conf) * Math.pow(10, expo);
+      if (!Number.isFinite(price) || price <= 0) {
+        logger.warn(`Pyth feed ${feedId} produced non-finite price=${price}, skipping`);
+        continue;
+      }
       const publishTime = Number(feed.price.publish_time);
       const ageSec = nowSec - publishTime;
 

@@ -501,6 +501,18 @@ export default function CreateVaultPage() {
     if (deployPhase !== 'idle' && deployPhase !== 'error') {
       return;
     }
+    // B7: Programmatic guard against negative / zero / NaN deposit amounts.
+    // The <input min="0"> stops most cases, but a paste, a custom DOM
+    // mutation, or a corrupted draft snapshot can still push a non-positive
+    // value through. parseUnits("-1000") throws a cryptic InvalidDecimalError
+    // mid-flight, leaving the wallet popup in limbo. Fail fast with a clear
+    // toast instead.
+    if (!Number.isFinite(config.depositAmount) || config.depositAmount <= 0) {
+      toast.error('Enter a deposit amount', {
+        description: 'Deposit must be a positive number before deploying the vault.',
+      });
+      return;
+    }
     setConfirmOpen(false);
     const attestSignerOverride = customAttestedSigner.trim();
     const teeAttestedSigner = config.sealedMode
@@ -509,12 +521,17 @@ export default function CreateVaultPage() {
           : (selectedOperatorData?.wallet || resolvedExecutor))
       : '0x0000000000000000000000000000000000000000';
     const policyStruct = {
-      maxPositionBps: BigInt(config.maxPosition * 100),
-      maxDailyLossBps: BigInt(config.dailyLossLimit * 100),
-      stopLossBps: BigInt(config.stopLoss * 100),
-      cooldownSeconds: BigInt(config.cooldown * 60),
-      confidenceThresholdBps: BigInt(config.confidenceThreshold * 100),
-      maxActionsPerDay: BigInt(config.maxActionsPerDay),
+      // B6: Math.round wraps every numeric → BigInt conversion to defuse
+      // float drift (e.g. 0.45 * 100 = 45.00000000000001, which would make
+      // BigInt() throw "Cannot convert non-integer to BigInt"). Sliders use
+      // integer steps today but defensive rounding prevents future regressions
+      // from any code path that feeds fractional values into config.
+      maxPositionBps: BigInt(Math.round(config.maxPosition * 100)),
+      maxDailyLossBps: BigInt(Math.round(config.dailyLossLimit * 100)),
+      stopLossBps: BigInt(Math.round(config.stopLoss * 100)),
+      cooldownSeconds: BigInt(Math.round(config.cooldown * 60)),
+      confidenceThresholdBps: BigInt(Math.round(config.confidenceThreshold * 100)),
+      maxActionsPerDay: BigInt(Math.round(config.maxActionsPerDay)),
       autoExecution: config.autoExecution,
       paused: false,
       performanceFeeBps: BigInt(selectedOperatorData?.performanceFeeBps || 0),
@@ -849,9 +866,10 @@ export default function CreateVaultPage() {
                     <input
                       type="number"
                       min="0"
+                      step="any"
                       max={walletBalanceNum || undefined}
                       value={config.depositAmount}
-                      onChange={(e) => updateConfig('depositAmount', Number(e.target.value))}
+                      onChange={(e) => updateConfig('depositAmount', Math.max(0, Number(e.target.value) || 0))}
                       className={`w-full bg-obsidian/60 border rounded-lg px-4 pl-16 pr-20 py-4
                         text-2xl font-display font-semibold text-white
                         focus:outline-none transition-colors

@@ -165,6 +165,62 @@ export function recordSubmittedIntent(intentHash, txHash = null) {
   updateKVState({ submittedIntents: submitted });
 }
 
+/**
+ * Atomic check-and-set for intent dedup. Closes the race window between
+ * `isIntentSubmitted` (read) and `recordSubmittedIntent` (write) where two
+ * parallel cycles could both observe the intent absent and both submit it.
+ *
+ * Returns true on first successful claim (caller proceeds with submit),
+ * false when the hash was already claimed/submitted (caller skips). The
+ * claim is persisted with a `claimedAt` marker so a crash mid-submit still
+ * blocks duplicates within the TTL window. Callers should `unclaimIntent`
+ * if the submit fails so a manual retry can re-claim.
+ */
+export function tryClaimIntent(intentHash) {
+  if (!intentHash) return false;
+  const key = intentHash.toLowerCase();
+  const state = readKVState();
+  const submitted = pruneSubmittedIntents(state.submittedIntents || {});
+  if (submitted[key]) return false;
+  submitted[key] = { ts: Date.now(), claimedAt: Date.now(), txHash: null };
+  writeKVState({ ...state, submittedIntents: submitted, updatedAt: new Date().toISOString() });
+  return true;
+}
+
+/**
+ * Release a previously-claimed intent so a retry can re-claim it. Used when
+ * the on-chain submit fails after a successful `tryClaimIntent` — without
+ * this the intent would stay blocked for the TTL window even though no
+ * receipt exists.
+ */
+export function unclaimIntent(intentHash) {
+  if (!intentHash) return;
+  const key = intentHash.toLowerCase();
+  const state = readKVState();
+  const submitted = state.submittedIntents || {};
+  if (!submitted[key]) return;
+  delete submitted[key];
+  writeKVState({ ...state, submittedIntents: submitted, updatedAt: new Date().toISOString() });
+}
+
+/**
+ * Atomically apply integer deltas to one or more counter fields in a single
+ * read-modify-write pass. Replaces the racy `(readKVState().X || 0) + 1`
+ * pattern where two parallel cycles could each read the same value, both
+ * write `value + 1`, and lose one increment.
+ */
+export function incrementCounters(deltas) {
+  if (!deltas || typeof deltas !== 'object') return;
+  const state = readKVState();
+  const updated = { ...state, updatedAt: new Date().toISOString() };
+  for (const [key, delta] of Object.entries(deltas)) {
+    const numericDelta = Number(delta) || 0;
+    if (numericDelta === 0) continue;
+    updated[key] = (Number(state[key]) || 0) + numericDelta;
+  }
+  writeKVState(updated);
+}
+
 // ── Journal (append-only log) ──
 
 /**

@@ -57,7 +57,7 @@ import {
   logCycle, logDecision, logPolicyCheck, logExecution, logAlert,
   syncKVToOGStorage, appendToOGStorage,
   syncDecisionToOG, syncExecutionToOG,
-  isIntentSubmitted, recordSubmittedIntent,
+  recordSubmittedIntent, tryClaimIntent, unclaimIntent, incrementCounters,
 } from './storage.js';
 import { initOGStorage, isOGStorageAvailable, readVaultStateFromOG } from './ogStorage.js';
 import { initOGCompute, getOGComputeStatus } from './ogCompute.js';
@@ -83,6 +83,25 @@ let running = false;
 
 // ── Per-vault position tracking (persists across cycles) ──
 const vaultPositions = {}; // vaultAddress → positionState
+
+// B3: per-vault mutex. `vaultPositions[vaultAddr]` is shared mutable state
+// referenced by `runVaultCycle` from start to finish; if two cycles ever
+// race on the same vault (manual trigger overlap, indexer event coinciding
+// with the periodic timer, etc.) the interleaved mutations corrupt the
+// in-memory position. Serializing per vault address keeps each cycle's
+// read-mutate-persist pass atomic without paying the global cost of a
+// single-flight cycle. Keyed by lowercased address so casing variations
+// from the indexer/env don't pick a different mutex.
+const perVaultLimiters = new Map();
+function getPerVaultLimit(vaultAddr) {
+  const key = (vaultAddr || '').toLowerCase();
+  let limiter = perVaultLimiters.get(key);
+  if (!limiter) {
+    limiter = pLimit(1);
+    perVaultLimiters.set(key, limiter);
+  }
+  return limiter;
+}
 
 function buildDefaultPositionState() {
   return {
@@ -451,10 +470,12 @@ async function runVaultCycle(vaultAddress, marketSummary) {
     if (decision.action === 'hold') {
       updatePendingApproval(vaultAddress, null);
       vaultResult.status = 'hold';
+      // B1: counter increment via atomic helper so parallel cycles can't
+      // collide on read-modify-write of `totalSkipped`.
+      incrementCounters({ totalSkipped: 1 });
       updateKVState({
         lastSignal: decision,
         totalCycles: cycleCount,
-        totalSkipped: (readKVState().totalSkipped || 0) + 1,
         [`vault_${shortAddr}_lastSignal`]: decision,
         positionState: vaultPositions,
       });
@@ -476,10 +497,12 @@ async function runVaultCycle(vaultAddress, marketSummary) {
       });
       updatePendingApproval(vaultAddress, null);
       vaultResult.status = 'blocked';
+      // B1: atomic increment to avoid lost updates when multiple vaults
+      // are blocked in the same parallel cycle dispatch.
+      incrementCounters({ totalBlocked: 1 });
       updateKVState({
         lastSignal: decision,
         totalCycles: cycleCount,
-        totalBlocked: (readKVState().totalBlocked || 0) + 1,
         positionState: vaultPositions,
       });
       return vaultResult;
@@ -569,9 +592,13 @@ async function runVaultCycle(vaultAddress, marketSummary) {
 
     logger.info(`    Intent: ${intent.intentHash.substring(0, 18)}...`);
 
-    // Idempotency check: skip if this intent was already submitted in any
-    // previous cycle (persisted across orchestrator restarts).
-    if (isIntentSubmitted(intent.intentHash)) {
+    // B2: atomic claim closes the race window between read (was
+    // `isIntentSubmitted`) and write (`recordSubmittedIntent`) that spanned
+    // the entire on-chain submit. Two parallel cycles previously could both
+    // see the intent absent and both submit; on-chain ExecutionRegistry
+    // catches the duplicate but the loser's gas is already burnt. Claim now,
+    // unclaim on failure so retries can re-acquire.
+    if (!tryClaimIntent(intent.intentHash)) {
       logger.warn(`    Intent ${intent.intentHash.substring(0, 18)} already submitted — skipping duplicate`);
       vaultResult.status = 'skipped_duplicate';
       return vaultResult;
@@ -693,6 +720,9 @@ async function runVaultCycle(vaultAddress, marketSummary) {
       const cutoff = now - 3600;
       positionState.last_actions_timestamps = positionState.last_actions_timestamps.filter(t => t > cutoff);
 
+      // B1: atomic increment to avoid lost updates when multiple vaults
+      // execute concurrently within the same cycle dispatch.
+      incrementCounters({ totalExecutions: 1 });
       updateKVState({
         lastSignal: decision,
         lastExecutionSummary: {
@@ -707,10 +737,14 @@ async function runVaultCycle(vaultAddress, marketSummary) {
           timestamp: new Date().toISOString(),
         },
         totalCycles: cycleCount,
-        totalExecutions: (readKVState().totalExecutions || 0) + 1,
         positionState: vaultPositions,
       });
     } else {
+      // B2: submit failed — release the claim so a manual retry (or the next
+      // cycle, if the decision is still actionable) can re-acquire. Without
+      // this the intentHash stays blocked for the dedup TTL even though no
+      // on-chain receipt exists.
+      unclaimIntent(intent.intentHash);
       logger.error(`    ✗ Failed: ${execResult.error}`);
       logAlert('critical', 'execution_failed', `Execution failed for ${decision.action.toUpperCase()} ${decision.asset}`, {
         vault: vaultAddress,
@@ -790,14 +824,18 @@ export async function runCycle() {
     const limit = pLimit(concurrency);
 
     const results = await Promise.all(
-      managedVaults.map((vaultAddr) => limit(async () => {
+      managedVaults.map((vaultAddr) => limit(() => getPerVaultLimit(vaultAddr)(async () => {
+        // B3: outer `limit` caps total in-flight vaults; inner per-vault
+        // limiter (concurrency 1) guarantees mutations of the shared
+        // `vaultPositions[vaultAddr]` from this cycle don't interleave
+        // with another cycle that touched the same vault.
         try {
           return await runVaultCycle(vaultAddr, marketSummary);
         } catch (err) {
           logger.error(`  Vault ${vaultAddr.slice(0, 10)} error: ${err.message}`);
           return { vault: vaultAddr, status: 'error', error: err.message };
         }
-      }))
+      })))
     );
     cycleResult.vaultResults.push(...results);
 

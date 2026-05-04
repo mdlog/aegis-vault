@@ -650,7 +650,8 @@ export function useVaultManifestHash(vaultAddress, opts = {}) {
   // 24-hour timelock from the contract constant (MANIFEST_UPGRADE_TIMELOCK).
   const TIMELOCK_SECONDS = 24 * 3600;
   const hasPendingUpgrade =
-    !!pendingManifestHash && pendingManifestHash !== ZERO_HASH_FRONT;
+    !!pendingManifestHash &&
+    pendingManifestHash.toLowerCase() !== ZERO_HASH_FRONT;
   const readyAt = hasPendingUpgrade
     ? manifestUpgradeRequestedAt + TIMELOCK_SECONDS
     : 0;
