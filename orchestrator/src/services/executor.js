@@ -263,13 +263,23 @@ export async function buildExecutionIntent(decision, vaultState, oraclePrices = 
     venueMinOut = (venueQuote * BigInt(10000 - slippageBps)) / 10000n;
   }
 
-  // Use the LOWER of (oracle floor, venue quote - slippage). Oracle catches
-  // a pool that's been drained below fair value; venue catches an oracle that
-  // over-estimates what the pool can actually deliver. Taking the min means
-  // both checks are enforced simultaneously.
+  // Use the HIGHER of (oracle floor, venue quote - slippage). Both are floors;
+  // taking the max means BOTH have to be satisfied. Oracle catches a drained
+  // pool (venue quote << oracle fair value); venue catches an over-estimating
+  // oracle (oracle expects more than the pool can deliver). The on-chain check
+  // `actualAmountOut < intent.minAmountOut` then rejects fills that fail
+  // either floor.
+  //
+  // Audit identified the previous `min(...)` behaviour as the inverse of the
+  // intended guardrail: under `min`, a pool drained below fair value would
+  // still pass because the venue quote (artificially low) won the comparison,
+  // i.e. the drain attack the comment claimed to catch was not actually
+  // caught. Trade-off: with `max`, swaps will revert more often when the
+  // oracle over-estimates against a pool's true depth — acceptable cost for
+  // the security floor.
   let minAmountOut;
   if (venueMinOut > 0n && oracleMinOut > 0n) {
-    minAmountOut = venueMinOut < oracleMinOut ? venueMinOut : oracleMinOut;
+    minAmountOut = venueMinOut > oracleMinOut ? venueMinOut : oracleMinOut;
   } else {
     minAmountOut = venueMinOut > 0n ? venueMinOut : oracleMinOut;
   }
@@ -279,10 +289,16 @@ export async function buildExecutionIntent(decision, vaultState, oraclePrices = 
   // Track 2 + V4: bind TEE attestation report hash + strategy provenance into intent.
   // strategyHash + schemaVer are forwarded from vaultState._strategyHash /
   // _strategySchemaVersion (set by orchestrator when a manifest was loaded).
+  // When no manifest was loaded for a V4 vault, schemaVer defaults to 1 (the
+  // current MAX_SUPPORTED_SCHEMA_VER on AegisVault_v4) so the contract's
+  // `>= 1` check still passes on the zero-manifest backwards-compat path —
+  // verification of the V4 NatSpec vs implementation flagged that
+  // `strategySchemaVer = 0` would revert UnsupportedSchemaVersion even when
+  // the vault was deliberately deployed with `acceptedManifestHash = 0`.
   const attestationReportHash = computeAttestationReportHash(
     computeResponse,
     vaultState._strategyHash || null,
-    vaultState._strategySchemaVersion || 0,
+    vaultState._strategySchemaVersion ?? 1,
   );
 
   // Detect vault generation. V4 vaults expose `version() -> "v4"` and require
@@ -310,9 +326,17 @@ export async function buildExecutionIntent(decision, vaultState, oraclePrices = 
   // V4: bind strategyHash + strategySchemaVer as first-class fields on the
   // intent struct. The on-chain V4 typehash includes these so signature
   // verification fails if the orchestrator doesn't provide them.
+  //
+  // V4 contract requires `strategySchemaVer >= 1` even when strategyHash is
+  // zero (the backwards-compat valve documented in the V4 NatSpec for vaults
+  // deployed with `acceptedManifestHash = 0`). Default to 1 — the current
+  // MAX_SUPPORTED_SCHEMA_VER on AegisVault_v4 — when no manifest was loaded
+  // for this vault, otherwise the unbound path reverts UnsupportedSchemaVersion
+  // and the vault cannot execute anything. Audit found this would block every
+  // zero-manifest V4 deployment.
   if (isV4) {
     intent.strategyHash = vaultState._strategyHash || ethers.ZeroHash;
-    intent.strategySchemaVer = vaultState._strategySchemaVersion ?? 0;
+    intent.strategySchemaVer = vaultState._strategySchemaVersion ?? 1;
     intent.intentHash = computeIntentHashV4(intent);
   } else {
     intent.intentHash = computeIntentHash(intent);

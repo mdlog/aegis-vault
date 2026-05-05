@@ -61,19 +61,55 @@ const riskProfiles = [
   },
 ];
 
-const availableAssets = [
-  { symbol: 'BTC', name: 'Bitcoin', color: '#f7931a' },
-  { symbol: 'ETH', name: 'Ethereum', color: '#627eea' },
-  { symbol: 'USDC', name: 'USD Coin', color: '#2775ca' },
-  { symbol: '0G', name: '0G Token', color: '#4cc9f0' },
-];
+// Audit found: prior commits hardcoded asset symbols (BTC/ETH/USDC/0G) and
+// dep keys (mockUSDC/mockWBTC/W0G) here, so the Create Vault picker showed
+// 0G even on Arbitrum (where deployments.W0G is undefined → silent filter)
+// and could not surface chain-only assets like cbBTC on 0G mainnet that
+// chainConfig already permits. We now derive both lists per-chain from
+// CHAIN_PROFILES.allowedAssets and only retain colour / display-name maps
+// here so the visual rendering stays identical.
+const ASSET_DISPLAY_NAMES = {
+  BTC: 'Bitcoin',
+  ETH: 'Ethereum',
+  USDC: 'USD Coin',
+  'USDC.e': 'USD Coin (bridged)',
+  '0G': '0G Token',
+  WBTC: 'Wrapped BTC',
+  WETH: 'Wrapped ETH',
+  cbBTC: 'Coinbase BTC',
+};
 
-const baseAssetOptions = [
-  { symbol: 'USDC', name: 'USD Coin', depKey: 'mockUSDC', decimals: 6, color: 'text-cyan', border: 'border-cyan/30' },
-  { symbol: 'WBTC', name: 'Wrapped BTC', depKey: 'mockWBTC', decimals: 8, color: 'text-gold', border: 'border-gold/30' },
-  { symbol: 'WETH', name: 'Wrapped ETH', depKey: 'mockWETH', decimals: 18, color: 'text-emerald-soft', border: 'border-emerald-soft/30' },
-  { symbol: '0G', name: 'Wrapped 0G', depKey: 'W0G', decimals: 18, color: 'text-cyan', border: 'border-cyan/30' },
-];
+// Hex swatches drive the lucide TokenIcon fallback + asset card glyphs.
+const ASSET_HEX_COLORS = {
+  BTC: '#f7931a',
+  ETH: '#627eea',
+  USDC: '#2775ca',
+  'USDC.e': '#2775ca',
+  '0G': '#4cc9f0',
+  WBTC: '#f7931a',
+  WETH: '#627eea',
+  cbBTC: '#0052ff',
+};
+
+// Tailwind text-/border- classes for the base-asset picker tiles. Every
+// symbol the chainConfig can surface must have a fallback so a future
+// addition doesn't render with `undefined` Tailwind classes.
+const ASSET_TW_COLOR = {
+  USDC: 'text-cyan',
+  'USDC.e': 'text-cyan',
+  WBTC: 'text-gold',
+  WETH: 'text-emerald-soft',
+  '0G': 'text-cyan',
+  cbBTC: 'text-cyan',
+};
+const ASSET_TW_BORDER = {
+  USDC: 'border-cyan/30',
+  'USDC.e': 'border-cyan/30',
+  WBTC: 'border-gold/30',
+  WETH: 'border-emerald-soft/30',
+  '0G': 'border-cyan/30',
+  cbBTC: 'border-cyan/30',
+};
 
 const riskScoreByProfile = {
   defensive: 3,
@@ -91,6 +127,29 @@ export default function CreateVaultPage() {
     || findDeploymentChainId('aegisVaultFactory');
   const isProduction = isProductionChain(chainId);
   const chainProfile = getChainProfile(chainId);
+
+  // Audit found: this page used to ship a hardcoded asset matrix. We now
+  // derive the picker lists from chainConfig so the UI never shows assets
+  // that aren't deployed on the active chain (e.g. 0G on Arbitrum) and
+  // automatically picks up new entries chainConfig adds (e.g. cbBTC on 0G).
+  const chainAssets = chainProfile?.allowedAssets || [];
+  const availableAssets = chainAssets.map((a) => ({
+    symbol: a.symbol,
+    name: ASSET_DISPLAY_NAMES[a.symbol] || a.symbol,
+    color: ASSET_HEX_COLORS[a.symbol] || '#888888',
+    depKey: a.depKey,
+    decimals: a.decimals,
+  }));
+  const baseAssetOptions = chainAssets
+    .filter((a) => a.canBaseAsset)
+    .map((a) => ({
+      symbol: a.symbol,
+      name: ASSET_DISPLAY_NAMES[a.symbol] || a.symbol,
+      depKey: a.depKey,
+      decimals: a.decimals,
+      color: ASSET_TW_COLOR[a.symbol] || 'text-white',
+      border: ASSET_TW_BORDER[a.symbol] || 'border-white/30',
+    }));
   const {
     createVault,
     isSuccess: createSuccess,
@@ -122,9 +181,19 @@ export default function CreateVaultPage() {
   const doneHandledRef = useRef(false);
   const navigateQueuedRef = useRef(false);
   const draftKey = `draft:create-vault:v1:${walletAddress || 'anon'}`;
+  // Audit found: defaults used to be hardcoded to ['BTC','ETH','USDC','0G']
+  // and baseAsset='USDC'. Those symbols don't match Arbitrum's allowedAssets
+  // (USDC/WETH/WBTC) nor 0G mainnet's (USDC.e/WETH/WBTC/cbBTC), so the form
+  // landed in a state where the "allowed assets" list was effectively empty
+  // post-deploy. We seed the default from the active chain profile so a
+  // freshly opened wizard pre-selects all on-chain-permitted assets.
+  const defaultAllowedAssets = chainAssets.map((a) => a.symbol);
+  const defaultBaseAsset = chainProfile?.defaultBaseAsset
+    || (chainAssets.find((a) => a.canBaseAsset)?.symbol)
+    || 'USDC';
   const [config, setConfig, { clearDraft, hasDraft }] = useDraftState(draftKey, {
     depositAmount: 50000,
-    baseAsset: 'USDC',
+    baseAsset: defaultBaseAsset,
     riskProfile: 'balanced',
     maxDrawdown: 10,
     maxPosition: 50,
@@ -137,11 +206,19 @@ export default function CreateVaultPage() {
     // vault init, hard-capped on-chain at 200 bps. 0 effectively disables
     // cross-chain acceptance (any fill reverts with FeeTooHigh).
     maxCrossChainFeeBps: 50,
-    allowedAssets: ['BTC', 'ETH', 'USDC', '0G'],
+    allowedAssets: defaultAllowedAssets,
     sealedMode: false,
     autoExecution: true,
   });
-  const selectedBaseAsset = baseAssetOptions.find((a) => a.symbol === config.baseAsset) || baseAssetOptions[0];
+  // Verified: when a stale draft from another chain restores stuff like
+  // baseAsset='0G' on Arbitrum, fall back to the first base-asset-eligible
+  // option for the current chain so deployments[depKey] never resolves to
+  // undefined and crashes useTokenBalance with an invalid address. The
+  // hardcoded fallback object keeps render code total in the unsupported-
+  // chain edge case where baseAssetOptions is empty.
+  const selectedBaseAsset = baseAssetOptions.find((a) => a.symbol === config.baseAsset)
+    || baseAssetOptions[0]
+    || { symbol: 'USDC', name: 'USD Coin', depKey: 'mockUSDC', decimals: 6, color: 'text-cyan', border: 'border-cyan/30' };
   const { balance: walletBalance, isLoading: balanceLoading } = useTokenBalance(
     deployments[selectedBaseAsset.depKey],
     walletAddress,
@@ -542,12 +619,17 @@ export default function CreateVaultPage() {
       sealedMode: !!config.sealedMode,
       attestedSigner: teeAttestedSigner,
     };
+    // Audit found: prior code mapped allowedAssets via a hardcoded
+    // BTC→mockWBTC / ETH→mockWETH / USDC→mockUSDC / 0G→W0G ladder, which
+    // silently fell back to mockUSDC for unknown symbols and broke entirely
+    // on chains where W0G / mockWBTC etc. were undefined. We now resolve
+    // each symbol through the chain profile's depKey so unknown symbols are
+    // dropped (filter Boolean) instead of being mis-routed to a stable.
+    const assetByDepKey = Object.fromEntries(chainAssets.map((a) => [a.symbol, a]));
     const assetAddrs = config.allowedAssets.map((s) => {
-      if (s === 'BTC') return deployments.mockWBTC;
-      if (s === 'ETH') return deployments.mockWETH;
-      if (s === 'USDC') return deployments.mockUSDC;
-      if (s === '0G') return deployments.W0G;
-      return deployments.mockUSDC;
+      const meta = assetByDepKey[s];
+      if (!meta) return null;
+      return deployments[meta.depKey] || null;
     }).filter(Boolean);
     const baseAssetAddr = deployments[selectedBaseAsset.depKey];
 

@@ -104,8 +104,25 @@ test('Mismatch gate: V3 vault → false regardless of hash (no slot to mismatch)
   assert.equal(isStrategyHashMismatch(vaultState, HASH_B), false);
 });
 
-test('Mismatch gate: missing fields → false (no false positives)', () => {
+test('Mismatch gate: missing fields → safe defaults', () => {
+  // Null vault state — no V4 vault to check, false (no spurious skip).
   assert.equal(isStrategyHashMismatch(null, HASH_A), false);
+  // V4 vault but no accepted hash — vault is unbound (effectively zero), false.
   assert.equal(isStrategyHashMismatch({ isV4: true }, HASH_A), false);
-  assert.equal(isStrategyHashMismatch({ isV4: true, acceptedManifestHash: HASH_A }, null), false);
+});
+
+test('Mismatch gate: V4 vault expects nonzero hash but no strategy loaded → true', () => {
+  // Audit found: when the vault expects a strategy commitment (nonzero
+  // acceptedManifestHash) but the operator never published a manifest (so
+  // loadedStrategyHash is undefined/null), the orchestrator would otherwise
+  // submit a zero-hash intent and burn gas on a guaranteed `WrongStrategyHash`
+  // revert. Treat that case as a mismatch so the cycle skips off-chain.
+  assert.equal(
+    isStrategyHashMismatch({ isV4: true, acceptedManifestHash: HASH_A }, null),
+    true,
+  );
+  assert.equal(
+    isStrategyHashMismatch({ isV4: true, acceptedManifestHash: HASH_A }, undefined),
+    true,
+  );
 });

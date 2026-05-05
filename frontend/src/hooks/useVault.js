@@ -373,31 +373,42 @@ export function useVaultList(factoryAddress, ownerAddress) {
 
 // ── Read: ALL Platform Vaults (from factory.allVaults) ──
 //
-// Multi-factory: mirror useVaultList — sum totals across V3 + V2 (+ V1
-// when chain has no V2/V3) so platform stats reflect every vault that
-// can be interacted with through the app.
+// Multi-factory: mirror useVaultList — sum totals across V4 + V3 + V2
+// (+ V1 when chain has no later generation) so platform stats reflect
+// every vault that can be interacted with through the app. Audit found
+// that omitting V4 here would undercount the "All Platform Vaults"
+// dashboard once the V4 factory is deployed; we verified parity with
+// useVaultList's iteration shape and added V4 first in priority.
 
 export function useAllPlatformVaults(factoryAddress) {
   const chainIdLocal = useChainId();
   const deploymentsLocal = getDeployments(chainIdLocal);
+  const factoryV4 = deploymentsLocal.aegisVaultFactoryV4 || '';
   const factoryV3 = deploymentsLocal.aegisVaultFactoryV3 || '';
   const factoryV2 = deploymentsLocal.aegisVaultFactoryV2 || '';
-  const factoryV1 = (factoryAddress && factoryAddress !== factoryV3 && factoryAddress !== factoryV2)
+  const factoryV1 = (factoryAddress && factoryAddress !== factoryV4
+                                    && factoryAddress !== factoryV3
+                                    && factoryAddress !== factoryV2)
     ? factoryAddress
     : '';
 
-  // Step 1: per-factory totalVaults() count.
+  // Step 1: per-factory totalVaults() count. All four generations expose
+  // the same `totalVaults()` read shape, so AegisVaultFactoryABI is safe
+  // for the V4 read here as well — V4-specific ABI is only required for
+  // the createVault write path.
   const { data: totalsRaw, isLoading: countLoading } = useReadContracts({
     contracts: [
+      factoryV4 && { address: factoryV4, abi: AegisVaultFactoryABI, functionName: 'totalVaults' },
       factoryV3 && { address: factoryV3, abi: AegisVaultFactoryABI, functionName: 'totalVaults' },
       factoryV2 && { address: factoryV2, abi: AegisVaultFactoryABI, functionName: 'totalVaults' },
       factoryV1 && { address: factoryV1, abi: AegisVaultFactoryABI, functionName: 'totalVaults' },
     ].filter(Boolean),
-    query: { enabled: !!(factoryV3 || factoryV2 || factoryV1), refetchInterval: 30000 },
+    query: { enabled: !!(factoryV4 || factoryV3 || factoryV2 || factoryV1), refetchInterval: 30000 },
   });
 
   const factoryTotals = [];
   let i = 0;
+  if (factoryV4) factoryTotals.push({ factory: factoryV4, total: Number(totalsRaw?.[i++]?.result || 0n) });
   if (factoryV3) factoryTotals.push({ factory: factoryV3, total: Number(totalsRaw?.[i++]?.result || 0n) });
   if (factoryV2) factoryTotals.push({ factory: factoryV2, total: Number(totalsRaw?.[i++]?.result || 0n) });
   if (factoryV1) factoryTotals.push({ factory: factoryV1, total: Number(totalsRaw?.[i++]?.result || 0n) });

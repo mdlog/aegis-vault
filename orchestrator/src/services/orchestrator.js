@@ -37,13 +37,27 @@ export function shouldUseKhalaniRoute(intent, vaultState) {
  * created with `acceptedManifestHash == 0` only accepts intents whose
  * strategyHash is also zero, which is the orchestrator's behaviour when no
  * manifest is loaded.
+ *
+ * Audit found a hole in the prior implementation: when the vault expects a
+ * NONZERO accepted hash but the operator never published a manifest (so
+ * `loadedStrategyHash` is undefined), the orchestrator would still submit a
+ * zero-hash intent and burn gas on a guaranteed `WrongStrategyHash` revert.
+ * Treat that case as a mismatch so the cycle skips off-chain instead.
  */
 export function isStrategyHashMismatch(vaultState, loadedStrategyHash) {
   if (!vaultState?.isV4) return false;
   const accepted = vaultState.acceptedManifestHash;
-  if (!accepted || !loadedStrategyHash) return false;
+  if (!accepted) return false;
   const acceptedLower = accepted.toLowerCase();
+  // Unbound vault (zero accepted hash) — anything goes, including a
+  // zero-hash intent from an operator who hasn't published a manifest.
   if (acceptedLower === ZERO_HASH_LOWER) return false;
+  // Vault has a nonzero strategy commitment. If we have no loaded strategy
+  // (operator didn't publish, or the manifest fetch failed earlier), the
+  // orchestrator would submit a zero-hash intent which the vault would
+  // revert with WrongStrategyHash. Flag that as a mismatch so the caller
+  // skips the cycle off-chain.
+  if (!loadedStrategyHash) return true;
   return acceptedLower !== loadedStrategyHash.toLowerCase();
 }
 import { fetchPythPrices } from './pythPrice.js';
@@ -424,18 +438,6 @@ async function runVaultCycle(vaultAddress, marketSummary) {
         vaultState._strategy = result.strategy;
         vaultState._strategyHash = result.hash;
         vaultState._strategySchemaVersion = result.schemaVersion;
-        // V4-specific: vault binds an acceptedManifestHash on-chain. The
-        // strategy loaded from the operator's published manifest MUST match
-        // this hash — otherwise the executeIntent will revert with
-        // WrongStrategyHash. Skip cleanly here instead of burning gas.
-        if (isStrategyHashMismatch(vaultState, result.hash)) {
-          const accepted = vaultState.acceptedManifestHash.toLowerCase();
-          const loaded = result.hash.toLowerCase();
-          logger.warn(`    V4 vault accepts strategy ${accepted.slice(0, 10)}... but operator currently publishes ${loaded.slice(0, 10)}... — owner must approve manifest upgrade. Skipping cycle.`);
-          vaultResult.status = 'skipped_strategy_not_accepted_by_vault';
-          vaultResult.reason = 'acceptedManifestHash mismatch';
-          return vaultResult;
-        }
         logger.info(`    Strategy: ${result.strategy.strategy.id} (${result.strategy.strategy.type}) hash=${result.hash.slice(0, 10)}... v${result.schemaVersion}`);
       } catch (err) {
         const errType = err.name || 'StrategyLoadError';
@@ -444,6 +446,26 @@ async function runVaultCycle(vaultAddress, marketSummary) {
         vaultResult.reason = err.message;
         return vaultResult;
       }
+    }
+
+    // V4-specific gate: vault binds an acceptedManifestHash on-chain. The
+    // strategyHash the orchestrator submits MUST match this hash — otherwise
+    // executeIntent reverts with WrongStrategyHash. We run this check OUTSIDE
+    // the manifest-load block on purpose: audit found that when the operator
+    // has not published a manifest URI at all (so the load block is skipped
+    // entirely), the orchestrator would still submit a zero-hash intent
+    // against a vault that expects nonzero — burning gas every cycle. The
+    // updated isStrategyHashMismatch returns true for that "expected nonzero,
+    // got zero/undefined" case, so we catch it here regardless of which path
+    // got us here.
+    if (isStrategyHashMismatch(vaultState, vaultState._strategyHash)) {
+      const accepted = vaultState.acceptedManifestHash.toLowerCase();
+      const loaded = (vaultState._strategyHash || '').toLowerCase();
+      const loadedLabel = loaded ? `${loaded.slice(0, 10)}...` : 'no manifest published';
+      logger.warn(`    V4 vault accepts strategy ${accepted.slice(0, 10)}... but operator currently publishes ${loadedLabel} — owner must approve manifest upgrade or operator must publish matching manifest. Skipping cycle.`);
+      vaultResult.status = 'skipped_strategy_not_accepted_by_vault';
+      vaultResult.reason = 'acceptedManifestHash mismatch';
+      return vaultResult;
     }
 
     // AI inference (uses shared market data, vault-specific state & policy)

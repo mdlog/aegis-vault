@@ -12,17 +12,24 @@ import AegisVaultABI from './abi/AegisVault.json' with { type: 'json' };
 import VaultEventsABI from './abi/VaultEvents.json' with { type: 'json' };
 import { TokenClient } from './token.js';
 
+// `getVaultSummary()` returns 9 fields in the order:
+//   (owner, executor, baseAsset, balance, totalDeposited,
+//    lastExecutionTime, dailyActionCount, paused, autoExecution)
+// Verified against AegisVault.sol (V1) and AegisVault_v3.sol — both
+// versions emit the same 9-tuple shape. Audit review found the previous
+// decoder mapped the wrong indices and invented `nav`/`commitBlock`/
+// `hasPendingCommit` fields that the contract never returns.
 function decodeVaultSummary(raw) {
   return {
     owner: raw[0],
     executor: raw[1],
     baseAsset: raw[2],
-    totalDeposited: raw[3],
-    nav: raw[4],
+    balance: raw[3],
+    totalDeposited: raw[4],
     lastExecutionTime: Number(raw[5]),
-    commitBlock: Number(raw[6]),
+    dailyActionCount: Number(raw[6]),
     paused: raw[7],
-    hasPendingCommit: raw[8],
+    autoExecution: raw[8],
   };
 }
 
