@@ -11,8 +11,8 @@ const capabilities = [
   {
     tag: 'POLICY',
     title: 'Vault Policy Guardrails',
-    description: 'On-chain policy enforcement inline in ExecLib. Max position, daily loss cap, cooldown, confidence threshold, asset whitelist — every check runs in Solidity before any swap executes.',
-    metrics: ['Caps: Hardcoded', 'Replay: EIP-712 protected', 'Cooldown: per-vault'],
+    description: 'Inline ExecLib enforcement in Solidity for max position, cooldown, confidence threshold, max actions/day, and the asset whitelist — every swap clears these in the vault contract before executing. Daily loss + stop-loss are enforced off-chain by the orchestrator risk veto and emergency pause(), since on-chain NAV tracking is not yet wired.',
+    metrics: ['On-chain: 5 checks', 'Off-chain veto: PnL caps', 'Replay: EIP-712'],
     accentColor: 'gold',
   },
   {

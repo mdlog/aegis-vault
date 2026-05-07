@@ -10,6 +10,7 @@ import {
 import { useAvailableAIModels } from '../hooks/useOrchestrator';
 import { estimateAnnualFees } from '../hooks/useVaultFees';
 import { keccak256, toBytes } from 'viem';
+import { canonicalizeJson } from '../hooks/useOperatorStrategy';
 import GlassPanel from '../components/ui/GlassPanel';
 import ControlButton from '../components/ui/ControlButton';
 import StatusPill from '../components/ui/StatusPill';
@@ -235,7 +236,22 @@ export default function OperatorRegisterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extended, isRegistered]);
 
-  const computedManifestHash = manifestJSON.trim() ? keccak256(toBytes(manifestJSON.trim())) : '0x0000000000000000000000000000000000000000000000000000000000000000';
+  // The on-chain hash MUST be computed from the canonical-JSON form of the
+  // parsed manifest, not the raw user-typed text. The verifier (orchestrator
+  // loader, SDK, useOperatorStrategy) recomputes via canonicalizeJson before
+  // comparing — hashing the raw text means any whitespace or key reordering
+  // makes the manifest unverifiable forever after publish.
+  const computedManifestHash = useMemo(() => {
+    const trimmed = manifestJSON.trim();
+    if (!trimmed) return '0x0000000000000000000000000000000000000000000000000000000000000000';
+    try {
+      const parsed = JSON.parse(trimmed);
+      const canonical = canonicalizeJson(parsed);
+      return keccak256(toBytes(canonical));
+    } catch {
+      return '0x0000000000000000000000000000000000000000000000000000000000000000';
+    }
+  }, [manifestJSON]);
 
   // Per-wallet draft so different operators can keep their own work-in-progress.
   const draftKey = `draft:operator-register:v1:${address || 'anon'}`;

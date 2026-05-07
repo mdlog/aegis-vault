@@ -33,13 +33,28 @@ function decodeVaultSummary(raw) {
   };
 }
 
+// Mirror Solidity struct VaultPolicy order from contracts/VaultEvents.sol:17:
+//   0: maxPositionBps
+//   1: maxDailyLossBps
+//   2: stopLossBps
+//   3: cooldownSeconds
+//   4: confidenceThresholdBps
+//   5: maxActionsPerDay
+//   6: autoExecution (bool)
+//   7: paused (bool)
+// Earlier shape was shift-by-one wrong from index 1 onward — every guardrail
+// after maxPosition silently swapped semantics for SDK consumers (e.g. a
+// policy.confidenceThreshold returning the daily-loss BPS value).
 function decodePolicy(raw) {
   return {
     maxPositionBps: Number(raw[0] ?? 0n),
-    confidenceThreshold: Number(raw[1] ?? 0n),
-    cooldownSeconds: Number(raw[2] ?? 0n),
-    maxActionsPerDay: Number(raw[3] ?? 0n),
-    stopLossBps: Number(raw[4] ?? 0n),
+    maxDailyLossBps: Number(raw[1] ?? 0n),
+    stopLossBps: Number(raw[2] ?? 0n),
+    cooldownSeconds: Number(raw[3] ?? 0n),
+    confidenceThreshold: Number(raw[4] ?? 0n),
+    maxActionsPerDay: Number(raw[5] ?? 0n),
+    autoExecution: Boolean(raw[6] ?? false),
+    paused: Boolean(raw[7] ?? false),
     raw,
   };
 }

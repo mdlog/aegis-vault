@@ -10,6 +10,14 @@ const TRACKED_ASSETS = [
     isStablecoin: true,
     aliases: ['USDC'],
   },
+  // Two BTC representations on 0G mainnet: WBTC (single-chain Jaine) and cbBTC
+  // (Khalani cross-chain solver fills). They MUST resolve to distinct trade
+  // symbols — sharing tradeSymbol='BTC' previously caused a silent divergence
+  // where `getAssetAddress('BTC')` (Array.find, first-match) returned WBTC
+  // while `buildAssetAddressMap()` (last-write-wins) returned cbBTC. Pre-check
+  // and intent-build then disagreed, letting policy validate against WBTC
+  // while the vault swapped cbBTC. cbBTC now owns its own symbol; route
+  // selection picks the right one explicitly per cycle.
   {
     tradeSymbol: 'BTC',
     contractSymbol: 'WBTC',
@@ -20,13 +28,13 @@ const TRACKED_ASSETS = [
     aliases: ['BTC', 'WBTC'],
   },
   {
-    tradeSymbol: 'BTC',
+    tradeSymbol: 'CBBTC',
     contractSymbol: 'cbBTC',
     address: config.contracts.cbbtc,
     decimals: 8,
     coingeckoId: 'bitcoin',
     isStablecoin: false,
-    aliases: ['cbBTC', 'BTC'],
+    aliases: ['cbBTC', 'CBBTC'],
   },
   {
     tradeSymbol: 'ETH',

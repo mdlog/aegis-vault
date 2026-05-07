@@ -179,6 +179,24 @@ contract AegisVault_v3 is ReentrancyGuard {
 
     function withdraw(uint256 amount) external {
         require(msg.sender == owner && !policy.paused, "w");
+        // Decrement totalDeposited so maxPositionBps continues to bound trade
+        // size against the *current* principal, not against the high-water
+        // mark of every deposit ever made. Without this, a depositor who
+        // withdraws most of their principal would leave the on-chain trade
+        // cap pegged to the original deposit and effectively unbounded
+        // relative to the funds remaining in the vault.
+        //
+        // A withdrawal larger than totalDeposited represents a draw against
+        // realized PnL (e.g. base-asset gains parked in the vault); clamp to
+        // zero rather than underflow. Mirrors the V4 implementation; existing
+        // V3 vaults already on chain remain affected by the original miss
+        // (immutable bytecode) — operators of those vaults should migrate
+        // to V4 if the trade-size cap matters for their mandate.
+        if (amount >= totalDeposited) {
+            totalDeposited = 0;
+        } else {
+            totalDeposited -= amount;
+        }
         IOLib.doWithdrawV3(
             address(baseAsset),
             owner,
