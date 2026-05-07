@@ -1,0 +1,12 @@
+import 'dotenv/config';
+import { ethers } from 'ethers';
+import { createZGComputeNetworkBroker } from '@0glabs/0g-serving-broker';
+const pk = (process.env.OG_COMPUTE_PRIVATE_KEY || process.env.PRIVATE_KEY || '').replace(/^0x/, '');
+const provider = new ethers.JsonRpcProvider(process.env.OG_COMPUTE_RPC || 'https://evmrpc.0g.ai');
+const wallet = new ethers.Wallet(pk, provider);
+const broker = await createZGComputeNetworkBroker(wallet);
+const services = await broker.inference.listService();
+console.log('Sample chatbot service object (full):\n');
+const sample = services.find(s => s.serviceType === 'chatbot');
+console.log(JSON.stringify(sample, (_, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+console.log('\nAll fields:', Object.keys(sample));

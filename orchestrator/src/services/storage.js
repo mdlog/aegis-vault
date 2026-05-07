@@ -347,6 +347,13 @@ export function logExecution(intent, result, decision = null, context = {}) {
     && attestationReportHash
     && attestationReportHash.toLowerCase() !== ZERO_HASH;
 
+  // Surface per-call TEE verification metadata from the inference response
+  // so the action feed can distinguish sealed-mode commit from runtime TEE
+  // verifier acknowledgement (broker.processResponse). `teeVerified === true`
+  // means the broker successfully fetched and validated the provider's TEE
+  // quote for this specific chatId; `false` means the verifier returned a
+  // negative; `null` means we couldn't reach the verifier (treated as soft).
+  const cr = decision?._computeResponse || null;
   return appendJournal({
     type: 'execution',
     vault: context.vault || intent?.vault || null,
@@ -365,6 +372,10 @@ export function logExecution(intent, result, decision = null, context = {}) {
     attestationReportHash: attestationReportHash,
     commitTxHash: result.commitTxHash || null,
     commitBlockNumber: result.commitBlockNumber || null,
+    // Per-call TEE verifier surface (recommendation B). null when the response
+    // came from local-fallback or the verifier was unreachable.
+    teeVerifiability: cr?.verifiability || null,
+    teeVerified: cr?.teeVerified ?? null,
   });
 }
 
