@@ -126,6 +126,11 @@ const config = {
     rpcUrl: process.env.OG_COMPUTE_RPC || 'https://evmrpc.0g.ai',
     privateKey: process.env.OG_COMPUTE_PRIVATE_KEY || process.env.PRIVATE_KEY || '',
     preferredModel: process.env.OG_COMPUTE_MODEL || '', // empty = auto-discover
+    // STRICT_TEE_MODE=true rejects any inference where broker.processResponse
+    // returns false. Default false to keep cycles flowing if the verifier
+    // backend has a transient outage; sealed-mode commit-reveal still binds
+    // the response hash on-chain even when strict mode is off.
+    strictTeeMode: (process.env.STRICT_TEE_MODE || '').toLowerCase() === 'true',
   },
 
   // ── Track 2: Sealed Strategy Mode (TEE attestation signer) ──

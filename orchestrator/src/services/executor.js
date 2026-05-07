@@ -132,10 +132,23 @@ const DEFAULT_SLIPPAGE_BPS = 50;
  * Auditors can recompute the hash from journal {provider, chatId, model,
  * content, strategyHash, schemaVer} and compare to on-chain log.
  *
- * Honest disclosure: this is provider-attestation (signed by the registered
- * 0G Compute provider key). True TEE-grade attestation depends on whether the
- * selected provider runs in SGX/TDX hardware. We hash everything we have so the
- * vault can be audited against the original 0G Compute call.
+ * TEE assurance level (verified 2026-05-08):
+ *   - All chatbot providers in the live 0G Compute roster ship with
+ *     `teeSignerAcknowledged === true` and run on Intel TDX hardware
+ *     (verified by dstack — github.com/Dstack-TEE/dstack).
+ *   - Per-call quote validity is checked by `broker.processResponse(provider,
+ *     chatId)` in ogCompute.js; STRICT_TEE_MODE rejects responses where the
+ *     verifier explicitly returns false.
+ *   - Sealed-mode commit-reveal binds {provider, chatId, model, content}
+ *     into `attestationReportHash`, which the vault recovers from the
+ *     EIP-712 signature signed by the provider's TEE-bound key
+ *     (`policy.attestedSigner`).
+ *
+ * What this still does NOT prove on its own: that *every* historical journal
+ * entry was produced inside a TDX enclave. The on-chain TEE acknowledgement
+ * is necessary but the per-call quote ultimately depends on the verifier
+ * backend remaining honest. Callers wanting maximum assurance should run with
+ * STRICT_TEE_MODE=true so failed verifications drop the cycle.
  */
 export function computeAttestationReportHash(computeResponse, strategyHash = null, strategySchemaVer = 0) {
   if (!computeResponse) return ethers.ZeroHash;

@@ -34,41 +34,66 @@ import {
   Tag,
 } from 'lucide-react';
 
-// Fallback model roster — known-good services on 0G Compute mainnet. Used when
-// the orchestrator API is unreachable so operators can still pick from a real
-// list. Provider is only populated for services we have a verified address for;
-// the rest require the operator to paste their provider manually (or start the
-// orchestrator so the full list gets auto-filled from listAvailableModels).
+// Fallback model roster — known-good chatbot services on 0G Compute mainnet.
+// Used when the orchestrator API is unreachable so operators can still pick a
+// real model. Live discovery via broker.inference.listService() supersedes
+// this list whenever the orchestrator is online (see useAvailableAIModels).
+//
+// Captured 2026-05-08 from broker.inference.listService() on chain ID 16661.
+// All entries had teeSignerAcknowledged === true on capture; verifiability
+// is the on-chain `verifiability` field (TeeML / TeeTLS) and teeVerifier
+// comes from the additionalInfo JSON. Speech-to-text (whisper) and
+// text-to-image (z-image) are intentionally excluded — vault inference
+// pipeline is chatbot-only. Refresh by running:
+//   orchestrator/scripts/router-spike/04-direct-list-services.mjs
 const FALLBACK_OG_COMPUTE_MODELS = [
+  {
+    model: 'zai-org/GLM-5.1-FP8',
+    provider: '0x7DCFe6AEa70350C2090041524c9B4A9262DCe87D',
+    url: 'https://compute-network-19.integratenetwork.work',
+    verifiability: 'TeeML',
+    teeAcknowledged: true,
+    teeVerifier: 'dstack',
+  },
   {
     model: 'zai-org/GLM-5-FP8',
     provider: '0xd9966e13a6026Fcca4b13E7ff95c94DE268C471C',
     url: 'https://compute-network-1.integratenetwork.work',
-  },
-  {
-    model: 'openai/gpt-oss-120b',
-    provider: '',
-    url: 'https://compute-network-2.integratenetwork.work',
-  },
-  {
-    model: 'qwen/qwen3-vl-30b-a3b-instruct',
-    provider: '',
-    url: 'https://compute-network-3.integratenetwork.work',
+    verifiability: 'TeeML',
+    teeAcknowledged: true,
+    teeVerifier: 'dstack',
   },
   {
     model: 'deepseek/deepseek-chat-v3-0324',
-    provider: '',
+    provider: '0x1B3AAef3ae5050EEE04ea38cD4B087472BD85EB0',
     url: 'https://compute-network-4.integratenetwork.work',
+    verifiability: 'TeeML',
+    teeAcknowledged: true,
+    teeVerifier: 'dstack',
   },
   {
-    model: 'openai/gpt-5.4-mini',
-    provider: '',
-    url: 'https://5259ae0f38365b27c0bab6301b73691206e32dce-80.dstack-pha-prod5.phala.network',
+    model: 'qwen/qwen3-vl-30b-a3b-instruct',
+    provider: '0x4415ef5CBb415347bb18493af7cE01f225Fc0868',
+    url: 'https://compute-network-3.integratenetwork.work',
+    verifiability: 'TeeML',
+    teeAcknowledged: true,
+    teeVerifier: 'dstack',
   },
   {
     model: 'qwen3.6-plus',
-    provider: '',
+    provider: '0x992e6396157Dc4f22E74F2231235D7DE62696db5',
     url: 'https://compute-network-18.integratenetwork.work',
+    verifiability: 'TeeML',
+    teeAcknowledged: true,
+    teeVerifier: 'dstack',
+  },
+  {
+    model: 'openai/gpt-5.4-mini',
+    provider: '0x25F8f01cA76060ea40895472b1b79f76613Ca497',
+    url: 'https://5259ae0f38365b27c0bab6301b73691206e32dce-80.dstack-pha-prod5.phala.network',
+    verifiability: 'TeeML',
+    teeAcknowledged: true,
+    teeVerifier: 'dstack',
   },
 ];
 
@@ -758,11 +783,20 @@ export default function OperatorRegisterPage() {
                               className="w-full px-3 py-2 rounded-md bg-obsidian/60 border border-white/[0.08] text-xs font-mono text-white cursor-pointer"
                             >
                               <option value="">— Select a 0G Compute model —</option>
-                              {modelList.map((m) => (
-                                <option key={`${m.model}-${m.provider || 'no-prov'}`} value={m.model}>
-                                  {m.model}{m.provider ? '' : ' (manual provider)'}
-                                </option>
-                              ))}
+                              {modelList.map((m) => {
+                                // Inline TEE flavor cue so operators can see
+                                // the attestation kind without leaving the
+                                // dropdown. Falls back to "manual provider"
+                                // marker only when both are missing.
+                                const v = m.verifiability ? ` · ${m.verifiability}` : '';
+                                const ack = m.teeAcknowledged === false ? ' · TEE!ack' : '';
+                                const noProv = !m.provider ? ' (manual provider)' : '';
+                                return (
+                                  <option key={`${m.model}-${m.provider || 'no-prov'}`} value={m.model}>
+                                    {m.model}{v}{ack}{noProv}
+                                  </option>
+                                );
+                              })}
                               <option value="__custom__">✎ Custom model…</option>
                             </select>
 
@@ -776,9 +810,55 @@ export default function OperatorRegisterPage() {
                               />
                             )}
 
+                            {(() => {
+                              // TEE provenance card for the currently selected
+                              // model. Only renders when we have metadata for
+                              // it (live API entries always do; custom entries
+                              // skip the card).
+                              const selected = modelList.find((m) => m.model === aiModel);
+                              if (!selected || !selected.verifiability) return null;
+                              const ackOk = selected.teeAcknowledged !== false;
+                              return (
+                                <div
+                                  className={`mt-2 rounded-md border px-3 py-2 text-[10px] font-mono ${
+                                    ackOk
+                                      ? 'border-emerald-soft/30 bg-emerald-soft/5 text-emerald-soft'
+                                      : 'border-amber-400/40 bg-amber-400/5 text-amber-300'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="uppercase tracking-wider opacity-80">
+                                      TEE provenance
+                                    </span>
+                                    <span>
+                                      {ackOk ? 'On-chain ack ✓' : 'Unacknowledged ✗'}
+                                    </span>
+                                  </div>
+                                  <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 opacity-90">
+                                    <span>Verifiability:</span>
+                                    <span className="text-right">{selected.verifiability}</span>
+                                    {selected.teeVerifier && (
+                                      <>
+                                        <span>Verifier:</span>
+                                        <span className="text-right">{selected.teeVerifier}</span>
+                                      </>
+                                    )}
+                                    {selected.teeSignerAddress && (
+                                      <>
+                                        <span>Signer:</span>
+                                        <span className="text-right truncate">
+                                          {selected.teeSignerAddress.slice(0, 10)}…{selected.teeSignerAddress.slice(-4)}
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
                             <p className="mt-1.5 text-[10px] text-steel/50">
                               {isLive
-                                ? `${liveModels.length} live model${liveModels.length === 1 ? '' : 's'} from 0G Compute mainnet.`
+                                ? `${liveModels.length} live TEE-acknowledged model${liveModels.length === 1 ? '' : 's'} from 0G Compute mainnet.`
                                 : 'Showing known 0G Compute mainnet roster (orchestrator offline — provider addresses may need manual entry).'}
                             </p>
                           </>
