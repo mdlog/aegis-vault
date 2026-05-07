@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useChainId } from 'wagmi';
 import { AlertTriangle, CheckCircle, Hourglass, RefreshCw, X } from 'lucide-react';
 import {
   diffVaultOperatorManifest,
@@ -40,7 +41,12 @@ export default function V4ManifestPanel({
     refetch,
   } = useVaultManifestHash(vaultAddress, { enabled: isV4 });
 
-  const deployments = getDeployments();
+  // getDeployments() falls back to chainId 31337 (local hardhat) when called
+  // without an explicit chain — that meant this panel read the wrong registry
+  // address on mainnet, surfacing stale or empty manifest data. Pass the
+  // connected wallet's chain so the panel reads the matching deployment map.
+  const chainId = useChainId();
+  const deployments = getDeployments(chainId);
   const operatorRegistry =
     deployments.operatorRegistryV2 || deployments.operatorRegistry;
   const { strategy: operatorStrategy, manifestHash: operatorHash } =

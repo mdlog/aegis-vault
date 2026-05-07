@@ -295,10 +295,24 @@ export default function CreateVaultPage() {
   // zero-hash sentinel = "no strategy enforcement" mode (still backwards-compat
   // but loses the on-chain operator commitment).
   const operatorRegistryAddr = deployments.operatorRegistry || '';
-  const { manifestHash: operatorManifestHash } = useOperatorStrategy(
+  const {
+    manifestHash: operatorManifestHash,
+    error: operatorManifestError,
+    isLoading: operatorManifestLoading,
+  } = useOperatorStrategy(
     resolvedExecutor && resolvedExecutor.startsWith('0x') ? resolvedExecutor : null,
     operatorRegistryAddr || null,
   );
+  // Gate vault creation when the operator's manifest fails verification —
+  // creating a V4 vault bound to an unverifiable hash means the orchestrator
+  // will reject every subsequent intent with StrategyHashMismatch and the
+  // vault is permanently inert. Fail-loud here instead.
+  const ZERO_HASH = '0x0000000000000000000000000000000000000000000000000000000000000000';
+  const operatorHasManifest =
+    operatorManifestHash &&
+    operatorManifestHash !== ZERO_HASH;
+  const operatorManifestUnverified =
+    operatorHasManifest && Boolean(operatorManifestError);
 
   const executorReady = Boolean(resolvedExecutor) && isAddress(resolvedExecutor);
   const shortExecutor = executorReady
@@ -587,6 +601,22 @@ export default function CreateVaultPage() {
     if (!Number.isFinite(config.depositAmount) || config.depositAmount <= 0) {
       toast.error('Enter a deposit amount', {
         description: 'Deposit must be a positive number before deploying the vault.',
+      });
+      return;
+    }
+    // Refuse to bind a V4 vault to a manifest hash whose source the verifier
+    // has rejected — orchestrator will mismatch every cycle and the vault
+    // is permanently inert. Caller must wait for the manifest fetch to
+    // complete before deploying.
+    if (operatorManifestLoading) {
+      toast.error('Manifest still loading', {
+        description: 'Wait for the operator strategy manifest to finish verifying before deploying.',
+      });
+      return;
+    }
+    if (operatorManifestUnverified) {
+      toast.error('Operator manifest fails verification', {
+        description: `${operatorManifestError}. Refusing to bind vault to an unverifiable hash — the orchestrator would reject every cycle.`,
       });
       return;
     }

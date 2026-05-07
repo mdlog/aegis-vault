@@ -1,12 +1,12 @@
 # Aegis Vault — local dev orchestration.
 #
 # Brings up orchestrator + frontend behind their production images. Secrets
-# come from .env at repo root (see .env.example). Not intended for prod —
-# for prod you'd run orchestrator under a process supervisor (pm2 /
-# systemd / k8s Deployment) and serve the frontend bundle from a CDN.
+# come from orchestrator/.env (see orchestrator/.env.example). Not intended
+# for prod — for prod you'd run orchestrator under a process supervisor
+# (pm2 / systemd / k8s Deployment) and serve the frontend bundle from a CDN.
 #
 # Usage:
-#   cp .env.example .env       # fill in PRIVATE_KEY, AEGIS_API_KEY, etc.
+#   cp orchestrator/.env.example orchestrator/.env  # fill in PRIVATE_KEY etc.
 #   docker compose up --build
 #   curl http://localhost:4002/api/health
 #   open http://localhost:8080
@@ -18,14 +18,27 @@ services:
     image: aegis-orchestrator:latest
     restart: unless-stopped
     env_file:
-      - .env
+      # Use the orchestrator's own .env so `docker compose` can run from the
+      # repo root without requiring a duplicate root-level .env. Previous
+      # `- .env` reference made `docker compose config` warn about a missing
+      # file and silently dropped every env var.
+      - ./orchestrator/.env
     environment:
       PORT: 4002
       NODE_ENV: production
+      # Force the orchestrator to read the deployments file from the volume
+      # mount below. Default path inside the image (../../contracts/…) doesn't
+      # exist because the Dockerfile build context only includes orchestrator/.
+      DEPLOYMENTS_FILE: contracts/deployments-mainnet.json
     ports:
       - "4002:4002"
     volumes:
       - ./orchestrator/logs:/app/logs
+      # Read-only mount of the deploy artefact. Contract addresses live here
+      # and the orchestrator config falls back to it when env-var overrides
+      # are absent — without this the container starts with empty registry,
+      # factory, etc. addresses.
+      - ./contracts/deployments-mainnet.json:/app/contracts/deployments-mainnet.json:ro
 
   frontend:
     build:

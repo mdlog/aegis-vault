@@ -224,8 +224,24 @@ export async function buildExecutionIntent(decision, vaultState, oraclePrices = 
       const minUsd = expectedOutputUsd * (1 - slippageBps / 10000);
       oracleMinOut = ethers.parseUnits(minUsd.toFixed(outDecimals > 6 ? 6 : outDecimals), outDecimals);
     } else {
-      const priceKey = outAssetSymbol === 'BTC' || outAssetSymbol === 'WBTC' ? 'BTC' : 'ETH';
-      const assetPrice = oraclePrices[priceKey]?.price || oraclePrices[priceKey] || 0;
+      // Resolve the oracle price key from the trade symbol. Previous logic
+      // collapsed everything that wasn't BTC/WBTC to 'ETH' as a fallback,
+      // which silently used the ETH price (~$3500) for 0G token (~$2) BUY
+      // intents — making the oracle floor ~1700× too low and effectively
+      // disabling the drain protection for 0G trades. We now resolve via
+      // tracked-asset trade symbols first (so cbBTC, 0G, future assets all
+      // get their correct oracle price), and only fall back to ETH when
+      // the symbol is genuinely unknown.
+      const tradeSymbolForPrice = normalizeTradeSymbol(outAssetSymbol);
+      const priceKey =
+        oraclePrices[tradeSymbolForPrice] !== undefined ? tradeSymbolForPrice
+        : oraclePrices[outAssetSymbol] !== undefined ? outAssetSymbol
+        : (tradeSymbolForPrice === 'BTC' || tradeSymbolForPrice === 'WBTC' || tradeSymbolForPrice === 'CBBTC') ? 'BTC'
+        : tradeSymbolForPrice === 'ETH' ? 'ETH'
+        : null;
+      const assetPrice = priceKey
+        ? (oraclePrices[priceKey]?.price || oraclePrices[priceKey] || 0)
+        : 0;
       if (assetPrice > 0) {
         const expectedTokens = expectedOutputUsd / assetPrice;
         const minTokens = expectedTokens * (1 - slippageBps / 10000);
@@ -233,6 +249,11 @@ export async function buildExecutionIntent(decision, vaultState, oraclePrices = 
           minTokens.toFixed(outDecimals > 8 ? 8 : outDecimals),
           outDecimals
         );
+      } else {
+        // No usable oracle price for this asset — leave oracleMinOut at 0n so
+        // the venue quote is the only floor. Better than fabricating a wrong
+        // floor from an unrelated price feed.
+        logger.debug(`Oracle floor disabled for ${outAssetSymbol} — no price entry in oraclePrices`);
       }
     }
   }
