@@ -1,441 +1,501 @@
-[
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_vaultImplementation",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "_executionRegistry",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "_protocolTreasury",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "constructor"
-  },
-  {
-    "inputs": [],
-    "name": "FactoryNotRegistryAdmin",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "FailedDeployment",
-    "type": "error"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "balance",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "needed",
-        "type": "uint256"
-      }
-    ],
-    "name": "InsufficientBalance",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "OnlyAdmin",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "ZeroAddress",
-    "type": "error"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "oldAdmin",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "newAdmin",
-        "type": "address"
-      }
-    ],
-    "name": "AdminTransferred",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "oldTreasury",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "newTreasury",
-        "type": "address"
-      }
-    ],
-    "name": "ProtocolTreasuryUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "vault",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "owner",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "baseAsset",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "executor",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "timestamp",
-        "type": "uint256"
-      }
-    ],
-    "name": "VaultDeployed",
-    "type": "event"
-  },
-  {
-    "inputs": [],
-    "name": "admin",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "allVaults",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_baseAsset",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "_executor",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "_venue",
-        "type": "address"
-      },
-      {
-        "components": [
-          {
-            "internalType": "uint256",
-            "name": "maxPositionBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "maxDailyLossBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "stopLossBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "cooldownSeconds",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "confidenceThresholdBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "maxActionsPerDay",
-            "type": "uint256"
-          },
-          {
-            "internalType": "bool",
-            "name": "autoExecution",
-            "type": "bool"
-          },
-          {
-            "internalType": "bool",
-            "name": "paused",
-            "type": "bool"
-          },
-          {
-            "internalType": "uint256",
-            "name": "performanceFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "managementFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "entryFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "exitFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "address",
-            "name": "feeRecipient",
-            "type": "address"
-          },
-          {
-            "internalType": "bool",
-            "name": "sealedMode",
-            "type": "bool"
-          },
-          {
-            "internalType": "address",
-            "name": "attestedSigner",
-            "type": "address"
-          }
-        ],
-        "internalType": "struct VaultPolicy",
-        "name": "_policy",
-        "type": "tuple"
-      },
-      {
-        "internalType": "address[]",
-        "name": "_allowedAssets",
-        "type": "address[]"
-      }
-    ],
-    "name": "createVault",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "vault",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "executionRegistry",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_owner",
-        "type": "address"
-      }
-    ],
-    "name": "getOwnerVaults",
-    "outputs": [
-      {
-        "internalType": "address[]",
-        "name": "",
-        "type": "address[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "index",
-        "type": "uint256"
-      }
-    ],
-    "name": "getVaultAt",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "name": "isVault",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "ownerVaults",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "protocolTreasury",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "newTreasury",
-        "type": "address"
-      }
-    ],
-    "name": "setProtocolTreasury",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "totalVaults",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "newAdmin",
-        "type": "address"
-      }
-    ],
-    "name": "transferAdmin",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "vaultImplementation",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  }
-]
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "AegisVaultFactory",
+  "sourceName": "contracts/AegisVaultFactory.sol",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_vaultImplementation",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_executionRegistry",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_protocolTreasury",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "FactoryNotRegistryAdmin",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "FailedDeployment",
+      "type": "error"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "balance",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "needed",
+          "type": "uint256"
+        }
+      ],
+      "name": "InsufficientBalance",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "OnlyAdmin",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "OnlyPendingAdmin",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ZeroAddress",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "currentAdmin",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "pendingAdmin",
+          "type": "address"
+        }
+      ],
+      "name": "AdminTransferStarted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "oldAdmin",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newAdmin",
+          "type": "address"
+        }
+      ],
+      "name": "AdminTransferred",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "oldTreasury",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newTreasury",
+          "type": "address"
+        }
+      ],
+      "name": "ProtocolTreasuryUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "vault",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "owner",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "baseAsset",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "executor",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "VaultDeployed",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "acceptAdmin",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "admin",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "allVaults",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "cancelAdminTransfer",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_baseAsset",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_executor",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_venue",
+          "type": "address"
+        },
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "maxPositionBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "maxDailyLossBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "stopLossBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "cooldownSeconds",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "confidenceThresholdBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "maxActionsPerDay",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bool",
+              "name": "autoExecution",
+              "type": "bool"
+            },
+            {
+              "internalType": "bool",
+              "name": "paused",
+              "type": "bool"
+            },
+            {
+              "internalType": "uint256",
+              "name": "performanceFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "managementFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "entryFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "exitFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "address",
+              "name": "feeRecipient",
+              "type": "address"
+            },
+            {
+              "internalType": "bool",
+              "name": "sealedMode",
+              "type": "bool"
+            },
+            {
+              "internalType": "address",
+              "name": "attestedSigner",
+              "type": "address"
+            }
+          ],
+          "internalType": "struct VaultPolicy",
+          "name": "_policy",
+          "type": "tuple"
+        },
+        {
+          "internalType": "address[]",
+          "name": "_allowedAssets",
+          "type": "address[]"
+        }
+      ],
+      "name": "createVault",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "vault",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "executionRegistry",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_owner",
+          "type": "address"
+        }
+      ],
+      "name": "getOwnerVaults",
+      "outputs": [
+        {
+          "internalType": "address[]",
+          "name": "",
+          "type": "address[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "index",
+          "type": "uint256"
+        }
+      ],
+      "name": "getVaultAt",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "isVault",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "ownerVaults",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pendingAdmin",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "protocolTreasury",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newTreasury",
+          "type": "address"
+        }
+      ],
+      "name": "setProtocolTreasury",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalVaults",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newAdmin",
+          "type": "address"
+        }
+      ],
+      "name": "transferAdmin",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "vaultImplementation",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x60a0346100d257601f610c1038819003918201601f19168301916001600160401b038311848410176100d6578084926060946040528339810103126100d257610047816100ea565b906100606040610059602084016100ea565b92016100ea565b6001600160a01b0391838316156100c05782169283156100c05760805260018060a01b031992835f5416175f551681600154161760015533906002541617600255604051610b1190816100ff823960805181818161011101526103df0152f35b60405163d92e233d60e01b8152600490fd5b5f80fd5b634e487b7160e01b5f52604160045260245ffd5b51906001600160a01b03821682036100d25756fe6080604081815260049182361015610015575f80fd5b5f925f3560e01c9182630c5a61f8146109bc575081630c90d7b5146109665781630e18b681146108ea57816326782247146108c25781633a0f555d14610818578163652b9b41146107dc57816366da53a0146102ef57816375829def1461025c5781637a98742d1461023c578163803db96d146102135781638d654023146101f55781638ee23d1f146101cd5781639094a91e1461018a5781639a387e701461014057508063bba48a90146100fd5763f851a440146100d2575f80fd5b346100f957816003193601126100f95760025490516001600160a01b039091168152602090f35b5080fd5b50346100f957816003193601126100f957517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b919050346101865782600319360112610186576002546001600160a01b0316330361017957600380546001600160a01b03191690558280f35b51634755657960e01b8152fd5b8280fd5b8284346101ca5760203660031901126101ca57823592548310156101ca57506101b4602092610a50565b905491519160018060a01b039160031b1c168152f35b80fd5b5050346100f957816003193601126100f957905490516001600160a01b039091168152602090f35b90503461018657826003193601126101865760209250549051908152f35b5050346100f957816003193601126100f95760015490516001600160a01b039091168152602090f35b8284346101ca5760203660031901126101ca57506101b460209235610a50565b90503461018657602036600319011261018657610277610a3a565b6002546001600160a01b039081169291338490036102df57169283156102d2575050600380546001600160a01b031916831790557fe5cd1c804f1c9cc6d7009e4c0fb532f0e2d8863524c3323a6b3790c3f80bf25c8380a380f35b5163d92e233d60e01b8152fd5b8451634755657960e01b81528390fd5b8383346106f2576102603660031901126106f25761030b610a3a565b9160249081356001600160a01b0381811692918390036106f257604435938185168095036106f2576101e03660631901126106f257610244976001600160401b0397893596908988116106f257366023890112156106f25787830135998a116106f25736848b60051b8a0101116106f25784169687156107cc5786156107cc575f5489516303e1469160e61b815260209c918716908d818781855afa9081156107c25787918f915f91610789575b5089163014159283610716575b505050610706576e5af43d82803e903d91602b57fd5bf37f0000000000000000000000000000000000000000000000000000000000000000763d602d80600a3d3981f3363d3d373d3d3d363d7300000062ffffff8260881c16175f5260781b178c5285603760095ff0169a8b156106f657865f54168760015416928d3b156106f2578c519563b7296a8160e01b87526102c487019233898901528d8a8901528c60448901526064880152608487015260643560a487015260843560c487015260a43560e48701526101049060c4358288015261012460e4358189015261014492358389015235918215158093036106f257610164928389015235918215158093036106f25761018492838901526101a49035818901526101c49235838901526101e490358189015261020492358389015235918a83168093036106f257610224928389015235908115158092036106f25787015235908882168092036106f257918593949281926102648601526102c061028486015252866102e484019201905f5b8181106106c95750505081905f936102a48301520381838d5af180156106bf576106ac575b5082845416803b156106a857848091848b8b5194859384926312e4d14360e31b8452888401525af1801561069e57908591610686575b50508054600160401b929083811015610673578060016105c592018455610a50565b81549060031b90868c831b921b191617905533855260058a52878520918254938410156106625750508161060191600189969594018155610a7c565b819291549060031b9189831b921b19161790558581526006875220600160ff198254161790558251918252848201524282820152827f1f091e4d222316471318148897e3662433ef689c1680e83861655c9d58a3dd2360603393a351908152f35b604190634e487b7160e01b5f52525ffd5b50634e487b7160e01b5f90815260418352fd5b61068f90610a91565b61069a57838a6105a3565b8380fd5b88513d87823e3d90fd5b8480fd5b6106b7919450610a91565b5f928961056d565b88513d5f823e3d90fd5b9194935091843589811691908290036106f257908152929385938f0192908f0191600101610548565b5f80fd5b8a5163b06ebf3d60e01b81528590fd5b8951635435e54d60e11b81528490fd5b8d51637669254160e11b8152308982015293509091839182905afa90811561077f575f91610749575b5015858d8f6103c6565b90508c81813d8311610778575b6107608183610ab8565b810103126106f2575180151581036106f2578d61073f565b503d610756565b8b513d5f823e3d90fd5b92505081813d83116107bb575b6107a08183610ab8565b810103126106f2575187811681036106f2578d87915f6103b9565b503d610796565b8c513d5f823e3d90fd5b885163d92e233d60e01b81528390fd5b82346106f25760203660031901126106f2576020906001600160a01b03610801610a3a565b165f526006825260ff815f20541690519015158152f35b82346106f257602090816003193601126106f2576001600160a01b03918261083e610a3a565b165f5260058152815f209082518082845491828152019081945f52835f20905f5b8181106108ac5750505081610875910382610ab8565b8351938285019183865251809252840192915f5b8281106108965785850386f35b8351871685529381019392810192600101610889565b825489168452928501926001928301920161085f565b82346106f2575f3660031901126106f25760035490516001600160a01b039091168152602090f35b9050346106f2575f3660031901126106f2576003546001600160a01b038082169390929033859003610959575050600280546001600160a01b031980821686179092559116600355167ff8ccb027dfcd135e000e9d45e6cc2d662578a8825d4c45b5e32e0adf67e79ec65f80a3005b5163d1ec4b2360e01b8152fd5b82346106f257806003193601126106f25761097f610a3a565b906024359160018060a01b038091165f526005602052815f2080548410156106f2576020936109ad91610a7c565b92905490519260031b1c168152f35b346106f25760203660031901126106f2576109d5610a3a565b60025490926001600160a01b0392909183163303610a2e575050600180546001600160a01b03198116938316938417909155167f0c5d18caa145415182f8ad3d2563da586609cec04ac8505274d87bc43f00b4a45f80a3005b634755657960e01b8152fd5b600435906001600160a01b03821682036106f257565b600454811015610a685760045f5260205f2001905f90565b634e487b7160e01b5f52603260045260245ffd5b8054821015610a68575f5260205f2001905f90565b6001600160401b038111610aa457604052565b634e487b7160e01b5f52604160045260245ffd5b601f909101601f19168101906001600160401b03821190821017610aa45760405256fea264697066735822122015e613a0adb6118b44478f9bff65d2defc751cdf51d0ff954d912190e08f016e64736f6c63430008180033",
+  "deployedBytecode": "0x6080604081815260049182361015610015575f80fd5b5f925f3560e01c9182630c5a61f8146109bc575081630c90d7b5146109665781630e18b681146108ea57816326782247146108c25781633a0f555d14610818578163652b9b41146107dc57816366da53a0146102ef57816375829def1461025c5781637a98742d1461023c578163803db96d146102135781638d654023146101f55781638ee23d1f146101cd5781639094a91e1461018a5781639a387e701461014057508063bba48a90146100fd5763f851a440146100d2575f80fd5b346100f957816003193601126100f95760025490516001600160a01b039091168152602090f35b5080fd5b50346100f957816003193601126100f957517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b919050346101865782600319360112610186576002546001600160a01b0316330361017957600380546001600160a01b03191690558280f35b51634755657960e01b8152fd5b8280fd5b8284346101ca5760203660031901126101ca57823592548310156101ca57506101b4602092610a50565b905491519160018060a01b039160031b1c168152f35b80fd5b5050346100f957816003193601126100f957905490516001600160a01b039091168152602090f35b90503461018657826003193601126101865760209250549051908152f35b5050346100f957816003193601126100f95760015490516001600160a01b039091168152602090f35b8284346101ca5760203660031901126101ca57506101b460209235610a50565b90503461018657602036600319011261018657610277610a3a565b6002546001600160a01b039081169291338490036102df57169283156102d2575050600380546001600160a01b031916831790557fe5cd1c804f1c9cc6d7009e4c0fb532f0e2d8863524c3323a6b3790c3f80bf25c8380a380f35b5163d92e233d60e01b8152fd5b8451634755657960e01b81528390fd5b8383346106f2576102603660031901126106f25761030b610a3a565b9160249081356001600160a01b0381811692918390036106f257604435938185168095036106f2576101e03660631901126106f257610244976001600160401b0397893596908988116106f257366023890112156106f25787830135998a116106f25736848b60051b8a0101116106f25784169687156107cc5786156107cc575f5489516303e1469160e61b815260209c918716908d818781855afa9081156107c25787918f915f91610789575b5089163014159283610716575b505050610706576e5af43d82803e903d91602b57fd5bf37f0000000000000000000000000000000000000000000000000000000000000000763d602d80600a3d3981f3363d3d373d3d3d363d7300000062ffffff8260881c16175f5260781b178c5285603760095ff0169a8b156106f657865f54168760015416928d3b156106f2578c519563b7296a8160e01b87526102c487019233898901528d8a8901528c60448901526064880152608487015260643560a487015260843560c487015260a43560e48701526101049060c4358288015261012460e4358189015261014492358389015235918215158093036106f257610164928389015235918215158093036106f25761018492838901526101a49035818901526101c49235838901526101e490358189015261020492358389015235918a83168093036106f257610224928389015235908115158092036106f25787015235908882168092036106f257918593949281926102648601526102c061028486015252866102e484019201905f5b8181106106c95750505081905f936102a48301520381838d5af180156106bf576106ac575b5082845416803b156106a857848091848b8b5194859384926312e4d14360e31b8452888401525af1801561069e57908591610686575b50508054600160401b929083811015610673578060016105c592018455610a50565b81549060031b90868c831b921b191617905533855260058a52878520918254938410156106625750508161060191600189969594018155610a7c565b819291549060031b9189831b921b19161790558581526006875220600160ff198254161790558251918252848201524282820152827f1f091e4d222316471318148897e3662433ef689c1680e83861655c9d58a3dd2360603393a351908152f35b604190634e487b7160e01b5f52525ffd5b50634e487b7160e01b5f90815260418352fd5b61068f90610a91565b61069a57838a6105a3565b8380fd5b88513d87823e3d90fd5b8480fd5b6106b7919450610a91565b5f928961056d565b88513d5f823e3d90fd5b9194935091843589811691908290036106f257908152929385938f0192908f0191600101610548565b5f80fd5b8a5163b06ebf3d60e01b81528590fd5b8951635435e54d60e11b81528490fd5b8d51637669254160e11b8152308982015293509091839182905afa90811561077f575f91610749575b5015858d8f6103c6565b90508c81813d8311610778575b6107608183610ab8565b810103126106f2575180151581036106f2578d61073f565b503d610756565b8b513d5f823e3d90fd5b92505081813d83116107bb575b6107a08183610ab8565b810103126106f2575187811681036106f2578d87915f6103b9565b503d610796565b8c513d5f823e3d90fd5b885163d92e233d60e01b81528390fd5b82346106f25760203660031901126106f2576020906001600160a01b03610801610a3a565b165f526006825260ff815f20541690519015158152f35b82346106f257602090816003193601126106f2576001600160a01b03918261083e610a3a565b165f5260058152815f209082518082845491828152019081945f52835f20905f5b8181106108ac5750505081610875910382610ab8565b8351938285019183865251809252840192915f5b8281106108965785850386f35b8351871685529381019392810192600101610889565b825489168452928501926001928301920161085f565b82346106f2575f3660031901126106f25760035490516001600160a01b039091168152602090f35b9050346106f2575f3660031901126106f2576003546001600160a01b038082169390929033859003610959575050600280546001600160a01b031980821686179092559116600355167ff8ccb027dfcd135e000e9d45e6cc2d662578a8825d4c45b5e32e0adf67e79ec65f80a3005b5163d1ec4b2360e01b8152fd5b82346106f257806003193601126106f25761097f610a3a565b906024359160018060a01b038091165f526005602052815f2080548410156106f2576020936109ad91610a7c565b92905490519260031b1c168152f35b346106f25760203660031901126106f2576109d5610a3a565b60025490926001600160a01b0392909183163303610a2e575050600180546001600160a01b03198116938316938417909155167f0c5d18caa145415182f8ad3d2563da586609cec04ac8505274d87bc43f00b4a45f80a3005b634755657960e01b8152fd5b600435906001600160a01b03821682036106f257565b600454811015610a685760045f5260205f2001905f90565b634e487b7160e01b5f52603260045260245ffd5b8054821015610a68575f5260205f2001905f90565b6001600160401b038111610aa457604052565b634e487b7160e01b5f52604160045260245ffd5b601f909101601f19168101906001600160401b03821190821017610aa45760405256fea264697066735822122015e613a0adb6118b44478f9bff65d2defc751cdf51d0ff954d912190e08f016e64736f6c63430008180033",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}

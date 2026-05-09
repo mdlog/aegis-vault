@@ -177,6 +177,22 @@ contract AegisVault_v4 is ReentrancyGuard {
     ///         dashboards filter by manifest without scanning the full log.
     event StrategyApplied(bytes32 indexed strategyHash, uint32 schemaVer);
 
+    /// @notice Lock the implementation contract so its `initialize` can never
+    ///         be called directly. EIP-1167 clones start with zeroed storage
+    ///         (so `owner == address(0)` and the init guard passes), but the
+    ///         implementation itself is reachable on-chain at the address the
+    ///         factory holds in `vaultImplementation`. Without this lock, any
+    ///         caller could `initialize` the implementation and become its
+    ///         `owner`, then emit `AttestedSignerUpdated` / `VaultCreated` /
+    ///         etc. from the implementation address — poisoning indexers and
+    ///         creating a fake "vault" that naive integrators might trust.
+    ///         Setting `owner` to a non-zero sentinel in the constructor flips
+    ///         the `require(owner == address(0))` guard permanently on the
+    ///         implementation while leaving cloned storage intact.
+    constructor() {
+        owner = address(0xdEaD);
+    }
+
     function initialize(
         address _owner,
         address _baseAsset,
@@ -366,6 +382,30 @@ contract AegisVault_v4 is ReentrancyGuard {
         address old = venue;
         venue = newVenue;
         emit VaultEvents.VenueUpdated(address(this), old, newVenue);
+    }
+
+    /// @notice Rotate the TEE-bound attestation signer. Owner-only.
+    ///         Pass `address(0)` to disable sealed-mode attestation entirely;
+    ///         in that case `policy.sealedMode` is also cleared atomically so
+    ///         `executeIntent` does not brick on the "sealed needs signer"
+    ///         require. Used to revoke a leaked TEE_SIGNER private key
+    ///         without having to redeploy and migrate the vault.
+    function setAttestedSigner(address newSigner) external {
+        require(msg.sender == owner, "owner");
+        address old = policy.attestedSigner;
+        policy.attestedSigner = newSigner;
+        // When the signer is cleared, sealed mode cannot operate — clear it
+        // in the same tx so the vault remains usable on the public-mode
+        // execution path. Note: this is a one-way migration. Setting a
+        // non-zero signer later does NOT auto-re-enable sealed mode; flipping
+        // back into sealed mode after a clear requires a fresh deploy (or a
+        // future setSealedMode setter). The asymmetry is intentional —
+        // re-entering sealed mode is a security policy choice that should be
+        // explicit, not a side-effect of key rotation.
+        if (newSigner == address(0) && policy.sealedMode) {
+            policy.sealedMode = false;
+        }
+        emit VaultEvents.AttestedSignerUpdated(address(this), old, newSigner);
     }
 
     function pause() external {

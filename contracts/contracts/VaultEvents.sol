@@ -89,6 +89,7 @@ library VaultEvents {
     event AllowedAssetsUpdated(address indexed vault, address indexed updatedBy, uint256 assetCount);
     event ExecutorUpdated(address indexed vault, address indexed oldExecutor, address indexed newExecutor);
     event VenueUpdated(address indexed vault, address indexed oldVenue, address indexed newVenue);
+    event AttestedSignerUpdated(address indexed vault, address indexed oldSigner, address indexed newSigner);
 
     // Execution
     event IntentSubmitted(address indexed vault, bytes32 indexed intentHash, address assetIn, address assetOut, uint256 amountIn);

@@ -66,7 +66,10 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
 
     // ── Constants ──
     uint256 public constant MAX_FEE_TIERS = 10;
-    uint16  public constant MAX_SLIPPAGE_BPS_CAP = 2000;
+    /// @notice Hard cap on `maxSlippageBps`. Tightened from 2000 (20%) to
+    ///         500 (5%) so an admin error cannot expose vault flow to
+    ///         catastrophic sandwich extraction.
+    uint16  public constant MAX_SLIPPAGE_BPS_CAP = 500;
 
     // ── Immutables ──
     ISwapRouter02 public immutable router;
@@ -104,6 +107,15 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
     error SameToken();
     error TooManyFeeTiers();
     error SlippageBpsTooHigh();
+    /// @notice Router returned but actual recipient delta below minAmountOut.
+    error BalanceDeltaBelowMin(uint256 actual, uint256 minRequired);
+    error InvalidFeeTier(uint24 fee);
+    error PythNotAContract();
+    error AssetDecimalsOutOfRange(uint8 decimals);
+
+    // Additional events
+    event TokensRescued(address indexed token, address indexed to, uint256 amount);
+    event FeeTierAdded(uint24 fee);
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert OnlyOwner();
@@ -161,8 +173,12 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
         // Approve Router to spend tokenIn (exact amount, not unlimited)
         IERC20(tokenIn).forceApprove(address(router), amountIn);
 
+        // Snapshot recipient balance before — balance-delta is the source of
+        // truth for amountOut, not the router's return value.
+        uint256 outBefore = IERC20(tokenOut).balanceOf(msg.sender);
+
         // Execute swap — output goes directly to msg.sender (vault)
-        amountOut = router.exactInputSingle(
+        router.exactInputSingle(
             ISwapRouter02.ExactInputSingleParams({
                 tokenIn: tokenIn,
                 tokenOut: tokenOut,
@@ -177,7 +193,12 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
         // Always reset approval after swap
         IERC20(tokenIn).forceApprove(address(router), 0);
 
-        // Verify we got output (belt-and-suspenders — router enforces minAmountOut)
+        // Verify the recipient actually received the swap output. Some
+        // router forks have been observed to return non-zero from
+        // exactInputSingle without delivering the full amount.
+        uint256 outAfter = IERC20(tokenOut).balanceOf(msg.sender);
+        amountOut = outAfter - outBefore;
+        if (amountOut < minAmountOut) revert BalanceDeltaBelowMin(amountOut, minAmountOut);
         if (amountOut == 0) revert SwapFailed();
 
         emit Swapped(msg.sender, tokenIn, tokenOut, amountIn, amountOut, fee);
@@ -189,17 +210,10 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
      */
     function _findPoolWithLiquidity(address tokenIn, address tokenOut) internal view returns (uint24 bestFee) {
         uint128 bestLiquidity = 0;
-        bool foundAnyPool = false;
-        uint24 fallbackFee = 0;
 
         for (uint256 i = 0; i < feeTiers.length; i++) {
             address pool = factory.getPool(tokenIn, tokenOut, feeTiers[i]);
             if (pool == address(0)) continue;
-
-            if (!foundAnyPool) {
-                foundAnyPool = true;
-                fallbackFee = feeTiers[i];
-            }
 
             try IUniV3Pool(pool).liquidity() returns (uint128 liq) {
                 if (liq > bestLiquidity) {
@@ -209,11 +223,11 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
             } catch {}
         }
 
-        if (!foundAnyPool) revert NoPoolFound(tokenIn, tokenOut);
-
-        if (bestFee == 0) {
-            bestFee = fallbackFee;
-        }
+        // Fail closed when no pool yielded readable, non-zero liquidity.
+        // The previous fallback (return the first pool found regardless of
+        // liquidity) opened a routing path into pools an attacker could
+        // deploy with manipulated slot0() prices.
+        if (bestLiquidity == 0) revert NoPoolFound(tokenIn, tokenOut);
     }
 
     /**
@@ -255,10 +269,16 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
 
     function addFeeTier(uint24 _fee) external onlyOwner {
         if (feeTiers.length >= MAX_FEE_TIERS) revert TooManyFeeTiers();
+        if (_fee == 0) revert InvalidFeeTier(_fee);
+        for (uint256 i = 0; i < feeTiers.length; i++) {
+            if (feeTiers[i] == _fee) revert InvalidFeeTier(_fee);
+        }
         feeTiers.push(_fee);
+        emit FeeTierAdded(_fee);
     }
 
     function setPyth(address _pyth) external onlyOwner {
+        if (_pyth != address(0) && _pyth.code.length == 0) revert PythNotAContract();
         emit PythUpdated(address(pyth), _pyth);
         pyth = IPyth(_pyth);
     }
@@ -271,6 +291,7 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
 
     function registerAsset(address token, bytes32 feedId, uint8 decimals) external onlyOwner {
         if (token == address(0)) revert ZeroAddress();
+        if (decimals > 18) revert AssetDecimalsOutOfRange(decimals);
         priceFeeds[token]    = feedId;
         tokenDecimals[token] = decimals;
         emit AssetRegistered(token, feedId, decimals);
@@ -289,5 +310,6 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
     function rescueTokens(address token, address to, uint256 amount) external onlyOwner {
         if (to == address(0)) revert ZeroAddress();
         IERC20(token).safeTransfer(to, amount);
+        emit TokensRescued(token, to, amount);
     }
 }

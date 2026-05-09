@@ -299,6 +299,36 @@ contract AegisVault_v3 is ReentrancyGuard {
         emit VaultEvents.VenueUpdated(address(this), old, newVenue);
     }
 
+    /// @notice Rotate the TEE-bound attestation signer used by sealed mode
+    ///         and cross-chain fill verification. Owner-only.
+    ///
+    ///         If the off-chain TEE_SIGNER private key is suspected
+    ///         compromised, the depositor can immediately revoke it by
+    ///         pointing `policy.attestedSigner` at a fresh key (or at
+    ///         `address(0)` to disable sealed-mode attestation entirely;
+    ///         when zeroed and `policy.sealedMode` was on, the flag is
+    ///         cleared in the same tx so `executeIntent` does not brick on
+    ///         the "sealed needs signer" require). Without this setter, a
+    ///         leaked signer would force the depositor to redeploy the
+    ///         vault and migrate funds to revoke the key. Pair this
+    ///         rotation with `setExecutor` when the orchestrator wallet
+    ///         is also rotated.
+    ///
+    ///         Note: clearing the signer is a one-way migration to public
+    ///         mode. Re-entering sealed mode after a clear requires a
+    ///         fresh deploy — re-enabling sealed semantics is a security
+    ///         policy choice that should be explicit, not a side-effect
+    ///         of key rotation.
+    function setAttestedSigner(address newSigner) external {
+        require(msg.sender == owner, "owner");
+        address old = policy.attestedSigner;
+        policy.attestedSigner = newSigner;
+        if (newSigner == address(0) && policy.sealedMode) {
+            policy.sealedMode = false;
+        }
+        emit VaultEvents.AttestedSignerUpdated(address(this), old, newSigner);
+    }
+
     /// @notice Halt deposits / withdrawals / executions. Sets the policy's
     ///         `paused` flag. Idempotent — re-pausing is a no-op.
     function pause() external {

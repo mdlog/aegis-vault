@@ -26,6 +26,8 @@ contract ProtocolTreasury is ReentrancyGuard {
 
     // ── State ──
     address public admin;
+    /// @notice Pending admin queued by `transferAdmin`; finalized by `acceptAdmin`.
+    address public pendingAdmin;
     mapping(address => bool) public approvedSpenders;
     /// @notice P5-S11: Whitelist of addresses (typically vault contracts) permitted
     ///         to call notifyReceived() to attribute incoming fees to lifetimeRevenue.
@@ -38,6 +40,7 @@ contract ProtocolTreasury is ReentrancyGuard {
     // ── Events ──
     event Received(address indexed token, address indexed from, uint256 amount);
     event Spent(address indexed token, address indexed to, uint256 amount, string purpose);
+    event AdminTransferStarted(address indexed currentAdmin, address indexed pendingAdmin);
     event AdminTransferred(address indexed oldAdmin, address indexed newAdmin);
     event SpenderApproved(address indexed spender, bool approved);
     event ReporterAuthorized(address indexed reporter, bool allowed);
@@ -46,8 +49,10 @@ contract ProtocolTreasury is ReentrancyGuard {
     error OnlyAdmin();
     error OnlyApprovedSpender();
     error OnlyAuthorizedReporter();
+    error OnlyPendingAdmin();
     error ZeroAddress();
     error InsufficientBalance();
+    error NativeTransferFailed();
 
     modifier onlyAdmin() {
         if (msg.sender != admin) revert OnlyAdmin();
@@ -103,21 +108,48 @@ contract ProtocolTreasury is ReentrancyGuard {
         if (to == address(0)) revert ZeroAddress();
         if (amount > address(this).balance) revert InsufficientBalance();
         (bool ok, ) = to.call{value: amount}("");
-        require(ok, "Native transfer failed");
+        if (!ok) revert NativeTransferFailed();
         emit Spent(address(0), to, amount, purpose);
     }
 
     /// @notice Approve / revoke spender (delegate to multi-sig members or sub-DAO)
     function setSpender(address spender, bool approved) external onlyAdmin {
+        if (spender == address(0)) revert ZeroAddress();
         approvedSpenders[spender] = approved;
         emit SpenderApproved(spender, approved);
     }
 
+    // ── Ownable2Step admin transfer ──
+    //
+    //   Two-step pattern mirrors ExecutionRegistry / AegisVaultFactory*.
+    //   Treasury holds protocol fee revenue (USDC + native 0G) so a
+    //   single-typo admin rotation could permanently lock fund control —
+    //   spenders cannot be added/revoked, treasury cannot be governed,
+    //   and `spendNative` becomes unreachable. The two-step pattern lets
+    //   the current admin correct a typo by issuing a new `transferAdmin`
+    //   (or calling `cancelAdminTransfer`) before the incoming address has
+    //   accepted.
+
+    /// @notice Propose a new admin. Takes effect only after `newAdmin`
+    ///         calls `acceptAdmin()`.
     function transferAdmin(address newAdmin) external onlyAdmin {
         if (newAdmin == address(0)) revert ZeroAddress();
-        address old = admin;
-        admin = newAdmin;
-        emit AdminTransferred(old, newAdmin);
+        pendingAdmin = newAdmin;
+        emit AdminTransferStarted(admin, newAdmin);
+    }
+
+    /// @notice Called by the pending admin to finalize the transfer.
+    function acceptAdmin() external {
+        if (msg.sender != pendingAdmin) revert OnlyPendingAdmin();
+        address previous = admin;
+        admin = pendingAdmin;
+        pendingAdmin = address(0);
+        emit AdminTransferred(previous, admin);
+    }
+
+    /// @notice Cancel a previously-started transfer. Callable by current admin.
+    function cancelAdminTransfer() external onlyAdmin {
+        pendingAdmin = address(0);
     }
 
     /// @notice Get token balance held by treasury

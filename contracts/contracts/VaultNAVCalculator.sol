@@ -15,7 +15,13 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  *         On 0G testnet where Pyth is not natively deployed, deploy MockPyth first.
  */
 contract VaultNAVCalculator {
-    IPyth public pyth;
+    /// @notice Pyth oracle contract. `immutable` so the most critical
+    ///         dependency cannot be silently rotated to a malicious target
+    ///         and to save the SLOAD on every NAV read. If Pyth ever
+    ///         migrates contracts on 0G, this NAV calculator must be
+    ///         redeployed (callers point at the new address via factory
+    ///         setters).
+    IPyth public immutable pyth;
     address public admin;
     /// @notice Address proposed by the current admin that must call
     ///         `acceptAdmin()` to finalize the transfer. Prevents typos / lost
@@ -56,6 +62,17 @@ contract VaultNAVCalculator {
     ///         later overflow `denomPow = decimals + |expo|` inside calculateNAV.
     error AssetDecimalsOutOfRange(uint8 decimals);
     error InvalidAsset(address token);
+    /// @notice Pyth feed returned a non-negative `expo`, which violates the
+    ///         calculator's assumption that prices use a negative-exponent
+    ///         scale (typically `expo = -8`). Without this guard, the
+    ///         downstream `uint256(uint32(-expo))` cast on a positive `expo`
+    ///         underflows the unary minus on int32 and produces a wildly
+    ///         wrong `denomPow`, silently corrupting NAV.
+    error PriceUnsupportedExpo(bytes32 feedId, int32 expo);
+    /// @notice `removeAssetAt` index argument is past the end of the array.
+    error AssetIndexOutOfBounds(uint256 index, uint256 length);
+    /// @notice Constructor argument validation.
+    error ZeroAddress();
 
     modifier onlyAdmin() {
         if (msg.sender != admin) revert OnlyAdmin();
@@ -63,6 +80,7 @@ contract VaultNAVCalculator {
     }
 
     constructor(address _pyth) {
+        if (_pyth == address(0)) revert ZeroAddress();
         pyth = IPyth(_pyth);
         admin = msg.sender;
     }
@@ -107,6 +125,21 @@ contract VaultNAVCalculator {
 
     function clearAssets() external onlyAdmin {
         delete assets;
+    }
+
+    /// @notice Remove a single asset by index using swap-and-pop. Lets the
+    ///         admin retire one bad-feed configuration without nuking the
+    ///         entire registry (which `clearAssets` would do). Order of
+    ///         remaining assets is not preserved.
+    function removeAssetAt(uint256 index) external onlyAdmin {
+        uint256 len = assets.length;
+        if (index >= len) revert AssetIndexOutOfBounds(index, len);
+        address removed = assets[index].token;
+        if (index != len - 1) {
+            assets[index] = assets[len - 1];
+        }
+        assets.pop();
+        emit AssetRemoved(removed);
     }
 
     function getAssetCount() external view returns (uint256) {
@@ -157,9 +190,16 @@ contract VaultNAVCalculator {
                 );
 
                 if (price.price <= 0) revert PriceNonPositive(asset.priceFeedId);
+                // Reject non-negative expo. The downstream `uint256(uint32(-expo))`
+                // cast is only safe when `expo < 0`. With `expo == 0` the
+                // denominator collapses; with `expo > 0` the unary minus on
+                // int32 produces a negative value whose uint32 reinterpretation
+                // is a near-2^32 garbage exponent that overflows `denomPow`
+                // and corrupts NAV silently.
+                if (price.expo >= 0) revert PriceUnsupportedExpo(asset.priceFeedId, price.expo);
 
                 uint256 absPrice = uint256(uint64(price.price));
-                int32 expo = price.expo; // typically -8
+                int32 expo = price.expo; // typically -8, guaranteed < 0 by check above
 
                 // P5-S3: Reject prices with low confidence (high uncertainty).
                 // Pyth `conf` is the 1-sigma uncertainty band around `price`. If the band
@@ -192,14 +232,23 @@ contract VaultNAVCalculator {
 
     /**
      * @notice Update Pyth price feeds (pass-through to Pyth contract)
-     * @dev Caller must send enough ETH/native token to cover the update fee
+     * @dev Caller must send at least the update fee. Any overpayment is
+     *      refunded in the same tx so callers don't have to compute the
+     *      exact fee off-chain (or send a tight estimate that risks
+     *      reverting on a fee bump). Overpaid native that previously stuck
+     *      in this contract permanently is now sent back.
      */
     function updatePriceFeeds(bytes[] calldata updateData) external payable {
         uint256 fee = pyth.getUpdateFee(updateData);
-        // `pyth` is the admin-configured Pyth oracle contract (set at deploy
-        // and only rotatable via admin). Not an arbitrary target.
+        // `pyth` is the immutable Pyth oracle contract (set at deploy).
+        // Not an arbitrary target.
         // slither-disable-next-line arbitrary-send-eth
         pyth.updatePriceFeeds{value: fee}(updateData);
+        if (msg.value > fee) {
+            uint256 refund = msg.value - fee;
+            (bool ok, ) = payable(msg.sender).call{value: refund}("");
+            require(ok, "refund failed");
+        }
     }
 
     /**
