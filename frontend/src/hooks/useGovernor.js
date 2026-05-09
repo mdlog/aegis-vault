@@ -1,4 +1,4 @@
-import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, usePublicClient } from 'wagmi';
 import { encodeFunctionData, parseUnits } from 'viem';
 import {
   AegisGovernorABI,
@@ -109,6 +109,44 @@ export function useSubmitProposal() {
   };
 
   return { submit, hash, isPending, isConfirming, isSuccess, error };
+}
+
+// ── Simulate: dry-run the proposed action's eventual execution ──
+//
+//   Multi-sig `submit()` only stores the calldata — it does NOT run the
+//   target call. A typo in `target`/`data` therefore lands in the proposal
+//   list silently and only fails at `execute()` after the threshold has
+//   been met (combined with single-step admin transfer historically, this
+//   was a permanent-brick vector). This hook lets the compose UI dry-run
+//   the inner call as if it were dispatched from the governor's address.
+//   A revert here means the proposal would fail at execution time.
+//
+//   Returned shape: `{ simulate, isSimulating, simulationError, simulationResult }`.
+//   `simulate(target, data, value)` returns `{ ok: true }` on success or
+//   `{ ok: false, error: string }` on revert.
+export function useSimulateProposalAction(governorAddress) {
+  const publicClient = usePublicClient();
+  const simulate = async (target, data, value = 0n) => {
+    if (!publicClient) {
+      return { ok: false, error: 'No RPC client available' };
+    }
+    if (!governorAddress) {
+      return { ok: false, error: 'Governor address not configured' };
+    }
+    try {
+      await publicClient.call({
+        account: governorAddress,
+        to: target,
+        data,
+        value: BigInt(value || 0n),
+      });
+      return { ok: true };
+    } catch (err) {
+      const reason = err?.shortMessage || err?.details || err?.message || 'Simulation reverted';
+      return { ok: false, error: reason };
+    }
+  };
+  return { simulate };
 }
 
 // ── Write: confirm proposal ──

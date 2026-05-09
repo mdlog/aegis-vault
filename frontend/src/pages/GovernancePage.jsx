@@ -13,7 +13,7 @@ import { demoGovernance } from '../data/demoContent';
 import {
   useGovernorConfig, useProposals, useSubmitProposal,
   useConfirmProposal, useExecuteProposal, useRevokeConfirmation,
-  useCancelProposal, useHasConfirmed,
+  useCancelProposal, useHasConfirmed, useSimulateProposalAction,
   ProposalBuilders, decodeProposalAction,
 } from '../hooks/useGovernor';
 import { useTokenBalance } from '../hooks/useVault';
@@ -69,6 +69,7 @@ export default function GovernancePage() {
   const { execute, hash: executeHash, isPending: executing } = useExecuteProposal();
   const { revoke, hash: revokeHash } = useRevokeConfirmation();
   const { cancel, hash: cancelHash } = useCancelProposal();
+  const { simulate: simulateProposalAction } = useSimulateProposalAction(governorAddress);
 
   // Compose form state
   const [actionType, setActionType] = useState('slash');
@@ -77,8 +78,10 @@ export default function GovernancePage() {
     operator: '', amount: '', reason: '', recipient: '', purpose: '',
     claimId: '', verified: true, newOwner: '', oldOwner: '', newThreshold: 2,
   });
+  const [simulationError, setSimulationError] = useState(null);
+  const [simulating, setSimulating] = useState(false);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     let built;
     switch (actionType) {
       case 'slash':
@@ -123,6 +126,17 @@ export default function GovernancePage() {
         return;
     }
     if (!built) return;
+    // Pre-flight: dry-run the encoded action as if dispatched from the
+    // governor. Catches typos in target/data, missing roles, or invalid
+    // arguments before the multi-sig wastes a confirmation round.
+    setSimulating(true);
+    setSimulationError(null);
+    const sim = await simulateProposalAction(built.target, built.data, built.value);
+    setSimulating(false);
+    if (!sim.ok) {
+      setSimulationError(sim.error);
+      return;
+    }
     const description = buildDescription(actionType, form);
     submit(governorAddress, built.target, built.value, built.data, description);
     setTimeout(() => { refetchProposals(); setShowCompose(false); }, 4000);
@@ -474,12 +488,21 @@ export default function GovernancePage() {
 
           <ControlButton
             variant="primary"
-            disabled={submitting}
+            disabled={submitting || simulating}
             onClick={handleSubmit}
           >
             <Vote className="w-3.5 h-3.5" />
-            {submitting ? 'Submitting...' : 'Submit Proposal'}
+            {simulating ? 'Simulating...' : submitting ? 'Submitting...' : 'Simulate & Submit Proposal'}
           </ControlButton>
+          {simulationError && (
+            <div className="mt-2 flex items-start gap-2 rounded-md bg-red-500/10 ring-1 ring-inset ring-red-400/30 px-3 py-2">
+              <AlertTriangle className="w-3.5 h-3.5 text-red-300/80 mt-0.5 shrink-0" />
+              <div className="text-[11px] font-mono text-red-200/90 break-words">
+                <span className="block uppercase tracking-[0.18em] text-[9px] text-red-300/70 mb-1">Simulation reverted — proposal not submitted</span>
+                {simulationError}
+              </div>
+            </div>
+          )}
           {submitSuccess && (
             <div className="mt-2 flex items-center gap-2 flex-wrap">
               <p className="text-[11px] text-emerald-soft/70">Proposal submitted on-chain</p>

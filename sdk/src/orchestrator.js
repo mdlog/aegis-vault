@@ -143,17 +143,28 @@ export class OrchestratorClient {
   // ── Polling helper ────────────────────────────────────────────────
   /**
    * Poll any client method at a fixed interval. Returns a `stop()` function.
-   * First call fires immediately. Errors are swallowed and passed to `onError`
-   * so one bad response doesn't kill the polling loop.
+   * First call fires immediately.
    *
    *   const stop = sdk.orchestrator.poll(c => c.status(), 5000, data => ...);
    *   // later:
    *   stop();
    *
+   * **Error handling — read this:** the loop deliberately survives a single
+   * bad response (an orchestrator restart, a transient 5xx, an aborted fetch)
+   * by routing the rejection to `onError` and continuing on the next tick.
+   * If you do **not** pass an `onError`, the rejection is silently dropped —
+   * a misconfigured base URL, a wrong API key, or a permanent backend
+   * failure will show up as "no data ever arrives" with no stack trace and
+   * no console output. **Always pass an `onError` in production code**, even
+   * if it just logs. For tests / scripts where you want any failure to be
+   * fatal, throw inside `onError` (the throw will surface on the next macro
+   * task) or use `client.status()` directly without `poll()`.
+   *
    * @param {(client: OrchestratorClient) => Promise<any>} fn
    * @param {number} intervalMs
    * @param {(data: any) => void} onData
-   * @param {(err: Error) => void} [onError]
+   * @param {(err: Error) => void} [onError] — STRONGLY RECOMMENDED. Without
+   *        this, polling failures are invisible.
    */
   poll(fn, intervalMs, onData, onError) {
     let cancelled = false;

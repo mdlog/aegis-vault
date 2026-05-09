@@ -37,6 +37,35 @@ function filterJournalEntries(entries, { type, vault, level }) {
   return filtered;
 }
 
+// In-process fixed-window rate limiter for `/api/cycle`. Keyed by the
+// presented API key (or by client IP if no key is required). The cycle path
+// triggers an end-to-end inference + on-chain execution: a compromised API
+// key spamming this endpoint translates directly to wasted gas on the
+// executor wallet, so a hard ceiling here is cheaper than relying on the
+// caller. Limits are conservative — a real run is ~30s, so 6/min leaves
+// headroom for retries while killing a flood.
+const CYCLE_RATE_WINDOW_MS = 60_000;
+const CYCLE_RATE_MAX_PER_WINDOW = 6;
+const cycleRateBuckets = new Map();
+
+function rateLimitCycleRequest(req, apiKey) {
+  const key = apiKey
+    ? (req.get('x-api-key') || `ip:${req.ip || req.socket?.remoteAddress || 'unknown'}`)
+    : `ip:${req.ip || req.socket?.remoteAddress || 'unknown'}`;
+  const now = Date.now();
+  let bucket = cycleRateBuckets.get(key);
+  if (!bucket || now - bucket.windowStart >= CYCLE_RATE_WINDOW_MS) {
+    bucket = { windowStart: now, count: 0 };
+    cycleRateBuckets.set(key, bucket);
+  }
+  bucket.count += 1;
+  if (bucket.count > CYCLE_RATE_MAX_PER_WINDOW) {
+    const retryAfterMs = CYCLE_RATE_WINDOW_MS - (now - bucket.windowStart);
+    return { ok: false, retryAfterMs };
+  }
+  return { ok: true };
+}
+
 function isLoopbackAddress(value) {
   return value === '127.0.0.1' ||
     value === '::1' ||
@@ -86,6 +115,35 @@ function authorizeMutationRequest(req, apiKey) {
 function isOperatorAuthorized(req, apiKey) {
   if (!apiKey) return isLoopbackRequest(req);
   return req.get('x-api-key') === apiKey;
+}
+
+// Public journal view drops fields that reveal the operator's internal
+// strategy heuristics. Action / asset / size / tx hash / timestamps stay
+// (those mirror what is observable on-chain anyway) so the dashboard's
+// action-feed still renders without an API key. Operator-authenticated
+// callers get the full record by passing this through unchanged.
+const PUBLIC_JOURNAL_FIELD_BLACKLIST = new Set([
+  'reason',
+  'reason_hint',
+  'regime',
+  'final_edge_score',
+  'trade_quality_score',
+  'hard_veto',
+  'hard_veto_reasons',
+  'entry_trigger',
+  'approval_reasons',
+  'risk_score',
+  'v1_action',
+  '_computeResponse',
+]);
+function sanitizeJournalEntry(entry, isOperator) {
+  if (isOperator || !entry || typeof entry !== 'object') return entry;
+  const out = {};
+  for (const [k, v] of Object.entries(entry)) {
+    if (PUBLIC_JOURNAL_FIELD_BLACKLIST.has(k)) continue;
+    out[k] = v;
+  }
+  return out;
 }
 
 function sanitizeStatusForPublic(status) {
@@ -202,7 +260,20 @@ export function createApp(overrides = {}) {
 
   // ── Trigger Manual Cycle ──
 
-  app.post('/api/cycle', requireMutationAuth, async (req, res) => {
+  function requireCycleRateLimit(req, res, next) {
+    const verdict = rateLimitCycleRequest(req, apiKey);
+    if (!verdict.ok) {
+      const retryAfterSec = Math.max(1, Math.ceil(verdict.retryAfterMs / 1000));
+      res.set('Retry-After', String(retryAfterSec));
+      return res.status(429).json({
+        error: 'Too many cycle requests',
+        retryAfterMs: verdict.retryAfterMs,
+      });
+    }
+    next();
+  }
+
+  app.post('/api/cycle', requireMutationAuth, requireCycleRateLimit, async (req, res) => {
     try {
       logger.info('Manual cycle triggered via API');
       const result = await runCycleFn();
@@ -293,6 +364,13 @@ export function createApp(overrides = {}) {
     res.json(state);
   });
 
+  // Journal endpoints stay public so the connected-wallet dashboard can
+  // render the action-feed without an API key (the frontend bundle cannot
+  // safely carry one — VITE_* env is inlined into the public JS bundle).
+  // To reduce strategy-pattern leakage, public requests get a sanitized
+  // view that drops the operator's internal scoring fields (regime, edge
+  // score, hard-veto reasons, approval rationale, prompt-derived `reason`).
+  // Operator-authenticated requests (x-api-key) get the full record.
   app.get('/api/journal', (req, res) => {
     const journal = readJournalFn();
     const limit = parseInt(req.query.limit) || 50;
@@ -301,8 +379,8 @@ export function createApp(overrides = {}) {
       vault: req.query.vault,
       level: req.query.level,
     });
-
-    res.json(entries.slice(-limit).reverse());
+    const isOperator = isOperatorAuthorized(req, apiKey);
+    res.json(entries.slice(-limit).reverse().map((e) => sanitizeJournalEntry(e, isOperator)));
   });
 
   app.get('/api/journal/decisions', (req, res) => {
@@ -312,7 +390,8 @@ export function createApp(overrides = {}) {
       type: 'decision',
       vault: req.query.vault,
     });
-    res.json(decisions.slice(-limit).reverse());
+    const isOperator = isOperatorAuthorized(req, apiKey);
+    res.json(decisions.slice(-limit).reverse().map((e) => sanitizeJournalEntry(e, isOperator)));
   });
 
   app.get('/api/journal/executions', (req, res) => {
@@ -322,7 +401,8 @@ export function createApp(overrides = {}) {
       type: 'execution',
       vault: req.query.vault,
     });
-    res.json(executions.slice(-limit).reverse());
+    const isOperator = isOperatorAuthorized(req, apiKey);
+    res.json(executions.slice(-limit).reverse().map((e) => sanitizeJournalEntry(e, isOperator)));
   });
 
   app.get('/api/alerts', (req, res) => {
@@ -333,7 +413,8 @@ export function createApp(overrides = {}) {
       vault: req.query.vault,
       level: req.query.level,
     });
-    res.json(alerts.slice(-limit).reverse());
+    const isOperator = isOperatorAuthorized(req, apiKey);
+    res.json(alerts.slice(-limit).reverse().map((e) => sanitizeJournalEntry(e, isOperator)));
   });
 
   // ── 0G Compute (model discovery for operator registration UI) ──

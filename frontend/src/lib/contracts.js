@@ -246,6 +246,17 @@ function readBrowserDemoOverride() {
 
 export const ENABLE_DEMO_FALLBACKS =
   isTruthyFlag(rawDemoMode) || readBrowserDemoOverride();
+
+/// When VITE_SHOW_ONLY_V4_VAULTS=1 the vault hooks (`useVaultList`,
+/// `useAllPlatformVaults`) skip the V1/V2/V3 factory addresses entirely
+/// and only count V4 clones. Used for clean-slate V4 cutover so the
+/// dashboard "Active vaults" stat starts at 0 even if legacy V3 test
+/// vaults still exist on-chain. Defaults to false so existing
+/// deployments are unaffected.
+export const SHOW_ONLY_V4_VAULTS = isTruthyFlag(
+  import.meta.env.VITE_SHOW_ONLY_V4_VAULTS
+);
+
 export const ORCHESTRATOR_URL =
   import.meta.env.VITE_ORCHESTRATOR_URL ||
   (import.meta.env.DEV ? 'http://localhost:4002' : '');
