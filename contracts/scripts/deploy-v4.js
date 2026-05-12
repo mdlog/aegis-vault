@@ -1,7 +1,10 @@
 /**
  * Deploy AegisVault v4 stack:
  *   - ExecLibV4                (V4-only library; carries strategyHash typehash)
- *   - AegisVault_v4 impl       (linked: ExecLibV4 + SealedLib + IOLib + CrossChainLib)
+ *   - CrossChainLibV4          (V4-only library; cross-chain typehash also binds
+ *                                strategyHash + strategySchemaVer, so V3
+ *                                CrossChainLib is NOT reused)
+ *   - AegisVault_v4 impl       (linked: ExecLibV4 + SealedLib + IOLib + CrossChainLibV4)
  *   - AegisVaultFactoryV4      (clones v4 impl, shares executionRegistryV3 + treasury)
  *
  * V4 introduces strategy-binding: every clone commits an `acceptedManifestHash`
@@ -9,9 +12,10 @@
  * before allowing the swap. Strategy upgrades go through a 24-hour timelock.
  *
  * Reuses the existing V3 ExecutionRegistry + ProtocolTreasury + SealedLib +
- * IOLib + CrossChainLib so V4 inherits the V3 replay map and treasury address
- * book unchanged. Cross-version replay is impossible because intent hashes
- * bind the vault address into the EIP-712 domain.
+ * IOLib so V4 inherits the V3 replay map and treasury address book unchanged.
+ * CrossChainLib is V4-forked (different typehash) and is deployed fresh in
+ * this script. Cross-version replay is impossible because intent hashes bind
+ * the vault address into the EIP-712 domain.
  *
  * Idempotent: if a V4 implementation / factory address already exists in
  * deployments-mainnet.json the script skips that step and reuses the on-chain
@@ -29,6 +33,7 @@
  *
  * New keys written:
  *   execLibraryV4
+ *   crossChainLibraryV4
  *   aegisVaultImplementationV4
  *   aegisVaultFactoryV4
  *   v4DeployedAt
@@ -130,10 +135,15 @@ async function main() {
   //     - SealedLib            (unchanged across v1 → v4)
   //     - IOLib (v3)           (V4 calls doDepositV3 / doWithdrawV3 — same
   //                              as V3, no V4 fork needed)
-  //     - CrossChainLib        (Khalani path unchanged in V4)
   //     - ExecutionRegistry V3 (V4 factory will be authorized as a second
   //                              factory in the same registry — no fork)
   //     - ProtocolTreasury     (no behavioural change)
+  //
+  //   v4 FORKS (deployed fresh in this script):
+  //     - ExecLibV4            (V4 typehash binds strategyHash + schemaVer)
+  //     - CrossChainLibV4      (cross-chain typehash also binds strategyHash;
+  //                              V3 CrossChainLib MUST NOT be reused — wrong
+  //                              digest → signatures fail recovery)
   const treasury = checksum(
     requireField(deployments, "protocolTreasury", "deploy V3 stack first")
   );
@@ -143,9 +153,6 @@ async function main() {
   const ioLibAddr = checksum(
     requireField(deployments, "ioLibraryV3", "deploy V3 stack first")
   );
-  const crossChainLibAddr = checksum(
-    requireField(deployments, "crossChainLibrary", "deploy V3 stack first")
-  );
   const registryV3Addr = checksum(
     requireField(deployments, "executionRegistryV3", "deploy V3 stack first")
   );
@@ -154,15 +161,16 @@ async function main() {
   console.log("  protocolTreasury    :", treasury);
   console.log("  sealedLibrary       :", sealedLibAddr);
   console.log("  ioLibraryV3         :", ioLibAddr);
-  console.log("  crossChainLibrary   :", crossChainLibAddr);
   console.log("  executionRegistryV3 :", registryV3Addr);
 
   // Sanity: reused contracts must actually exist on-chain.
+  // CrossChainLibV4 is NOT reused — V4 binds strategyHash + strategySchemaVer
+  // into the cross-chain EIP-712 typehash, so the V4 vault links a V4-only
+  // library (deployed fresh in step [2/5] below).
   for (const [label, addr] of [
     ["protocolTreasury", treasury],
     ["sealedLibrary", sealedLibAddr],
     ["ioLibraryV3", ioLibAddr],
-    ["crossChainLibrary", crossChainLibAddr],
     ["executionRegistryV3", registryV3Addr],
   ]) {
     if (!(await isContract(ethers.provider, addr))) {
@@ -176,7 +184,7 @@ async function main() {
   // V4-only library. Carries the new ExecutionIntentV4 struct (adds
   // strategyHash + strategySchemaVer) and the V4 EIP-712 typehash. v1/v2/v3
   // vaults link to ExecLib (legacy) — V4 vaults link to ExecLibV4.
-  console.log("\n[1/4] ExecLibV4");
+  console.log("\n[1/5] ExecLibV4");
   let execLibV4Addr = deployments.execLibraryV4;
   if (execLibV4Addr && (await isContract(ethers.provider, execLibV4Addr))) {
     execLibV4Addr = checksum(execLibV4Addr);
@@ -189,8 +197,28 @@ async function main() {
     console.log("      deployed :", execLibV4Addr);
   }
 
-  // ── 2. AegisVault_v4 implementation ──
-  console.log("\n[2/4] AegisVault_v4 implementation");
+  // ── 2. CrossChainLibV4 ──
+  // V4-only library. Independent of V3 CrossChainLib because V4 binds
+  // `strategyHash` + `strategySchemaVer` into the cross-chain EIP-712
+  // typehash. Linking the V3 lib here would silently produce intents
+  // whose signatures cannot be verified against V4 vaults (different
+  // typehash → different digest → ecrecover returns the wrong signer).
+  // V4 vaults link to CrossChainLibV4 — see AegisVault_v4.sol imports.
+  console.log("\n[2/5] CrossChainLibV4");
+  let crossChainLibV4Addr = deployments.crossChainLibraryV4;
+  if (crossChainLibV4Addr && (await isContract(ethers.provider, crossChainLibV4Addr))) {
+    crossChainLibV4Addr = checksum(crossChainLibV4Addr);
+    console.log("      reused   :", crossChainLibV4Addr);
+  } else {
+    const CrossChainLibV4 = await ethers.getContractFactory("CrossChainLibV4");
+    const lib = await CrossChainLibV4.deploy();
+    await lib.waitForDeployment();
+    crossChainLibV4Addr = checksum(await lib.getAddress());
+    console.log("      deployed :", crossChainLibV4Addr);
+  }
+
+  // ── 3. AegisVault_v4 implementation ──
+  console.log("\n[3/5] AegisVault_v4 implementation");
   let implV4Addr = deployments.aegisVaultImplementationV4;
   if (implV4Addr && (await isContract(ethers.provider, implV4Addr))) {
     implV4Addr = checksum(implV4Addr);
@@ -198,10 +226,10 @@ async function main() {
   } else {
     const VaultV4 = await ethers.getContractFactory("AegisVault_v4", {
       libraries: {
-        ExecLibV4: execLibV4Addr,
-        SealedLib: sealedLibAddr,
-        IOLib: ioLibAddr,
-        CrossChainLib: crossChainLibAddr,
+        ExecLibV4:       execLibV4Addr,
+        SealedLib:       sealedLibAddr,
+        IOLib:           ioLibAddr,
+        CrossChainLibV4: crossChainLibV4Addr,
       },
     });
     const impl = await VaultV4.deploy();
@@ -210,8 +238,8 @@ async function main() {
     console.log("      deployed :", implV4Addr);
   }
 
-  // ── 3. AegisVaultFactoryV4 ──
-  console.log("\n[3/4] AegisVaultFactoryV4");
+  // ── 4. AegisVaultFactoryV4 ──
+  console.log("\n[4/5] AegisVaultFactoryV4");
   let factoryV4Addr = deployments.aegisVaultFactoryV4;
   let factoryAlreadyDeployed = false;
   if (factoryV4Addr && (await isContract(ethers.provider, factoryV4Addr))) {
@@ -239,13 +267,13 @@ async function main() {
     console.log("      deployed :", factoryV4Addr);
   }
 
-  // ── 4. Authorize V4 factory in the shared ExecutionRegistry ──
+  // ── 5. Authorize V4 factory in the shared ExecutionRegistry ──
   //
   //   ExecutionRegistry exposes `authorizedFactories` so multiple factory
   //   versions can coexist on a single registry. V4 needs to be added to
   //   that set so its clones can call `registry.authorizeVault` during
   //   their own deployment. v1/v2/v3 authorisations are never touched.
-  console.log("\n[4/4] Wire V4 factory into ExecutionRegistry");
+  console.log("\n[5/5] Wire V4 factory into ExecutionRegistry");
   const registry = await ethers.getContractAt("ExecutionRegistry", registryV3Addr);
   const alreadyAuthorized = await registry.authorizedFactories(factoryV4Addr);
   if (alreadyAuthorized) {
@@ -270,6 +298,7 @@ async function main() {
   // ── Persist deployment record ──
   if (!factoryAlreadyDeployed) {
     deployments.execLibraryV4 = execLibV4Addr;
+    deployments.crossChainLibraryV4 = crossChainLibV4Addr;
     deployments.aegisVaultImplementationV4 = implV4Addr;
     deployments.aegisVaultFactoryV4 = factoryV4Addr;
     deployments.v4DeployedAt = new Date().toISOString();
