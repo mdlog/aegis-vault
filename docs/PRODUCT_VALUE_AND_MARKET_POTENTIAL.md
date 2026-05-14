@@ -107,18 +107,21 @@ Every vault deployed grows native TVL, compute usage, storage usage, and gas dem
 
 ## 4. Growth Roadmap
 
-### Phase 0 — Foundation Live on 0G Mainnet (Complete, as of 2026-04-27)
-- ✅ **V3 vault stack + Khalani cross-chain venue deployed on 0G Aristotle Mainnet (chain ID 16661):**
-  - `AegisVaultFactoryV3` at `0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3`
-  - `AegisVault impl (V3)` at `0x0c78257550802bF2fFD201106Fe8096A5211397e`
-  - `ExecutionRegistryV3` at `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9`
-  - `KhalaniVenueAdapter` at `0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4`
-  - `JaineVenueAdapterV2` (multi-hop) at `0x261244010A6D87e043b3489D93fA573cdc2274B6`
-- ✅ **Operator marketplace stack redeployed fresh 2026-04-27 (clean post-audit baseline):**
-  - `OperatorRegistry` at `0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9`
-  - `OperatorStaking` at `0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3`
-  - `OperatorReputation` at `0x855380187f223391b55fc381f33429A14d238879`
-  - `InsurancePool` at `0xd5eb21420e9D22b763b94fDb396756d820eCa694`
+### Phase 0 — Foundation Live on 0G Mainnet (Complete, as of 2026-05-14)
+- ✅ **V4 vault stack live on 0G Aristotle Mainnet (chain ID 16661), post-audit (11 Highs landed):**
+  - `AegisVaultFactoryV4` at `0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F`
+  - `AegisVault_v4 impl` (init-locked) at `0x28F8E1a9Af4eBF4Df323861F499B8d87295b72Ed`
+  - `ExecLibV4` at `0x3080424E4d8E9CEde828151d85D526374e176108`
+  - `CrossChainLibV4` at `0x049DF2321DD1D409799139b5A5b475d2E8a8B536`
+  - `ExecutionRegistry` at `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9`
+  - `KhalaniVenueAdapter` (cross-chain) at `0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4`
+  - `JaineVenueAdapterV2` (multi-hop, post-audit) at `0xA4E2aeB9e1a5297DE38d7Ad8e11b1714ca481F2f`
+  - `VaultNAVCalculator` (Pyth-backed, post-audit) at `0xFA632b02dFe6770E0B147659fD336980E138bA3a`
+- ✅ **Operator marketplace stack redeployed fresh 2026-05-14 (clean V4 cutover, governor-bound from t=0 — closes audit H-6 / H-7 / H-9):**
+  - `OperatorRegistry` at `0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b`
+  - `OperatorStaking_v2` at `0xF46b6b76c5021a21dc0029FDEAEba6713472CBE6`
+  - `OperatorReputation` at `0x4389d082dE464defF665612A73f36b99059F2Da4`
+  - `InsurancePool_v2` at `0xe69eAff976b6AEf35556cb3D09972E401a85DD77`
 - ✅ Audit-pass fixes 1–8 merged + round-2 hardening (255 contract tests):
   factory role separation (Fix #1), owner emergency controls (Fix #2),
   on-chain `maxPositionBps` cap (Fix #3), `consumedKhalaniIds` double-credit

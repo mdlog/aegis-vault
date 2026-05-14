@@ -368,26 +368,28 @@ The user does not need to trust the operator beyond "will run the strategy their
 
 ### 9.1 0G Aristotle Mainnet (chain 16661) — V3 + Khalani stack deployed 2026-04-27 (canonical for new vaults)
 
-V3 deploys post audit-pass hardening (235 contract tests covering audit fixes #1–#8 + the round-2 hardening on `ExecutionRegistry` and `KhalaniVenueAdapter`). The operator marketplace contracts (`OperatorRegistry`, `OperatorStaking`, `OperatorReputation`, `InsurancePool`) were also redeployed fresh on **2026-04-27** to give the post-audit baseline a clean operator history.
+V4 ships **2026-05-14** post pre-V4 line-by-line audit (127 findings surfaced, 11 Highs landed) + final regression review catch (Critical CrossChainLibV4 link fix). 285 contract tests passing post-patch. V4 adds operator strategy-manifest binding — every clone commits an `acceptedManifestHash` at create time, and `executeIntent` requires `intent.strategyHash` to match. The four marketplace contracts (`OperatorRegistry`, `OperatorStaking_v2`, `OperatorReputation`, `InsurancePool_v2`) were redeployed fresh in the same window for a clean cutover (0 vaults, 0 operators at t=0) and all four arbitrator/admin slots are bound to `AegisGovernor` from t=0 — closing audit H-6 / H-7 / H-9.
 
 | Contract | Address |
 |---|---|
-| **AegisVaultFactoryV3** | `0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3` |
-| AegisVault impl (V3) | `0x0c78257550802bF2fFD201106Fe8096A5211397e` |
-| ExecutionRegistry (V3) | `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9` |
+| **AegisVaultFactoryV4** | `0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F` |
+| AegisVault_v4 impl (init-locked) | `0x28F8E1a9Af4eBF4Df323861F499B8d87295b72Ed` |
+| ExecutionRegistry | `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9` |
 | **KhalaniVenueAdapter** (cross-chain route registry) | `0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4` |
-| JaineVenueAdapterV2 (multi-hop) | `0x261244010A6D87e043b3489D93fA573cdc2274B6` |
-| ExecLib (V3) | `0x48594040AbEbFe3a24BbDFfA21Cb597FA6F60dE7` |
-| IOLib (V3) | `0x49b201603ae393054eF9377f456eDDc827748f37` |
-| CrossChainLib | `0x505C1C76520C6a47a1C0Bf8819359c786E3c8aB3` |
-| SealedLib | `0x9dD28eE7d9B7D3e913D23dD1Fc3f4FB36b0F9063` |
-| OperatorRegistry | `0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9` |
-| OperatorStaking (stake = USDC.e) | `0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3` |
-| OperatorReputation | `0x855380187f223391b55fc381f33429A14d238879` |
-| AegisGovernor (1-of-1 init) | `0x023EC4a54435f94E9395460e4835e75E429D5A2e` |
-| InsurancePool | `0xd5eb21420e9D22b763b94fDb396756d820eCa694` |
+| JaineVenueAdapterV2 (multi-hop, post-audit) | `0xA4E2aeB9e1a5297DE38d7Ad8e11b1714ca481F2f` |
+| ExecLibV4 (V4 typehash binds strategyHash + schemaVer) | `0x3080424E4d8E9CEde828151d85D526374e176108` |
+| CrossChainLibV4 (V4 cross-chain typehash) | `0x049DF2321DD1D409799139b5A5b475d2E8a8B536` |
+| IOLib (reused from V3) | `0x49b201603ae393054eF9377f456eDDc827748f37` |
+| SealedLib (reused from V3) | `0x9dD28eE7d9B7D3e913D23dD1Fc3f4FB36b0F9063` |
+| OperatorRegistry (fresh) | `0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b` |
+| OperatorStaking_v2 (fresh, stake = USDC.e) | `0xF46b6b76c5021a21dc0029FDEAEba6713472CBE6` |
+| OperatorReputation (fresh, admin = AegisGovernor) | `0x4389d082dE464defF665612A73f36b99059F2Da4` |
+| AegisGovernor (multisig) | `0x023EC4a54435f94E9395460e4835e75E429D5A2e` |
+| InsurancePool_v2 (fresh, arbitrator = AegisGovernor) | `0xe69eAff976b6AEf35556cb3D09972E401a85DD77` |
 | ProtocolTreasury | `0xCDc5D994590D0BF407E5be390A62A8d1eBbf0dF4` |
-| VaultNAVCalculator (Pyth-backed) | `0xBd21bfd62a11e1F8d04e7bE42D2cbDB6C51C4Ae1` |
+| VaultNAVCalculator (Pyth-backed, post-audit: expo guard + removeAssetAt + immutable pyth) | `0xFA632b02dFe6770E0B147659fD336980E138bA3a` |
+
+Retired V3 stack remains on-chain for audit trail (`AegisVaultFactoryV3` `0x75668Ca9…`, `AegisVault_v3` impl `0x0c782575…`, ExecLib `0x48594040…`, CrossChainLib `0x505C1C76…`, pre-audit Jaine adapter `0x26124401…`, pre-audit NAV `0xBd21bfd6…`, and the pre-fresh marketplace quartet). Cross-version replay between V3 and V4 is impossible by construction: the V4 EIP-712 typehashes append `strategyHash` + `strategySchemaVer`, so the digest differs and `ecrecover` returns a different signer.
 
 Canonical Jaine-pair tokens (verified via pool swap events):
 

@@ -25,12 +25,12 @@ The on-chain event `SealedIntentExecuted` emitted by vault `0x847465dF…425e` c
 
 | Role | Address | Source |
 |---|---|---|
-| Vault (V3, sealed mode) | `0x847465dFf5403cf044c6BdDA5180CF29d2B8425e` | created via `AegisVaultFactoryV3.createVault` |
+| Vault (V3, sealed mode — historical) | `0x847465dFf5403cf044c6BdDA5180CF29d2B8425e` | created via the retired `AegisVaultFactoryV3.createVault` — preserved on-chain for the audit trail of the first sealed-mode execution. New vaults use V4 via `AegisVaultFactoryV4 = 0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F`. |
 | Vault owner | `0xcDC43DbFFEd89F52BC6b699FAeC52742e6dCD8C1` | EOA that called createVault |
 | Executor + TEE signer | `0x98cC8351C1310FD54B9090dF3fcA80CB61d7b5E7` | orchestrator wallet (matches `policy.attestedSigner`) |
 | 0G Compute provider | `0xd9966e13a6026Fcca4b13E7ff95c94DE268C471C` | registered service for `zai-org/GLM-5-FP8` |
 | Jaine USDC.e/W0G pool | `0x961da9b2fd03e04b088a90843a93e66f13112d0a` | UniswapV3 fork pool used for the swap |
-| JaineVenueAdapter V2 | `0x261244010A6D87e043b3489D93fA573cdc2274B6` | router-side adapter (multi-hop) |
+| JaineVenueAdapter V2 (post-audit, current) | `0xA4E2aeB9e1a5297DE38d7Ad8e11b1714ca481F2f` | router-side adapter (multi-hop). Pre-audit version `0x261244010A6D87e043b3489D93fA573cdc2274B6` is retired. |
 | Base asset (USDC.e) | `0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E` | 6 decimals |
 | W0G | `0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c` | 18 decimals |
 

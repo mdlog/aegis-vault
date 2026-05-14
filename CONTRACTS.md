@@ -15,42 +15,63 @@ Aegis Vault integrates with the 0G stack at four levels:
 
 ---
 
-## 2. 0G mainnet contract addresses (V3 stack, current)
+## 2. 0G mainnet contract addresses (V4 stack, current)
 
-V3 vault stack with the Khalani cross-chain adapter shipped **2026-04-27** after audit-pass hardening (235 contract tests). The operator marketplace contracts (registry / staking / reputation / insurance) were redeployed the same day for a clean post-audit baseline — operator data starts fresh.
+V4 vault stack shipped **2026-05-14** after pre-V4 line-by-line audit (127 findings surfaced, 11 Highs landed) + final regression review catch (Critical CrossChainLibV4 link fix). Marketplace was redeployed in the same window for a fully fresh launch: 0 vaults, 0 operators, 0 stakers, 0 claims. All four marketplace contracts are governance-bound (arbitrator/admin = AegisGovernor multisig) from t=0 — closes audit H-6 / H-7 / H-9.
+
+V4 adds operator strategy-manifest binding: every clone commits an `acceptedManifestHash` at create time, and `executeIntent` requires intent.strategyHash to match. Manifest upgrades go through a 24-hour timelock.
 
 | Contract | Address | 0G Explorer link |
 |---|---|---|
-| **AegisVaultFactoryV3** (entrypoint) | `0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3` | [View](https://chainscan.0g.ai/address/0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3) |
-| AegisVault impl (V3) | `0x0c78257550802bF2fFD201106Fe8096A5211397e` | [View](https://chainscan.0g.ai/address/0x0c78257550802bF2fFD201106Fe8096A5211397e) |
-| ExecutionRegistry (V3) | `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9` | [View](https://chainscan.0g.ai/address/0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9) |
+| **AegisVaultFactoryV4** (entrypoint) | `0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F` | [View](https://chainscan.0g.ai/address/0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F) |
+| AegisVault_v4 impl | `0x28F8E1a9Af4eBF4Df323861F499B8d87295b72Ed` | [View](https://chainscan.0g.ai/address/0x28F8E1a9Af4eBF4Df323861F499B8d87295b72Ed) |
+| ExecutionRegistry | `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9` | [View](https://chainscan.0g.ai/address/0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9) |
 | **KhalaniVenueAdapter** (cross-chain) | `0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4` | [View](https://chainscan.0g.ai/address/0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4) |
-| JaineVenueAdapterV2 (multi-hop) | `0x261244010A6D87e043b3489D93fA573cdc2274B6` | [View](https://chainscan.0g.ai/address/0x261244010A6D87e043b3489D93fA573cdc2274B6) |
-| OperatorRegistry | `0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9` | [View](https://chainscan.0g.ai/address/0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9) |
-| OperatorStaking (USDC.e stake) | `0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3` | [View](https://chainscan.0g.ai/address/0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3) |
-| InsurancePool | `0xd5eb21420e9D22b763b94fDb396756d820eCa694` | [View](https://chainscan.0g.ai/address/0xd5eb21420e9D22b763b94fDb396756d820eCa694) |
-| OperatorReputation | `0x855380187f223391b55fc381f33429A14d238879` | [View](https://chainscan.0g.ai/address/0x855380187f223391b55fc381f33429A14d238879) |
+| JaineVenueAdapterV2 (multi-hop, post-audit) | `0xA4E2aeB9e1a5297DE38d7Ad8e11b1714ca481F2f` | [View](https://chainscan.0g.ai/address/0xA4E2aeB9e1a5297DE38d7Ad8e11b1714ca481F2f) |
+| OperatorRegistry (fresh) | `0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b` | [View](https://chainscan.0g.ai/address/0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b) |
+| OperatorStaking_v2 (fresh, USDC.e stake) | `0xF46b6b76c5021a21dc0029FDEAEba6713472CBE6` | [View](https://chainscan.0g.ai/address/0xF46b6b76c5021a21dc0029FDEAEba6713472CBE6) |
+| InsurancePool_v2 (fresh) | `0xe69eAff976b6AEf35556cb3D09972E401a85DD77` | [View](https://chainscan.0g.ai/address/0xe69eAff976b6AEf35556cb3D09972E401a85DD77) |
+| OperatorReputation (fresh) | `0x4389d082dE464defF665612A73f36b99059F2Da4` | [View](https://chainscan.0g.ai/address/0x4389d082dE464defF665612A73f36b99059F2Da4) |
 | AegisGovernor | `0x023EC4a54435f94E9395460e4835e75E429D5A2e` | [View](https://chainscan.0g.ai/address/0x023EC4a54435f94E9395460e4835e75E429D5A2e) |
 | ProtocolTreasury | `0xCDc5D994590D0BF407E5be390A62A8d1eBbf0dF4` | [View](https://chainscan.0g.ai/address/0xCDc5D994590D0BF407E5be390A62A8d1eBbf0dF4) |
-| VaultNAVCalculator (Pyth-backed) | `0xBd21bfd62a11e1F8d04e7bE42D2cbDB6C51C4Ae1` | [View](https://chainscan.0g.ai/address/0xBd21bfd62a11e1F8d04e7bE42D2cbDB6C51C4Ae1) |
+| VaultNAVCalculator (Pyth-backed, post-audit) | `0xFA632b02dFe6770E0B147659fD336980E138bA3a` | [View](https://chainscan.0g.ai/address/0xFA632b02dFe6770E0B147659fD336980E138bA3a) |
 
-**Shared DELEGATECALL libraries** (V3-linked):
+**Shared DELEGATECALL libraries** (V4-linked):
 
 | Library | Address | Explorer |
 |---|---|---|
-| ExecLib (V3) | `0x48594040AbEbFe3a24BbDFfA21Cb597FA6F60dE7` | [View](https://chainscan.0g.ai/address/0x48594040AbEbFe3a24BbDFfA21Cb597FA6F60dE7) |
-| IOLib (V3) | `0x49b201603ae393054eF9377f456eDDc827748f37` | [View](https://chainscan.0g.ai/address/0x49b201603ae393054eF9377f456eDDc827748f37) |
-| CrossChainLib | `0x505C1C76520C6a47a1C0Bf8819359c786E3c8aB3` | [View](https://chainscan.0g.ai/address/0x505C1C76520C6a47a1C0Bf8819359c786E3c8aB3) |
-| SealedLib | `0x9dD28eE7d9B7D3e913D23dD1Fc3f4FB36b0F9063` | [View](https://chainscan.0g.ai/address/0x9dD28eE7d9B7D3e913D23dD1Fc3f4FB36b0F9063) |
+| ExecLibV4 | `0x3080424E4d8E9CEde828151d85D526374e176108` | [View](https://chainscan.0g.ai/address/0x3080424E4d8E9CEde828151d85D526374e176108) |
+| CrossChainLibV4 | `0x049DF2321DD1D409799139b5A5b475d2E8a8B536` | [View](https://chainscan.0g.ai/address/0x049DF2321DD1D409799139b5A5b475d2E8a8B536) |
+| IOLib (reused from V3) | `0x49b201603ae393054eF9377f456eDDc827748f37` | [View](https://chainscan.0g.ai/address/0x49b201603ae393054eF9377f456eDDc827748f37) |
+| SealedLib (reused from V3) | `0x9dD28eE7d9B7D3e913D23dD1Fc3f4FB36b0F9063` | [View](https://chainscan.0g.ai/address/0x9dD28eE7d9B7D3e913D23dD1Fc3f4FB36b0F9063) |
 
-**Primary explorer link for the form**: [https://chainscan.0g.ai/address/0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3](https://chainscan.0g.ai/address/0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3) (AegisVaultFactoryV3 — the canonical entrypoint judges can trace every vault clone from).
+V4 forks `ExecLib` and `CrossChainLib` because the V4 EIP-712 typehashes bind two new fields — `strategyHash` and `strategySchemaVer` — so cross-version replay between V3↔V4 is impossible by construction (different typehash → different digest → ecrecover returns different signer).
+
+**Primary explorer link for the form**: [https://chainscan.0g.ai/address/0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F](https://chainscan.0g.ai/address/0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F) (AegisVaultFactoryV4 — the canonical entrypoint judges can trace every V4 vault clone from).
+
+### Retired V3 / pre-audit addresses (audit trail)
+
+The V3 stack remains on-chain but is no longer created against. The 1 existing V3 test vault is preserved at chain head; the frontend surfaces V4 only.
+
+| Retired contract | Address | Reason |
+|---|---|---|
+| AegisVaultFactoryV3 | `0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3` | Superseded by V4 (strategy binding + init lock + sealed-mode coupling) |
+| AegisVault_v3 impl | `0x0c78257550802bF2fFD201106Fe8096A5211397e` | Same |
+| JaineVenueAdapterV2 (pre-audit) | `0x261244010A6D87e043b3489D93fA573cdc2274B6` | Pre-audit; superseded by `0xA4E2aeB9…` (dead-pool fail-close + balance-delta + 5% slippage cap) |
+| VaultNAVCalculator (pre-audit) | `0xBd21bfd62a11e1F8d04e7bE42D2cbDB6C51C4Ae1` | Pre-audit; superseded by `0xFA632b02…` (expo guard + `removeAssetAt` + immutable pyth) |
+| OperatorRegistry (pre-fresh) | `0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9` | Fresh deploy for clean cutover |
+| OperatorStaking_v2 (pre-fresh) | `0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3` | Fresh deploy for clean cutover |
+| InsurancePool_v2 (pre-fresh) | `0xd5eb21420e9D22b763b94fDb396756d820eCa694` | Fresh deploy for clean cutover |
+| OperatorReputation (pre-fresh) | `0x855380187f223391b55fc381f33429A14d238879` | Fresh deploy + admin moved to AegisGovernor (closes audit H-7) |
+| ExecLib (V3 lib) | `0x48594040AbEbFe3a24BbDFfA21Cb597FA6F60dE7` | V4 forks to ExecLibV4 |
+| CrossChainLib (V3 lib) | `0x505C1C76520C6a47a1C0Bf8819359c786E3c8aB3` | V4 forks to CrossChainLibV4 |
 
 ---
 
 ## 3. How the on-chain integration works
 
 ### Step 1 — Vault creation on 0G Chain
-A user calls `AegisVaultFactoryV3.createVault(operator, baseAsset, venue, policy, allowedAssets, maxCrossChainFeeBps)`. The factory deploys an EIP-1167 minimal-proxy clone pointing to the immutable `AegisVault_v3` implementation at `0x0c782575…397e`. All subsequent vault state — deposits, positions, fee accrual — lives on 0G under the clone's address.
+A user calls `AegisVaultFactoryV4.createVault(operator, baseAsset, venue, policy, allowedAssets, maxCrossChainFeeBps, acceptedManifestHash)`. The factory deploys an EIP-1167 minimal-proxy clone pointing to the init-locked `AegisVault_v4` implementation at `0x28F8E1a9…72Ed`. The `acceptedManifestHash` is bound atomically at create time — every subsequent `executeIntent` requires `intent.strategyHash` to match. All subsequent vault state — deposits, positions, fee accrual, manifest commitment — lives on 0G under the clone's address.
 
 ### Step 2 — AI decision via 0G Compute
 Every cycle, the orchestrator calls 0G Compute with prompt + market context → receives an inference from `zai-org/GLM-5-FP8` (TEE-attested model). The compute response is hashed (`keccak256(provider, chatId, model, contentDigest)`) → this produces `attestationReportHash`, a 32-byte field inside the on-chain EIP-712 `ExecutionIntent` struct. 0G Compute is paid per-call on-chain; billing is a first-class 0G feature.
@@ -138,28 +159,28 @@ Explorer: **[arbiscan.io](https://arbiscan.io)**.
 
 **0G mainnet contract address:**
 ```
-0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3
+0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F
 ```
-(AegisVaultFactoryV3 — the entrypoint. Complete address list in § 2.)
+(AegisVaultFactoryV4 — the V4 entrypoint with strategy-manifest binding. Complete address list in § 2.)
 
 **0G Explorer link:**
 ```
-https://chainscan.0g.ai/address/0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3
+https://chainscan.0g.ai/address/0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F
 ```
 
 **Which 0G components and how on-chain integration works:**
 ```
 Aegis Vault is fully deployed on 0G Aristotle Mainnet (chain 16661). It integrates with four 0G components:
 
-1. 0G Chain — all protocol contracts run on-chain: AegisVaultFactoryV3 (0x75668Ca9...) deploys EIP-1167 proxy clones of the AegisVault_v3 implementation (0x0c782575...), with OperatorRegistry (0x252Ef1B2...), OperatorStaking (0xe153A071...), InsurancePool (0xd5eb2142...), ExecutionRegistry V3 (0x8DD63Cfc...), OperatorReputation (0x85538018...), AegisGovernor (0x023EC4a5...), ProtocolTreasury (0xCDc5D994...), and VaultNAVCalculator (0xBd21bfd6...) as the supporting stack.
+1. 0G Chain — all protocol contracts run on-chain: AegisVaultFactoryV4 (0x9e365206...) deploys EIP-1167 proxy clones of the init-locked AegisVault_v4 implementation (0x28F8E1a9...), with a fully fresh marketplace — OperatorRegistry (0x8A12238E...), OperatorStaking_v2 (0xF46b6b76...), InsurancePool_v2 (0xe69eAff9...), OperatorReputation (0x4389d082...) all governance-bound (arbitrator/admin = AegisGovernor 0x023EC4a5...) — plus ExecutionRegistry (0x8DD63Cfc...), ProtocolTreasury (0xCDc5D994...), and the post-audit VaultNAVCalculator (0xFA632b02...) as supporting stack.
 
-2. 0G Compute — every trade cycle queries the zai-org/GLM-5-FP8 model on 0G Compute for AI inference. The response is TEE-attested and its hash is bound into the EIP-712 ExecutionIntent struct the vault verifies on-chain (via ecrecover against policy.attestedSigner). Wrong AI output → wrong hash → different signer → revert. This cryptographically binds every AI decision to its on-chain execution.
+2. 0G Compute — every trade cycle queries the zai-org/GLM-5-FP8 model on 0G Compute for AI inference. The response is TEE-attested and its hash is bound into the EIP-712 ExecutionIntent struct the vault verifies on-chain (via ecrecover against policy.attestedSigner). Wrong AI output → wrong hash → different signer → revert. This cryptographically binds every AI decision to its on-chain execution. V4 extends the typehash with strategyHash + strategySchemaVer so cross-version replay between V3/V4 is impossible by construction.
 
-3. Jaine V3 (native 0G DEX) — real execution venue. Vault swaps route through JaineVenueAdapterV2 (0x26124401...) → Jaine SwapRouter (0x8b598a7c...) → Jaine Factory (0x9bdcA579...) and hit the real USDC.e / WETH / WBTC / W0G pools. Cross-chain swaps go through the KhalaniVenueAdapter (0xB65fdbb6...) via solver-driven settlement.
+3. Jaine V3 (native 0G DEX) — real execution venue. Vault swaps route through the post-audit JaineVenueAdapterV2 (0xA4E2aeB9...) → Jaine SwapRouter (0x8b598a7c...) → Jaine Factory (0x9bdcA579...) and hit the real USDC.e / WETH / WBTC / W0G pools. The adapter fail-closes on dead pools, verifies amountOut via balance-delta, and caps slippage at 5%. Cross-chain swaps go through the KhalaniVenueAdapter (0xB65fdbb6...) via solver-driven settlement.
 
 4. Pyth oracle on 0G — price feeds (0x2880ab15...) for NAV calculation in VaultNAVCalculator and oracle-guard slippage enforcement in the Jaine adapter.
 
-Live verification: call AegisVaultFactoryV3.allVaults(i) on 0G to enumerate vault clones, or filter event logs on any of the above contracts at chainscan.0g.ai to see on-chain activity (VaultDeployed, IntentExecuted, SealedIntentExecuted, OperatorRegistered, Staked, etc.).
+Live verification: call AegisVaultFactoryV4.allVaults(i) on 0G to enumerate vault clones, or filter event logs on any of the above contracts at chainscan.0g.ai to see on-chain activity (VaultDeployed, IntentExecuted, SealedIntentExecuted, StrategyApplied, ManifestUpgraded, OperatorRegistered, Staked, etc.).
 ```
 
 ---

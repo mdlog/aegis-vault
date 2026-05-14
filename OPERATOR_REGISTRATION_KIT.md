@@ -1,10 +1,10 @@
-# Operator Registration Kit — Live test on V3 fresh stack
+# Operator Registration Kit — Live test on V4 fresh stack
 
-> Source material untuk mengisi form `/operator/register` di Aegis Vault V3 (0G Aristotle Mainnet, chain 16661). Operator marketplace di-redeploy fresh pada **2026-04-27** — saat dokumen ini ditulis registry baru **kosong (0 operator)**, jadi kit ini sekaligus berfungsi sebagai prosedur test untuk mengisi operator pertama di V3.
+> Source material untuk mengisi form `/operator/register` di Aegis Vault V4 (0G Aristotle Mainnet, chain 16661). V4 stack + operator marketplace di-redeploy fresh pada **2026-05-14** — saat dokumen ini ditulis registry baru **kosong (0 operator)**, jadi kit ini sekaligus berfungsi sebagai prosedur test untuk mengisi operator pertama di V4.
 
 **Live state (verify before mulai):**
 ```bash
-cast call 0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9 "totalOperators()(uint256)" --rpc-url https://evmrpc.0g.ai
+cast call 0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b "totalOperators()(uint256)" --rpc-url https://evmrpc.0g.ai
 # Expected sekarang: 0 (atau jumlah yang sudah register sejak Anda baca dokumen ini)
 ```
 
@@ -12,14 +12,14 @@ cast call 0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9 "totalOperators()(uint256)"
 
 ## Quick test recipe (5 menit — minimal happy path)
 
-Untuk yang sekedar mau verifikasi flow register → marketplace muncul → buat vault V3 → deposit:
+Untuk yang sekedar mau verifikasi flow register → marketplace muncul → buat vault V4 → deposit:
 
 | Step | Action | Tx target |
 |---|---|---|
-| 1 | Register operator dengan default Balanced (Step 1 di bawah) | `OperatorRegistry` `0x252Ef1B2…594c9` |
+| 1 | Register operator dengan default Balanced (Step 1 di bawah) | `OperatorRegistry` `0x8A12238E…CA22b` |
 | 2 | (Skip) declare AI + manifest + stake — opsional | — |
 | 3 | `cast call registry.totalOperators()` → harus jadi `1` | — |
-| 4 | Buat vault baru di UI, pilih operator yang baru register | `AegisVaultFactoryV3` `0x75668Ca9…EFE0e3` |
+| 4 | Buat vault baru di UI, pilih operator yang baru register | `AegisVaultFactoryV4` `0x9e365206…82A5F` |
 | 5 | Deposit ~$10 USDC.e ke vault | vault clone |
 | 6 | Tunggu 1 cycle orchestrator (max 5 menit) → cek `/journal` ada decision baru | — |
 
@@ -160,15 +160,15 @@ Tactical:
 
 Setelah semua field terisi, klik submit. Tx goes to `OperatorRegistry` at:
 ```
-0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9
+0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b
 ```
 
-Explorer: [`https://chainscan.0g.ai/address/0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9`](https://chainscan.0g.ai/address/0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9)
+Explorer: [`https://chainscan.0g.ai/address/0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b`](https://chainscan.0g.ai/address/0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b)
 
 Verifikasi sukses:
 ```bash
 export OP=0x<your_operator_wallet>
-export REG=0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9
+export REG=0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b
 
 cast call $REG "totalOperators()(uint256)" --rpc-url https://evmrpc.0g.ai
 # Expected: 1 (atau increment 1 dari sebelumnya)
@@ -290,13 +290,13 @@ Kalau hanya test demo, tier None cukup (tidak perlu stake). Kalau production, mi
 
 Flow stake di `/operator/profile?address=<wallet>`:
 
-1. Approve USDC.e ke `OperatorStaking` (`0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3`)
+1. Approve USDC.e ke `OperatorStaking` (`0xF46b6b76c5021a21dc0029FDEAEba6713472CBE6`)
 2. Call `stake(amount)` — amount dalam USDC.e native units (6 decimals), misal `1000000000` untuk 1,000 USDC.e
 
 Cast equivalent (kalau mau via CLI, bukan UI):
 ```bash
 export USDC=0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E
-export STAKING=0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3
+export STAKING=0xF46b6b76c5021a21dc0029FDEAEba6713472CBE6
 
 # 1. Approve 1,000 USDC.e
 cast send $USDC "approve(address,uint256)" $STAKING 1000000000 \
@@ -326,7 +326,7 @@ Checklist setelah register (± manifest):
 On-chain verify (gabungan):
 ```bash
 export OP=0x<yourOperatorWallet>
-export REG=0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9
+export REG=0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b
 export RPC=https://evmrpc.0g.ai
 
 cast call $REG "totalOperators()(uint256)"      --rpc-url $RPC   # → 1+
@@ -348,12 +348,12 @@ Setelah operator ready:
 6. **Policy guardrails**: pakai "Use operator recommended defaults" → auto-isi dari `recommendedXxxBps` yang kamu set di Step 1
 7. **Cross-chain fee cap**: V3 menambah field "Cross-Chain Fee Cap" (Khalani solver fee, default 50 bps, max 200 bps). Biarkan default kalau belum mau cross-chain
 8. **Sealed mode**: optional, kalau enable, attestedSigner = TEE_SIGNER address
-9. Submit → tx ke `AegisVaultFactoryV3` (`0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3`)
+9. Submit → tx ke `AegisVaultFactoryV4` (`0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F`)
 10. Frontend auto-redirect ke `/app/vault/<newVaultAddress>`
 
 Verify vault baru tercipta:
 ```bash
-cast call 0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3 "allVaults(uint256)(address)" 0 --rpc-url $RPC
+cast call 0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F "allVaults(uint256)(address)" 0 --rpc-url $RPC
 # Expected: address vault clone yang baru deploy
 
 cast call <newVaultAddress> "version()(string)" --rpc-url $RPC
@@ -398,16 +398,16 @@ Kalau decision = `HOLD` terus tapi ingin lihat trade beneran:
 
 | Role | Address |
 |---|---|
-| **OperatorRegistry** (register here) | `0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9` |
-| **OperatorStaking** (stake here) | `0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3` |
-| OperatorReputation | `0x855380187f223391b55fc381f33429A14d238879` |
-| InsurancePool | `0xd5eb21420e9D22b763b94fDb396756d820eCa694` |
+| **OperatorRegistry** (register here) | `0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b` |
+| **OperatorStaking** (stake here) | `0xF46b6b76c5021a21dc0029FDEAEba6713472CBE6` |
+| OperatorReputation | `0x4389d082dE464defF665612A73f36b99059F2Da4` |
+| InsurancePool | `0xe69eAff976b6AEf35556cb3D09972E401a85DD77` |
 | AegisGovernor (multisig) | `0x023EC4a54435f94E9395460e4835e75E429D5A2e` |
-| **AegisVaultFactoryV3** (create vault here) | `0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3` |
+| **AegisVaultFactoryV4** (create vault here) | `0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F` |
 | ExecutionRegistry V3 | `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9` |
 | AegisVault impl V3 | `0x0c78257550802bF2fFD201106Fe8096A5211397e` |
 | KhalaniVenueAdapter (cross-chain) | `0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4` |
-| JaineVenueAdapterV2 (multi-hop swap venue) | `0x261244010A6D87e043b3489D93fA573cdc2274B6` |
+| JaineVenueAdapterV2 (multi-hop swap venue, post-audit) | `0xA4E2aeB9e1a5297DE38d7Ad8e11b1714ca481F2f` |
 | ProtocolTreasury | `0xCDc5D994590D0BF407E5be390A62A8d1eBbf0dF4` |
 | USDC.e (base + stake token) | `0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E` |
 | WETH | `0x564770837Ef8bbF077cFe54E5f6106538c815B22` |
