@@ -1,7 +1,7 @@
 import { useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { parseUnits, formatUnits, decodeEventLog } from 'viem';
 import { toast } from 'sonner';
-import { AegisVaultABI, AegisVault_v4ABI, AegisVaultFactoryABI, AegisVaultFactoryV3ABI, AegisVaultFactoryV4ABI, MockERC20ABI, getDeployments } from '../lib/contracts.js';
+import { AegisVaultABI, AegisVault_v4ABI, AegisVaultFactoryABI, AegisVaultFactoryV3ABI, AegisVaultFactoryV4ABI, MockERC20ABI, getDeployments, SHOW_ONLY_V4_VAULTS } from '../lib/contracts.js';
 
 /**
  * Slim AegisVault (the build currently deployed on 0G mainnet) exposes only:
@@ -263,13 +263,17 @@ export function useVaultList(factoryAddress, ownerAddress) {
   const chainId = useChainId();
   const deployments = getDeployments(chainId);
   const factoryV4 = deployments.aegisVaultFactoryV4 || '';
-  const factoryV3 = deployments.aegisVaultFactoryV3 || '';
-  const factoryV2 = deployments.aegisVaultFactoryV2 || '';
-  const factoryV1 = (factoryAddress && factoryAddress !== factoryV4
-                                    && factoryAddress !== factoryV3
-                                    && factoryAddress !== factoryV2)
-    ? factoryAddress
-    : '';
+  // Clean-slate flag: when SHOW_ONLY_V4_VAULTS is on, suppress all legacy
+  // factories so the dashboard does not surface pre-V4 test/migration vaults.
+  const factoryV3 = SHOW_ONLY_V4_VAULTS ? '' : (deployments.aegisVaultFactoryV3 || '');
+  const factoryV2 = SHOW_ONLY_V4_VAULTS ? '' : (deployments.aegisVaultFactoryV2 || '');
+  const factoryV1 = SHOW_ONLY_V4_VAULTS
+    ? ''
+    : ((factoryAddress && factoryAddress !== factoryV4
+                       && factoryAddress !== factoryV3
+                       && factoryAddress !== factoryV2)
+        ? factoryAddress
+        : '');
 
   // V4 + V3 + V2 + V1 factories all expose getOwnerVaults with the same
   // signature — the AegisVaultFactoryABI (V1/V2 ABI) covers the read shape
@@ -384,13 +388,16 @@ export function useAllPlatformVaults(factoryAddress) {
   const chainIdLocal = useChainId();
   const deploymentsLocal = getDeployments(chainIdLocal);
   const factoryV4 = deploymentsLocal.aegisVaultFactoryV4 || '';
-  const factoryV3 = deploymentsLocal.aegisVaultFactoryV3 || '';
-  const factoryV2 = deploymentsLocal.aegisVaultFactoryV2 || '';
-  const factoryV1 = (factoryAddress && factoryAddress !== factoryV4
-                                    && factoryAddress !== factoryV3
-                                    && factoryAddress !== factoryV2)
-    ? factoryAddress
-    : '';
+  // Clean-slate flag — see comment on `useVaultList`.
+  const factoryV3 = SHOW_ONLY_V4_VAULTS ? '' : (deploymentsLocal.aegisVaultFactoryV3 || '');
+  const factoryV2 = SHOW_ONLY_V4_VAULTS ? '' : (deploymentsLocal.aegisVaultFactoryV2 || '');
+  const factoryV1 = SHOW_ONLY_V4_VAULTS
+    ? ''
+    : ((factoryAddress && factoryAddress !== factoryV4
+                       && factoryAddress !== factoryV3
+                       && factoryAddress !== factoryV2)
+        ? factoryAddress
+        : '');
 
   // Step 1: per-factory totalVaults() count. All four generations expose
   // the same `totalVaults()` read shape, so AegisVaultFactoryABI is safe

@@ -94,7 +94,11 @@ contract JaineVenueAdapterV2 is ReentrancyGuard {
 
     // ── Constants ──
     uint256 public constant MAX_FEE_TIERS = 10;
-    uint16  public constant MAX_SLIPPAGE_BPS_CAP = 2000;
+    /// @notice Hard cap on `maxSlippageBps`. Tightened from 2000 (20%) to
+    ///         500 (5%) so an admin error cannot expose vault flow to
+    ///         catastrophic sandwich extraction. Pyth is the primary price
+    ///         protection; this cap is the fallback when Pyth is disabled.
+    uint16  public constant MAX_SLIPPAGE_BPS_CAP = 500;
 
     // ── Immutables ──
     IJaineSwapRouterV2 public immutable router;
@@ -146,6 +150,21 @@ contract JaineVenueAdapterV2 is ReentrancyGuard {
     error SameToken();
     error TooManyFeeTiers();
     error SlippageBpsTooHigh();
+    /// @notice Router returned `amountOut` but the recipient's actual
+    ///         `tokenOut` balance increase is below `minAmountOut`. Either
+    ///         the router lied about its output or some unexpected token
+    ///         flow occurred — fail closed.
+    error BalanceDeltaBelowMin(uint256 actual, uint256 minRequired);
+    /// @notice `addFeeTier` rejected: fee==0 or fee already registered.
+    error InvalidFeeTier(uint24 fee);
+    /// @notice `setPyth` rejected non-zero address with no contract code.
+    error PythNotAContract();
+    /// @notice `registerAsset` rejected `decimals > 18` (ERC-20 convention bound).
+    error AssetDecimalsOutOfRange(uint8 decimals);
+
+    // Additional events
+    event TokensRescued(address indexed token, address indexed to, uint256 amount);
+    event FeeTierAdded(uint24 fee);
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert OnlyOwner();
@@ -221,7 +240,12 @@ contract JaineVenueAdapterV2 is ReentrancyGuard {
     ) internal returns (uint256 amountOut) {
         IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
         IERC20(tokenIn).forceApprove(address(router), amountIn);
-        amountOut = router.exactInputSingle(
+        // Balance-delta is the source of truth for amountOut. The router's
+        // return value is advisory — some forks under-report or over-report.
+        // Snapshot the recipient's tokenOut balance before/after and require
+        // the actual delta meets the slippage floor.
+        uint256 outBefore = IERC20(tokenOut).balanceOf(msg.sender);
+        router.exactInputSingle(
             IJaineSwapRouterV2.ExactInputSingleParams({
                 tokenIn: tokenIn,
                 tokenOut: tokenOut,
@@ -234,6 +258,9 @@ contract JaineVenueAdapterV2 is ReentrancyGuard {
             })
         );
         IERC20(tokenIn).forceApprove(address(router), 0);
+        uint256 outAfter = IERC20(tokenOut).balanceOf(msg.sender);
+        amountOut = outAfter - outBefore;
+        if (amountOut < minAmountOut) revert BalanceDeltaBelowMin(amountOut, minAmountOut);
         if (amountOut == 0) revert SwapFailed();
     }
 
@@ -251,7 +278,9 @@ contract JaineVenueAdapterV2 is ReentrancyGuard {
 
         IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
         IERC20(tokenIn).forceApprove(address(router), amountIn);
-        amountOut = router.exactInput(
+        // See `_singleHopSwap` for the balance-delta rationale.
+        uint256 outBefore = IERC20(tokenOut).balanceOf(msg.sender);
+        router.exactInput(
             IJaineSwapRouterV2.ExactInputParams({
                 path: path,
                 recipient: msg.sender,
@@ -261,25 +290,29 @@ contract JaineVenueAdapterV2 is ReentrancyGuard {
             })
         );
         IERC20(tokenIn).forceApprove(address(router), 0);
+        uint256 outAfter = IERC20(tokenOut).balanceOf(msg.sender);
+        amountOut = outAfter - outBefore;
+        if (amountOut < minAmountOut) revert BalanceDeltaBelowMin(amountOut, minAmountOut);
         if (amountOut == 0) revert SwapFailed();
     }
 
     // ── Pool discovery ──
 
     /// @notice Find best fee tier (highest in-range liquidity) for a direct pool.
-    ///         Returns (false, 0) if no pool exists in any fee tier.
+    ///         Returns (false, 0) when no pool exists OR no pool in any tier
+    ///         has readable, non-zero liquidity. Failing closed prevents
+    ///         routing to a dead pool whose `slot0()` could be manipulated by
+    ///         a permissionless creator (anyone can `factory.createPool` on
+    ///         Jaine), which combined with the disabled Pyth guard would
+    ///         expose vault flow to up-to-`maxSlippageBps` extraction.
     function _findDirectPool(address tokenA, address tokenB)
         internal view returns (bool exists, uint24 bestFee)
     {
         uint128 bestLiquidity = 0;
-        uint24 fallbackFee = 0;
 
         for (uint256 i = 0; i < feeTiers.length; i++) {
             address pool = factory.getPool(tokenA, tokenB, feeTiers[i]);
             if (pool == address(0)) continue;
-
-            exists = true;
-            if (fallbackFee == 0) fallbackFee = feeTiers[i];
 
             try IJainePoolV2(pool).liquidity() returns (uint128 liq) {
                 if (liq > bestLiquidity) {
@@ -287,10 +320,14 @@ contract JaineVenueAdapterV2 is ReentrancyGuard {
                     bestFee = feeTiers[i];
                 }
             } catch {
-                // pool exists but liquidity() reverts — keep fallback
+                // pool exists but liquidity() reverts — treat as dead pool.
             }
         }
-        if (exists && bestFee == 0) bestFee = fallbackFee;
+        // Only report `exists` when at least one pool yielded readable,
+        // non-zero liquidity. The previous fallback (return the first pool
+        // found regardless of liquidity) opened a routing path into pools
+        // an attacker could deploy with manipulated slot0() prices.
+        exists = bestLiquidity > 0;
     }
 
     /// @notice Public wrapper for off-chain tooling (frontend pre-flight,
@@ -398,10 +435,21 @@ contract JaineVenueAdapterV2 is ReentrancyGuard {
 
     function addFeeTier(uint24 _fee) external onlyOwner {
         if (feeTiers.length >= MAX_FEE_TIERS) revert TooManyFeeTiers();
+        if (_fee == 0) revert InvalidFeeTier(_fee);
+        // Reject duplicates — the loop is bounded by MAX_FEE_TIERS = 10.
+        for (uint256 i = 0; i < feeTiers.length; i++) {
+            if (feeTiers[i] == _fee) revert InvalidFeeTier(_fee);
+        }
         feeTiers.push(_fee);
+        emit FeeTierAdded(_fee);
     }
 
     function setPyth(address _pyth) external onlyOwner {
+        // address(0) explicitly disables the oracle guard. Any non-zero
+        // address must be a contract — an EOA here would cause every swap
+        // to revert with empty data on `getPriceNoOlderThan`, silently
+        // bricking the adapter until the next admin tx.
+        if (_pyth != address(0) && _pyth.code.length == 0) revert PythNotAContract();
         emit PythUpdated(address(pyth), _pyth);
         pyth = IPyth(_pyth);
     }
@@ -414,6 +462,11 @@ contract JaineVenueAdapterV2 is ReentrancyGuard {
 
     function registerAsset(address token, bytes32 feedId, uint8 decimals) external onlyOwner {
         if (token == address(0)) revert ZeroAddress();
+        // Bound decimals to ERC-20 convention. Without this, an admin typo
+        // (e.g. decimals=255) is accepted and `OracleGuardLib.checkDeviation`
+        // overflows `10 ** (decimalsOut - decimalsIn)` on every subsequent
+        // swap that touches this asset.
+        if (decimals > 18) revert AssetDecimalsOutOfRange(decimals);
         priceFeeds[token]    = feedId;
         tokenDecimals[token] = decimals;
         emit AssetRegistered(token, feedId, decimals);
@@ -427,5 +480,6 @@ contract JaineVenueAdapterV2 is ReentrancyGuard {
     function rescueTokens(address token, address to, uint256 amount) external onlyOwner {
         if (to == address(0)) revert ZeroAddress();
         IERC20(token).safeTransfer(to, amount);
+        emit TokensRescued(token, to, amount);
     }
 }

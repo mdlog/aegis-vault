@@ -1,12 +1,19 @@
-# V3 + Khalani — production rollout checklist
+# V3 + Khalani — production rollout checklist (HISTORICAL)
 
-> **Status (as of 2026-04-27):** V3 + KhalaniVenueAdapter deployed on 0G
-> Aristotle Mainnet. V2 vaults remain operational. Live addresses:
+> **Status (as of 2026-05-14): SUPERSEDED by V4.** This doc remains as the
+> operational record of the V3 rollout. For the current V4 deploy procedure
+> see [`V4_DEPLOY_AUDIT_RUNBOOK.md`](V4_DEPLOY_AUDIT_RUNBOOK.md).
+>
+> V3 stack remains on-chain (retired for new vault creation, audit trail
+> preserved). 1 existing V3 test vault is left as-is. Current entrypoint
+> is `AegisVaultFactoryV4` `0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F`.
+>
+> **Retired V3 addresses (do not create new vaults against these):**
 >
 > - `AegisVaultFactoryV3`     `0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3`
-> - `ExecutionRegistryV3`     `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9`
-> - `KhalaniVenueAdapter`     `0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4`
-> - `JaineVenueAdapterV2`     `0x261244010A6D87e043b3489D93fA573cdc2274B6`
+> - `ExecutionRegistryV3`     `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9` (V4 reuses this registry — multi-factory authorized)
+> - `KhalaniVenueAdapter`     `0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4` (V4 reuses)
+> - `JaineVenueAdapterV2` (pre-audit) `0x261244010A6D87e043b3489D93fA573cdc2274B6` (V4 cuts over to `0xA4E2aeB9…`)
 >
 > This document is now reference material for the deployment process — useful
 > when re-deploying after a contract change, deploying to a new chain, or

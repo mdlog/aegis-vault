@@ -385,10 +385,16 @@ describe("UniswapV3VenueAdapter", function () {
 
     describe("Admin", function () {
       it("setPyth emits PythUpdated and persists", async function () {
-        await expect(adapter.connect(owner).setPyth(user.address))
+        // Disable path: zero address is the explicit "disable oracle guard" value.
+        await expect(adapter.connect(owner).setPyth(ethers.ZeroAddress))
           .to.emit(adapter, "PythUpdated")
-          .withArgs(await mockPyth.getAddress(), user.address);
-        expect(await adapter.pyth()).to.equal(user.address);
+          .withArgs(await mockPyth.getAddress(), ethers.ZeroAddress);
+        expect(await adapter.pyth()).to.equal(ethers.ZeroAddress);
+      });
+
+      it("setPyth rejects EOA (must be a contract or zero)", async function () {
+        await expect(adapter.connect(owner).setPyth(user.address))
+          .to.be.revertedWithCustomError(adapter, "PythNotAContract");
       });
 
       it("setMaxSlippageBps enforces the hard cap", async function () {

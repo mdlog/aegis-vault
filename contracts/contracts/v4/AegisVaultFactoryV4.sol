@@ -38,14 +38,18 @@ contract AegisVaultFactoryV4 {
     address public immutable vaultImplementation;
 
     /// @notice ExecutionRegistry shared with the v2/v3 stack so cross-version
-    ///         replay guards stay consistent.
-    address public executionRegistry;
+    ///         replay guards stay consistent. `immutable` so a future patch
+    ///         cannot accidentally add a setter that would let the admin
+    ///         point new clones at a malicious registry.
+    address public immutable executionRegistry;
 
     /// @notice Optional protocol treasury forwarded to clones at init.
     address public protocolTreasury;
 
     /// @notice Factory admin — manages treasury / admin handover (mirrors V3).
     address public admin;
+    /// @notice Pending admin queued by `transferAdmin`; finalized by `acceptAdmin`.
+    address public pendingAdmin;
 
     address[] public allVaults;
     mapping(address => address[]) public ownerVaults;
@@ -71,12 +75,14 @@ contract AegisVaultFactoryV4 {
     );
 
     event ProtocolTreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
+    event AdminTransferStarted(address indexed currentAdmin, address indexed pendingAdmin);
     event AdminTransferred(address indexed oldAdmin, address indexed newAdmin);
 
     // ── Errors ──
     error ZeroAddress();
     error FactoryNotRegistryAdmin();
     error OnlyAdmin();
+    error OnlyPendingAdmin();
     error CrossChainFeeCapTooHigh();
 
     // ── Modifiers ──
@@ -190,11 +196,33 @@ contract AegisVaultFactoryV4 {
         emit ProtocolTreasuryUpdated(old, newTreasury);
     }
 
+    // ── Ownable2Step admin transfer ──
+    //
+    //   Two-step pattern mirrors ExecutionRegistry. A typo on `transferAdmin`
+    //   no longer bricks the factory — until `acceptAdmin` is called by the
+    //   incoming address, the current admin retains full authority and can
+    //   overwrite or cancel the pending value.
+
+    /// @notice Propose a new admin. Takes effect only after `newAdmin`
+    ///         calls `acceptAdmin()`.
     function transferAdmin(address newAdmin) external onlyAdmin {
         if (newAdmin == address(0)) revert ZeroAddress();
-        address old = admin;
-        admin = newAdmin;
-        emit AdminTransferred(old, newAdmin);
+        pendingAdmin = newAdmin;
+        emit AdminTransferStarted(admin, newAdmin);
+    }
+
+    /// @notice Called by the pending admin to finalize the transfer.
+    function acceptAdmin() external {
+        if (msg.sender != pendingAdmin) revert OnlyPendingAdmin();
+        address previous = admin;
+        admin = pendingAdmin;
+        pendingAdmin = address(0);
+        emit AdminTransferred(previous, admin);
+    }
+
+    /// @notice Cancel a previously-started transfer. Callable by current admin.
+    function cancelAdminTransfer() external onlyAdmin {
+        pendingAdmin = address(0);
     }
 
     // ── Views ──

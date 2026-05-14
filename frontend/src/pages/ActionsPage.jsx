@@ -633,6 +633,34 @@ export default function ActionsPage() {
         </GlassPanel>
       )}
 
+      {/* When the orchestrator is unreachable AND demo fallbacks are
+          enabled, the page silently rendered canned data with no visible
+          mode indicator. The KPI strip already toggles "LIVE/DEMO" but a
+          user scanning the action feed could still mistake the demoVault
+          decisions for real orchestrator output. Make the demo state
+          impossible to miss by showing a dedicated banner here. */}
+      {!status && ENABLE_DEMO_FALLBACKS && (
+        <GlassPanel className="p-4 mb-5 ring-1 ring-inset ring-amber-300/30 bg-amber-500/[0.04]">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <Cpu className="w-4 h-4 text-amber-300/80 mt-0.5 shrink-0" />
+              <div>
+                <div className="text-sm font-display font-semibold text-white mb-1">
+                  Showing demo data — orchestrator unreachable
+                </div>
+                <p className="text-[11px] text-steel/60 leading-relaxed">
+                  Decisions, executions, and alerts on this page are illustrative content packaged
+                  with the build. Restart the orchestrator at the endpoint on the right to see live data.
+                </p>
+              </div>
+            </div>
+            <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-3 py-2 text-[10px] font-mono text-steel/45">
+              Endpoint: {ORCHESTRATOR_URL || 'VITE_ORCHESTRATOR_URL not set'}
+            </div>
+          </div>
+        </GlassPanel>
+      )}
+
       {/* Mode switch — pill-style tabs, no border-baseline */}
       <div className="flex items-center gap-2 mb-5">
         {[

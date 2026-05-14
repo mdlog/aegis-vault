@@ -216,12 +216,32 @@ export default function CrossChainDepositCard({
       setStep('error');
       return;
     }
+    // Defence-in-depth: HTML5 `min`/`type=number` is bypassable from devtools,
+    // and `Number(amountHuman)` silently coerces values like "1e308" to a
+    // finite double that survives the `<= 0` check. Compute the on-chain base
+    // units up front so we can reject anything that would overflow uint256
+    // before we hand the string to a quote/build endpoint or to a wallet
+    // signer that would only fail later with a less actionable error.
+    const amount = toBaseUnits(amountHuman, sourceDecimals);
+    let amountAsBigInt;
+    try {
+      amountAsBigInt = BigInt(amount);
+    } catch {
+      setError('Amount could not be parsed as an integer.');
+      setStep('error');
+      return;
+    }
+    const UINT256_MAX = (1n << 256n) - 1n;
+    if (amountAsBigInt <= 0n || amountAsBigInt > UINT256_MAX) {
+      setError('Amount is outside the on-chain valid range.');
+      setStep('error');
+      return;
+    }
     setStep('quoting');
     setError(null);
     setQuote(null);
     setPickedRoute(null);
     try {
-      const amount = toBaseUnits(amountHuman, sourceDecimals);
       const q = await fetchQuote({
         fromAddress: connectedAddress,
         fromChainId: sourceChainId,

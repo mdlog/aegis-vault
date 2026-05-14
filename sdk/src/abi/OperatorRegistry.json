@@ -1,1142 +1,1151 @@
-[
-  {
-    "inputs": [],
-    "name": "AIEndpointTooLong",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "AIModelTooLong",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "AlreadyRegistered",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "DescriptionTooLong",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "EmptyManifestHash",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "EmptyName",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "EndpointTooLong",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "FeeAboveMax",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "ManifestURITooLong",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "NameTooLong",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "NotOperatorOwner",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "NotRegistered",
-    "type": "error"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "operator",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "aiModel",
-        "type": "string"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "aiProvider",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "aiEndpoint",
-        "type": "string"
-      }
-    ],
-    "name": "AIModelDeclared",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "operator",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "manifestHash",
-        "type": "bytes32"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "manifestURI",
-        "type": "string"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "version",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "bonded",
-        "type": "bool"
-      }
-    ],
-    "name": "ManifestPublished",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "wallet",
-        "type": "address"
-      }
-    ],
-    "name": "OperatorActivated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "wallet",
-        "type": "address"
-      }
-    ],
-    "name": "OperatorDeactivated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "wallet",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "name",
-        "type": "string"
-      },
-      {
-        "indexed": false,
-        "internalType": "enum OperatorRegistry.Mandate",
-        "name": "mandate",
-        "type": "uint8"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "timestamp",
-        "type": "uint256"
-      }
-    ],
-    "name": "OperatorRegistered",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "wallet",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "name",
-        "type": "string"
-      },
-      {
-        "indexed": false,
-        "internalType": "enum OperatorRegistry.Mandate",
-        "name": "mandate",
-        "type": "uint8"
-      }
-    ],
-    "name": "OperatorUpdated",
-    "type": "event"
-  },
-  {
-    "inputs": [],
-    "name": "MAX_AI_ENDPOINT_LENGTH",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "MAX_AI_MODEL_LENGTH",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "MAX_DESCRIPTION_LENGTH",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "MAX_ENDPOINT_LENGTH",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "MAX_ENTRY_FEE_BPS",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "MAX_EXIT_FEE_BPS",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "MAX_MANAGEMENT_FEE_BPS",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "MAX_MANIFEST_URI_LENGTH",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "MAX_NAME_LENGTH",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "MAX_PERFORMANCE_FEE_BPS",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "activate",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "deactivate",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "aiModel",
-        "type": "string"
-      },
-      {
-        "internalType": "address",
-        "name": "aiProvider",
-        "type": "address"
-      },
-      {
-        "internalType": "string",
-        "name": "aiEndpoint",
-        "type": "string"
-      }
-    ],
-    "name": "declareAIModel",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getAllOperators",
-    "outputs": [
-      {
-        "internalType": "address[]",
-        "name": "",
-        "type": "address[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "wallet",
-        "type": "address"
-      }
-    ],
-    "name": "getOperator",
-    "outputs": [
-      {
-        "components": [
-          {
-            "internalType": "address",
-            "name": "wallet",
-            "type": "address"
-          },
-          {
-            "internalType": "string",
-            "name": "name",
-            "type": "string"
-          },
-          {
-            "internalType": "string",
-            "name": "description",
-            "type": "string"
-          },
-          {
-            "internalType": "string",
-            "name": "endpoint",
-            "type": "string"
-          },
-          {
-            "internalType": "enum OperatorRegistry.Mandate",
-            "name": "mandate",
-            "type": "uint8"
-          },
-          {
-            "internalType": "uint256",
-            "name": "registeredAt",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "updatedAt",
-            "type": "uint256"
-          },
-          {
-            "internalType": "bool",
-            "name": "active",
-            "type": "bool"
-          },
-          {
-            "internalType": "uint256",
-            "name": "performanceFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "managementFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "entryFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "exitFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedMaxPositionBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedConfidenceMinBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedStopLossBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedCooldownSeconds",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedMaxActionsPerDay",
-            "type": "uint256"
-          }
-        ],
-        "internalType": "struct OperatorRegistry.Operator",
-        "name": "",
-        "type": "tuple"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "wallet",
-        "type": "address"
-      }
-    ],
-    "name": "getOperatorExtended",
-    "outputs": [
-      {
-        "components": [
-          {
-            "internalType": "string",
-            "name": "manifestURI",
-            "type": "string"
-          },
-          {
-            "internalType": "bytes32",
-            "name": "manifestHash",
-            "type": "bytes32"
-          },
-          {
-            "internalType": "uint256",
-            "name": "manifestVersion",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "manifestUpdatedAt",
-            "type": "uint256"
-          },
-          {
-            "internalType": "string",
-            "name": "aiModel",
-            "type": "string"
-          },
-          {
-            "internalType": "address",
-            "name": "aiProvider",
-            "type": "address"
-          },
-          {
-            "internalType": "string",
-            "name": "aiEndpoint",
-            "type": "string"
-          },
-          {
-            "internalType": "bool",
-            "name": "manifestBonded",
-            "type": "bool"
-          }
-        ],
-        "internalType": "struct OperatorRegistry.OperatorExtended",
-        "name": "",
-        "type": "tuple"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "wallet",
-        "type": "address"
-      }
-    ],
-    "name": "getOperatorFull",
-    "outputs": [
-      {
-        "components": [
-          {
-            "internalType": "address",
-            "name": "wallet",
-            "type": "address"
-          },
-          {
-            "internalType": "string",
-            "name": "name",
-            "type": "string"
-          },
-          {
-            "internalType": "string",
-            "name": "description",
-            "type": "string"
-          },
-          {
-            "internalType": "string",
-            "name": "endpoint",
-            "type": "string"
-          },
-          {
-            "internalType": "enum OperatorRegistry.Mandate",
-            "name": "mandate",
-            "type": "uint8"
-          },
-          {
-            "internalType": "uint256",
-            "name": "registeredAt",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "updatedAt",
-            "type": "uint256"
-          },
-          {
-            "internalType": "bool",
-            "name": "active",
-            "type": "bool"
-          },
-          {
-            "internalType": "uint256",
-            "name": "performanceFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "managementFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "entryFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "exitFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedMaxPositionBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedConfidenceMinBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedStopLossBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedCooldownSeconds",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedMaxActionsPerDay",
-            "type": "uint256"
-          }
-        ],
-        "internalType": "struct OperatorRegistry.Operator",
-        "name": "base",
-        "type": "tuple"
-      },
-      {
-        "components": [
-          {
-            "internalType": "string",
-            "name": "manifestURI",
-            "type": "string"
-          },
-          {
-            "internalType": "bytes32",
-            "name": "manifestHash",
-            "type": "bytes32"
-          },
-          {
-            "internalType": "uint256",
-            "name": "manifestVersion",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "manifestUpdatedAt",
-            "type": "uint256"
-          },
-          {
-            "internalType": "string",
-            "name": "aiModel",
-            "type": "string"
-          },
-          {
-            "internalType": "address",
-            "name": "aiProvider",
-            "type": "address"
-          },
-          {
-            "internalType": "string",
-            "name": "aiEndpoint",
-            "type": "string"
-          },
-          {
-            "internalType": "bool",
-            "name": "manifestBonded",
-            "type": "bool"
-          }
-        ],
-        "internalType": "struct OperatorRegistry.OperatorExtended",
-        "name": "extended",
-        "type": "tuple"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "offset",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "limit",
-        "type": "uint256"
-      }
-    ],
-    "name": "getOperatorPage",
-    "outputs": [
-      {
-        "internalType": "address[]",
-        "name": "page",
-        "type": "address[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "wallet",
-        "type": "address"
-      }
-    ],
-    "name": "isActive",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "wallet",
-        "type": "address"
-      }
-    ],
-    "name": "isRegistered",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "name": "operatorExtended",
-    "outputs": [
-      {
-        "internalType": "string",
-        "name": "manifestURI",
-        "type": "string"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "manifestHash",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "uint256",
-        "name": "manifestVersion",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "manifestUpdatedAt",
-        "type": "uint256"
-      },
-      {
-        "internalType": "string",
-        "name": "aiModel",
-        "type": "string"
-      },
-      {
-        "internalType": "address",
-        "name": "aiProvider",
-        "type": "address"
-      },
-      {
-        "internalType": "string",
-        "name": "aiEndpoint",
-        "type": "string"
-      },
-      {
-        "internalType": "bool",
-        "name": "manifestBonded",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "operatorList",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "name": "operators",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "wallet",
-        "type": "address"
-      },
-      {
-        "internalType": "string",
-        "name": "name",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "description",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "endpoint",
-        "type": "string"
-      },
-      {
-        "internalType": "enum OperatorRegistry.Mandate",
-        "name": "mandate",
-        "type": "uint8"
-      },
-      {
-        "internalType": "uint256",
-        "name": "registeredAt",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "updatedAt",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "active",
-        "type": "bool"
-      },
-      {
-        "internalType": "uint256",
-        "name": "performanceFeeBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "managementFeeBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "entryFeeBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "exitFeeBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "recommendedMaxPositionBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "recommendedConfidenceMinBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "recommendedStopLossBps",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "recommendedCooldownSeconds",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "recommendedMaxActionsPerDay",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "uri",
-        "type": "string"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "hash",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bool",
-        "name": "bonded",
-        "type": "bool"
-      }
-    ],
-    "name": "publishManifest",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "components": [
-          {
-            "internalType": "string",
-            "name": "name",
-            "type": "string"
-          },
-          {
-            "internalType": "string",
-            "name": "description",
-            "type": "string"
-          },
-          {
-            "internalType": "string",
-            "name": "endpoint",
-            "type": "string"
-          },
-          {
-            "internalType": "enum OperatorRegistry.Mandate",
-            "name": "mandate",
-            "type": "uint8"
-          },
-          {
-            "internalType": "uint256",
-            "name": "performanceFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "managementFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "entryFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "exitFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedMaxPositionBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedConfidenceMinBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedStopLossBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedCooldownSeconds",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedMaxActionsPerDay",
-            "type": "uint256"
-          }
-        ],
-        "internalType": "struct OperatorRegistry.OperatorInput",
-        "name": "input",
-        "type": "tuple"
-      }
-    ],
-    "name": "register",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "totalOperators",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "components": [
-          {
-            "internalType": "string",
-            "name": "name",
-            "type": "string"
-          },
-          {
-            "internalType": "string",
-            "name": "description",
-            "type": "string"
-          },
-          {
-            "internalType": "string",
-            "name": "endpoint",
-            "type": "string"
-          },
-          {
-            "internalType": "enum OperatorRegistry.Mandate",
-            "name": "mandate",
-            "type": "uint8"
-          },
-          {
-            "internalType": "uint256",
-            "name": "performanceFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "managementFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "entryFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "exitFeeBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedMaxPositionBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedConfidenceMinBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedStopLossBps",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedCooldownSeconds",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "recommendedMaxActionsPerDay",
-            "type": "uint256"
-          }
-        ],
-        "internalType": "struct OperatorRegistry.OperatorInput",
-        "name": "input",
-        "type": "tuple"
-      }
-    ],
-    "name": "updateMetadata",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  }
-]
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "OperatorRegistry",
+  "sourceName": "contracts/OperatorRegistry.sol",
+  "abi": [
+    {
+      "inputs": [],
+      "name": "AIEndpointTooLong",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "AIModelTooLong",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "AlreadyRegistered",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "DescriptionTooLong",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "EmptyManifestHash",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "EmptyName",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "EndpointTooLong",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "FeeAboveMax",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ManifestURITooLong",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NameTooLong",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotOperatorOwner",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotRegistered",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "operator",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "aiModel",
+          "type": "string"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "aiProvider",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "aiEndpoint",
+          "type": "string"
+        }
+      ],
+      "name": "AIModelDeclared",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "operator",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "manifestHash",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "manifestURI",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "version",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "bool",
+          "name": "bonded",
+          "type": "bool"
+        }
+      ],
+      "name": "ManifestPublished",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "wallet",
+          "type": "address"
+        }
+      ],
+      "name": "OperatorActivated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "wallet",
+          "type": "address"
+        }
+      ],
+      "name": "OperatorDeactivated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "wallet",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "enum OperatorRegistry.Mandate",
+          "name": "mandate",
+          "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "OperatorRegistered",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "wallet",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "enum OperatorRegistry.Mandate",
+          "name": "mandate",
+          "type": "uint8"
+        }
+      ],
+      "name": "OperatorUpdated",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_AI_ENDPOINT_LENGTH",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_AI_MODEL_LENGTH",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_DESCRIPTION_LENGTH",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_ENDPOINT_LENGTH",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_ENTRY_FEE_BPS",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_EXIT_FEE_BPS",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_MANAGEMENT_FEE_BPS",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_MANIFEST_URI_LENGTH",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_NAME_LENGTH",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MAX_PERFORMANCE_FEE_BPS",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "activate",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "deactivate",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "aiModel",
+          "type": "string"
+        },
+        {
+          "internalType": "address",
+          "name": "aiProvider",
+          "type": "address"
+        },
+        {
+          "internalType": "string",
+          "name": "aiEndpoint",
+          "type": "string"
+        }
+      ],
+      "name": "declareAIModel",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getAllOperators",
+      "outputs": [
+        {
+          "internalType": "address[]",
+          "name": "",
+          "type": "address[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "wallet",
+          "type": "address"
+        }
+      ],
+      "name": "getOperator",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "address",
+              "name": "wallet",
+              "type": "address"
+            },
+            {
+              "internalType": "string",
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "internalType": "string",
+              "name": "description",
+              "type": "string"
+            },
+            {
+              "internalType": "string",
+              "name": "endpoint",
+              "type": "string"
+            },
+            {
+              "internalType": "enum OperatorRegistry.Mandate",
+              "name": "mandate",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint256",
+              "name": "registeredAt",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "updatedAt",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bool",
+              "name": "active",
+              "type": "bool"
+            },
+            {
+              "internalType": "uint256",
+              "name": "performanceFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "managementFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "entryFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "exitFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedMaxPositionBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedConfidenceMinBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedStopLossBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedCooldownSeconds",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedMaxActionsPerDay",
+              "type": "uint256"
+            }
+          ],
+          "internalType": "struct OperatorRegistry.Operator",
+          "name": "",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "wallet",
+          "type": "address"
+        }
+      ],
+      "name": "getOperatorExtended",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "string",
+              "name": "manifestURI",
+              "type": "string"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "manifestHash",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint256",
+              "name": "manifestVersion",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "manifestUpdatedAt",
+              "type": "uint256"
+            },
+            {
+              "internalType": "string",
+              "name": "aiModel",
+              "type": "string"
+            },
+            {
+              "internalType": "address",
+              "name": "aiProvider",
+              "type": "address"
+            },
+            {
+              "internalType": "string",
+              "name": "aiEndpoint",
+              "type": "string"
+            },
+            {
+              "internalType": "bool",
+              "name": "manifestBonded",
+              "type": "bool"
+            }
+          ],
+          "internalType": "struct OperatorRegistry.OperatorExtended",
+          "name": "",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "wallet",
+          "type": "address"
+        }
+      ],
+      "name": "getOperatorFull",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "address",
+              "name": "wallet",
+              "type": "address"
+            },
+            {
+              "internalType": "string",
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "internalType": "string",
+              "name": "description",
+              "type": "string"
+            },
+            {
+              "internalType": "string",
+              "name": "endpoint",
+              "type": "string"
+            },
+            {
+              "internalType": "enum OperatorRegistry.Mandate",
+              "name": "mandate",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint256",
+              "name": "registeredAt",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "updatedAt",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bool",
+              "name": "active",
+              "type": "bool"
+            },
+            {
+              "internalType": "uint256",
+              "name": "performanceFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "managementFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "entryFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "exitFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedMaxPositionBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedConfidenceMinBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedStopLossBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedCooldownSeconds",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedMaxActionsPerDay",
+              "type": "uint256"
+            }
+          ],
+          "internalType": "struct OperatorRegistry.Operator",
+          "name": "base",
+          "type": "tuple"
+        },
+        {
+          "components": [
+            {
+              "internalType": "string",
+              "name": "manifestURI",
+              "type": "string"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "manifestHash",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint256",
+              "name": "manifestVersion",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "manifestUpdatedAt",
+              "type": "uint256"
+            },
+            {
+              "internalType": "string",
+              "name": "aiModel",
+              "type": "string"
+            },
+            {
+              "internalType": "address",
+              "name": "aiProvider",
+              "type": "address"
+            },
+            {
+              "internalType": "string",
+              "name": "aiEndpoint",
+              "type": "string"
+            },
+            {
+              "internalType": "bool",
+              "name": "manifestBonded",
+              "type": "bool"
+            }
+          ],
+          "internalType": "struct OperatorRegistry.OperatorExtended",
+          "name": "extended",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "offset",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "limit",
+          "type": "uint256"
+        }
+      ],
+      "name": "getOperatorPage",
+      "outputs": [
+        {
+          "internalType": "address[]",
+          "name": "page",
+          "type": "address[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "wallet",
+          "type": "address"
+        }
+      ],
+      "name": "isActive",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "wallet",
+          "type": "address"
+        }
+      ],
+      "name": "isRegistered",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "operatorExtended",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "manifestURI",
+          "type": "string"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "manifestHash",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint256",
+          "name": "manifestVersion",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "manifestUpdatedAt",
+          "type": "uint256"
+        },
+        {
+          "internalType": "string",
+          "name": "aiModel",
+          "type": "string"
+        },
+        {
+          "internalType": "address",
+          "name": "aiProvider",
+          "type": "address"
+        },
+        {
+          "internalType": "string",
+          "name": "aiEndpoint",
+          "type": "string"
+        },
+        {
+          "internalType": "bool",
+          "name": "manifestBonded",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "operatorList",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "operators",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "wallet",
+          "type": "address"
+        },
+        {
+          "internalType": "string",
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "description",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "endpoint",
+          "type": "string"
+        },
+        {
+          "internalType": "enum OperatorRegistry.Mandate",
+          "name": "mandate",
+          "type": "uint8"
+        },
+        {
+          "internalType": "uint256",
+          "name": "registeredAt",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "updatedAt",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bool",
+          "name": "active",
+          "type": "bool"
+        },
+        {
+          "internalType": "uint256",
+          "name": "performanceFeeBps",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "managementFeeBps",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "entryFeeBps",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "exitFeeBps",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "recommendedMaxPositionBps",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "recommendedConfidenceMinBps",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "recommendedStopLossBps",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "recommendedCooldownSeconds",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "recommendedMaxActionsPerDay",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "uri",
+          "type": "string"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "hash",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "bool",
+          "name": "bonded",
+          "type": "bool"
+        }
+      ],
+      "name": "publishManifest",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "string",
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "internalType": "string",
+              "name": "description",
+              "type": "string"
+            },
+            {
+              "internalType": "string",
+              "name": "endpoint",
+              "type": "string"
+            },
+            {
+              "internalType": "enum OperatorRegistry.Mandate",
+              "name": "mandate",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint256",
+              "name": "performanceFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "managementFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "entryFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "exitFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedMaxPositionBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedConfidenceMinBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedStopLossBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedCooldownSeconds",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedMaxActionsPerDay",
+              "type": "uint256"
+            }
+          ],
+          "internalType": "struct OperatorRegistry.OperatorInput",
+          "name": "input",
+          "type": "tuple"
+        }
+      ],
+      "name": "register",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalOperators",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "string",
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "internalType": "string",
+              "name": "description",
+              "type": "string"
+            },
+            {
+              "internalType": "string",
+              "name": "endpoint",
+              "type": "string"
+            },
+            {
+              "internalType": "enum OperatorRegistry.Mandate",
+              "name": "mandate",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint256",
+              "name": "performanceFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "managementFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "entryFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "exitFeeBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedMaxPositionBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedConfidenceMinBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedStopLossBps",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedCooldownSeconds",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "recommendedMaxActionsPerDay",
+              "type": "uint256"
+            }
+          ],
+          "internalType": "struct OperatorRegistry.OperatorInput",
+          "name": "input",
+          "type": "tuple"
+        }
+      ],
+      "name": "updateMetadata",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x6080806040523461001657611ea7908161001b8239f35b5f80fdfe6101006040526004361015610012575f80fd5b5f3560e01c8063090a5905146114ec5780630f15f4c01461148357806313e7c9d814611303578063284d940714610d7e5780633326ab9e146105ec578063492ec79f14610d615780634f43d26714610ae757806351b42b0014610a815780635865c60c14610a1a57806358f6d62f1461061257806365d0a5b7146105f157806370889165146105f657806386074985146105f15780639201ea0a146105ec5780639e628977146101435780639f8a13d714610592578063b5f3794714610570578063b632cbbd14610508578063c3c5a547146104ce578063c85d3eb014610143578063cb38f4071461048c578063ced79b7e1461029f578063d56d6fb614610143578063d911c63214610212578063e32587fb146101f6578063f9c1fc6e146101485763fdd12db814610143575f80fd5b6118cd565b346101f25760203660031901126101f2576101616115b8565b610169611af1565b50610172611d63565b506001600160a01b03165f81815260026020526040902054156101e0575f525f6020526101ce60405f2060036020526101dc6101ba6101b460405f2093611b6e565b92611da2565b6040519384936040855260408501906117c9565b90838203602085015261192c565b0390f35b60405163aba4733960e01b8152600490fd5b5f80fd5b346101f2575f3660031901126101f25760206040516101008152f35b346101f2575f3660031901126101f257604051600180548083525f828152602080850194937fb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf693909290915b828210610281576101dc86610275818a038261163e565b604051918291826118e8565b84546001600160a01b0316875295860195938301939083019061025e565b346101f25760603660031901126101f2576001600160401b036004358181116101f2576102d090369060040161179c565b91906024359260443591821515908184036101f257335f526020946002865260405f2054156101e057610100841161047a57861561046857335f526003865260405f209084116104545761032e8461032883546115ce565b83611a58565b5f84601f81116001146103f2578061034d925f916103e7575b50611aa7565b81555b86600182015560028101805491600183018093116103d3577f69626c77a75d3c12aabb57bd0634eeb6f459c04e938ee7a0f61a4d29042778689660076103ae926103c2958555426003820155019060ff801983541691151516179055565b549160405194606086526060860191611ad1565b9483015260408201528033930390a3005b634e487b7160e01b5f52601160045260245ffd5b90508401358a610347565b50601f19851690825f5285885f20925f5b8a82821061043b57505010610422575b5050600184811b018155610350565b8301355f19600387901b60f8161c191690558780610413565b8785013586556001909501949384019389935001610403565b634e487b7160e01b5f52604160045260245ffd5b6040516346829b8560e01b8152600490fd5b60405163d5069a9b60e01b8152600490fd5b346101f25760203660031901126101f2576004356001548110156101f2576104b56020916119a9565b905460405160039290921b1c6001600160a01b03168152f35b346101f25760203660031901126101f2576001600160a01b036104ef6115b8565b165f526002602052602060405f20541515604051908152f35b346101f25760203660031901126101f2576105216115b8565b610529611d63565b506001600160a01b03165f81815260026020526040902054156101e0575f5260036020526101dc61055c60405f20611da2565b60405191829160208352602083019061192c565b346101f25760403660031901126101f2576101dc610275602435600435611c7f565b346101f25760203660031901126101f2576001600160a01b036105b36115b8565b165f52600260205260405f20541515806105d5575b6020906040519015158152f35b505f6020819052604090206007015460ff166105c8565b611780565b6118b2565b346101f2575f3660031901126101f2576020604051610bb88152f35b346101f2576106203661174e565b335f526020906002825260405f2054156101e05761063e81806119d5565b91908382019261064e84846119d5565b905061066c604085019361066285876119d5565b9490503691611a07565b805115610a085760409051116109f6576101f4106109e45760c8106109d25760808201359060a08301359160c08401359360e0810135956106af87878786611e1f565b335f525f885260405f20936106c483806119d5565b6001600160401b039360019392909188850191868211610454578d906106f4836106ee86546115ce565b86611a58565b5f91601f84116001146109695750918061071c926107259695945f9261095e575b5050611aa7565b90555b856119d5565b6002880191858211610454576107458261073f85546115ce565b85611a58565b5f908d601f84116001146108f55750918061076d926107769695945f926108ea575050611aa7565b90555b846119d5565b90916003870193821161045457610791826106ee86546115ce565b5f90601f8311600114610886575081906107b2935f9261087b575050611aa7565b90555b60608101359260038410156101f2577faafd21dd0b6c53b48d41823748c88d4bc361e39efa336fc0538c1d1b96149b9e9661086a9661087396610856956107ff8860048701611ab9565b60088501556009840155600a830155600b820155610100820135600c820155610120820135600d820155610140820135600e820155610160820135600f8201556101808201356010820155600642910155806119d5565b939060405194604086526040860191611ad1565b94830190611741565b8033930390a2005b013590508b80610715565b928b9183601f198116875f52845f20945f905b888383106108d057505050106108b7575b505050811b0190556107b5565b01355f19600384901b60f8161c191690558a80806108aa565b868601358855909601959384019387935090810190610899565b013590508f80610715565b869295949391601f198316855f52825f20925f905b8282106109455750509683610776981061092c575b505050811b019055610770565b01355f19600384901b60f8161c191690558e808061091f565b898401358555988901988a96909401939081019061090a565b013590505f80610715565b879295949391601f198316855f52825f20925f905b8282106109b9575050968361072598106109a0575b505050811b01905561071f565b01355f19600384901b60f8161c191690558f8080610993565b898401358555988901988b96909401939081019061097e565b604051639049092560e01b8152600490fd5b604051630d7cfc5960e41b8152600490fd5b60405163680b6caf60e01b8152600490fd5b604051632ef1310560e01b8152600490fd5b346101f25760203660031901126101f257610a336115b8565b610a3b611af1565b506001600160a01b03165f81815260026020526040902054156101e0575f525f6020526101dc610a6d60405f20611b6e565b6040519182916020835260208301906117c9565b346101f2575f3660031901126101f257335f52600260205260405f2054156101e057335f525f60205260405f206007810160ff198154169055600642910155337f07645aa614e7e509e4e09ca3dc57980735884f4b94a7172817c55d1472e36cad5f80a2005b346101f25760603660031901126101f2576001600160401b036004358181116101f257610b1890369060040161179c565b6024356001600160a01b03811692908390036101f2576044358481116101f257610b4690369060040161179c565b929092335f526020956002875260405f2054156101e05760408311610d4f5760c88211610d3d57335f526003875260405f20600481019082851161045457610b9885610b9284546115ce565b84611a58565b5f9185601f8111600114610cd55780610bba916006955f91610cca5750611aa7565b90555b6005810180546001600160a01b031916891790550190821161045457610be78261032883546115ce565b5f601f8311600114610c5457915f80516020611e5283398151915295969791610c1b8280610c44965f91610c495750611aa7565b90555b610c35604051958695604087526040870191611ad1565b91848303908501523396611ad1565b0390a3005b90508a01358c610347565b601f19831690825f52885f20915f5b818110610cb35750915f80516020611e52833981519152979899939185610c44969410610c9a575b5050600182811b019055610c1e565b8901355f19600385901b60f8161c191690558980610c8b565b91928a60018192868c013581550194019201610c63565b90508901358d610347565b505f8181528a8120909387601f1981165b8d818810610d2157506006965010610d08575b5050600186811b019055610bbd565b8801355f19600389901b60f8161c191690558a80610cf9565b838c013585559687019660019094019390920191899150610ce6565b60405163080b91bf60e41b8152600490fd5b604051631f2118cf60e01b8152600490fd5b346101f2575f3660031901126101f2576020600154604051908152f35b346101f257610d8c3661174e565b335f52600260205260405f20546112f157610da781806119d5565b6020830190610db682856119d5565b9050610dca604086019461066286886119d5565b805115610a085760409051116109f6576101f4106109e45760c8106109d257610e2091610e2991610e0d60e086013560c087013560a08801356080890135611e1f565b610e1785806119d5565b949091866119d5565b939092866119d5565b9190926003606088013510156101f257610e7394610e5b610e679360405198610e518a611606565b338a523691611a07565b60208801523691611a07565b60408501523691611a07565b6060820152610e89606083013560808301611a4c565b4260a08201524260c0820152600160e0820152608082013561010082015260a082013561012082015260c082013561014082015260e08201356101608201526101008201356101808201526101208201356101a08201526101408201356101c08201526101608201356101e0820152610180820135610200820152335f525f60205260405f209060018060a01b0381511660018060a01b0319835416178255602081015192835160018060401b03811161045457610f5781610f4e60018701546115ce565b60018701611a58565b6020601f8211600114611286578190610f7a939495965f926111a5575050611aa7565b60018401555b604082015180519093906001600160401b03811161045457610fb281610fa960028501546115ce565b60028501611a58565b6020601f821160011461121b578190610fd5939495965f926111a5575050611aa7565b60028201555b606083015180519093906001600160401b0381116104545761100d8161100460038601546115ce565b60038601611a58565b6020601f82116001146111b0578190611030939495965f926111a5575050611aa7565b60038301555b60808101516003811015611191576010916110576102009260048601611ab9565b60a0810151600585015560c0810151600685015561108a60e08201511515600786019060ff801983541691151516179055565b61010081015160088501556101208101516009850155610140810151600a850155610160810151600b850155610180810151600c8501556101a0810151600d8501556101c0810151600e8501556101e0810151600f8501550151910155600154600160401b8110156104545780600161110692016001556119a9565b81549060031b9033821b9160018060a01b03901b1916179055600154335f52600260205260405f20557f88b47740f094fdd1bef9f2846be8fa80723a8d6732d3f0e8dc50e103bc08347d61117461118361116084806119d5565b929060405193606085526060850191611ad1565b93606060208401910135611741565b4260408201528033930390a2005b634e487b7160e01b5f52602160045260245ffd5b015190508680610715565b600384015f5260205f20905f5b601f1984168110611203575060019394959683601f198116106111eb575b505050811b016003830155611036565b01515f1960f88460031b161c191690558580806111db565b9091602060018192858b0151815501930191016111bd565b600283015f5260205f20905f5b601f198416811061126e575060019394959683601f19811610611256575b505050811b016002820155610fdb565b01515f1960f88460031b161c19169055858080611246565b9091602060018192858b015181550193019101611228565b600185015f5260205f20905f5b601f19841681106112d9575060019394959683601f198116106112c1575b505050811b016001840155610f80565b01515f1960f88460031b161c191690558580806112b1565b9091602060018192858b015181550193019101611293565b604051630ea075bf60e21b8152600490fd5b346101f25760203660031901126101f2576001600160a01b03806113256115b8565b165f525f60205260405f20908154166001820161134190611661565b60a05261135060028301611661565b60e05261135f60038301611661565b91600481015460ff166080526005810154926006820154600783015460ff1660088401546009850154600a86015490600b87015492600c88015494600d89015496600e8a015498600f8b01549a601001549b60405160c0526102209060c051528060c0516020015260c0510160a051906113d891611703565b60c051810360c0516040015260e051906113f191611703565b60c051810360c0516060015261140691611703565b9b60c0516080016080519061141a91611741565b60c05160a0015260c05160c00152151560c05160e0015260c051610100015260c051610120015260c051610140015260c051610160015260c051610180015260c0516101a0015260c0516101c0015260c0516101e0015260c051610200015260c051900360c051f35b346101f2575f3660031901126101f257335f52600260205260405f2054156101e057335f525f60205260405f2060078101600160ff19825416179055600642910155337fba55171f9cd60d2c41ba4e66eaa72291605a5f39900e281631b4da1590fb79ac5f80a2005b346101f25760203660031901126101f25761157c6001600160a01b03806115116115b8565b165f52600360205260405f206115ac61152982611661565b9260018301549261159960028201549460038301549361154b60048501611661565b906005850154169460ff600761156360068801611661565b96015416976040519a8b9a610100808d528c0190611703565b9360208b015260408a015260608901528782036080890152611703565b9160a086015284820360c0860152611703565b90151560e08301520390f35b600435906001600160a01b03821682036101f257565b90600182811c921680156115fc575b60208310146115e857565b634e487b7160e01b5f52602260045260245ffd5b91607f16916115dd565b61022081019081106001600160401b0382111761045457604052565b61010081019081106001600160401b0382111761045457604052565b601f909101601f19168101906001600160401b0382119082101761045457604052565b9060405191825f8254611673816115ce565b908184526020946001916001811690815f146116e157506001146116a3575b5050506116a19250038361163e565b565b5f90815285812095935091905b8183106116c95750506116a193508201015f8080611692565b855488840185015294850194879450918301916116b0565b925050506116a194925060ff191682840152151560051b8201015f8080611692565b91908251928382525f5b84811061172d575050825f602080949584010152601f8019910116010190565b60208183018101518483018201520161170d565b9060038210156111915752565b600319906020818301126101f257600435916001600160401b0383116101f257826101a0920301126101f25760040190565b346101f2575f3660031901126101f25760206040516101f48152f35b9181601f840112156101f2578235916001600160401b0383116101f257602083818601950101116101f257565b9061181a6118086117f661022060018060a01b038651168552602086015190806020870152850190611703565b60408501518482036040860152611703565b60608401518382036060850152611703565b9161182d60808201516080840190611741565b60a081015160a083015260c081015160c083015260e0810151151560e0830152610100808201519083015261012080820151908301526101408082015190830152610160808201519083015261018080820151908301526101a080820151908301526101c080820151908301526101e080820151908301526102008091015191015290565b346101f2575f3660031901126101f257602060405160408152f35b346101f2575f3660031901126101f257602060405160c88152f35b60209060206040818301928281528551809452019301915f5b82811061190f575050505090565b83516001600160a01b031685529381019392810192600101611901565b9060e08061199e61197a61194a610100875190808852870190611703565b60208701516020870152604087015160408701526060870151606087015260808701518682036080880152611703565b60018060a01b0360a08701511660a086015260c086015185820360c0870152611703565b930151151591015290565b6001548110156119c15760015f5260205f2001905f90565b634e487b7160e01b5f52603260045260245ffd5b903590601e19813603018212156101f257018035906001600160401b0382116101f2576020019181360383136101f257565b9192916001600160401b0382116104545760405191611a30601f8201601f19166020018461163e565b8294818452818301116101f2578281602093845f960137010152565b60038210156111915752565b601f8211611a6557505050565b5f5260205f20906020601f840160051c83019310611a9d575b601f0160051c01905b818110611a92575050565b5f8155600101611a87565b9091508190611a7e565b8160011b915f199060031b1c19161790565b9060038110156111915760ff80198354169116179055565b908060209392818452848401375f828201840152601f01601f1916010190565b60405190611afe82611606565b5f6102008382815260606020820152606060408201526060808201528260808201528260a08201528260c08201528260e08201528261010082015282610120820152826101408201528261016082015282610180820152826101a0820152826101c0820152826101e08201520152565b90604051611b7b81611606565b82546001600160a01b0316815291829061020090601090611b9e60018201611661565b6020850152611baf60028201611661565b6040850152611bc060038201611661565b6060850152611bd960ff60048301541660808601611a4c565b600581015460a0850152600681015460c085015260ff600782015416151560e085015260088101546101008501526009810154610120850152600a810154610140850152600b810154610160850152600c810154610180850152600d8101546101a0850152600e8101546101c0850152600f8101546101e08501520154910152565b6001600160401b0381116104545760051b60200190565b919082018092116103d357565b91906001906001549081851015611d3757611c9a9085611c72565b90808211611d2f575b508381039081116103d357611cb781611c5b565b611cc4604051918261163e565b818152611cd082611c5b565b602090601f1901368383013781955f5b848110611cef57505050505050565b611d01611cfc8284611c72565b6119a9565b9190549185518210156119c15760031b9190911c6001600160a01b0316600582901b85018401528501611ce0565b90505f611ca3565b505060405191925050602081016001600160401b03811182821017610454576040525f81525f36813790565b60405190611d7082611622565b5f60e08360608152826020820152826040820152826060820152606060808201528260a0820152606060c08201520152565b90604051611daf81611622565b60e060ff60078395611dc081611661565b8552600181015460208601526002810154604086015260038101546060860152611dec60048201611661565b608086015260058101546001600160a01b031660a0860152611e1060068201611661565b60c08601520154161515910152565b610bb810611e3f576101f410611e3f5760c810611e3f5760c810611e3f57565b6040516376a3f95d60e01b8152600490fdfe71e1a016ff358304e7c0e29301b3053a40633221fc6dec4a698d6c2b4524c30aa2646970667358221220cdba830a9daa52f5a8a54b3e0ad6ab89892f7921e94e2be52fe4daf5a5e4fa8e64736f6c63430008180033",
+  "deployedBytecode": "0x6101006040526004361015610012575f80fd5b5f3560e01c8063090a5905146114ec5780630f15f4c01461148357806313e7c9d814611303578063284d940714610d7e5780633326ab9e146105ec578063492ec79f14610d615780634f43d26714610ae757806351b42b0014610a815780635865c60c14610a1a57806358f6d62f1461061257806365d0a5b7146105f157806370889165146105f657806386074985146105f15780639201ea0a146105ec5780639e628977146101435780639f8a13d714610592578063b5f3794714610570578063b632cbbd14610508578063c3c5a547146104ce578063c85d3eb014610143578063cb38f4071461048c578063ced79b7e1461029f578063d56d6fb614610143578063d911c63214610212578063e32587fb146101f6578063f9c1fc6e146101485763fdd12db814610143575f80fd5b6118cd565b346101f25760203660031901126101f2576101616115b8565b610169611af1565b50610172611d63565b506001600160a01b03165f81815260026020526040902054156101e0575f525f6020526101ce60405f2060036020526101dc6101ba6101b460405f2093611b6e565b92611da2565b6040519384936040855260408501906117c9565b90838203602085015261192c565b0390f35b60405163aba4733960e01b8152600490fd5b5f80fd5b346101f2575f3660031901126101f25760206040516101008152f35b346101f2575f3660031901126101f257604051600180548083525f828152602080850194937fb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf693909290915b828210610281576101dc86610275818a038261163e565b604051918291826118e8565b84546001600160a01b0316875295860195938301939083019061025e565b346101f25760603660031901126101f2576001600160401b036004358181116101f2576102d090369060040161179c565b91906024359260443591821515908184036101f257335f526020946002865260405f2054156101e057610100841161047a57861561046857335f526003865260405f209084116104545761032e8461032883546115ce565b83611a58565b5f84601f81116001146103f2578061034d925f916103e7575b50611aa7565b81555b86600182015560028101805491600183018093116103d3577f69626c77a75d3c12aabb57bd0634eeb6f459c04e938ee7a0f61a4d29042778689660076103ae926103c2958555426003820155019060ff801983541691151516179055565b549160405194606086526060860191611ad1565b9483015260408201528033930390a3005b634e487b7160e01b5f52601160045260245ffd5b90508401358a610347565b50601f19851690825f5285885f20925f5b8a82821061043b57505010610422575b5050600184811b018155610350565b8301355f19600387901b60f8161c191690558780610413565b8785013586556001909501949384019389935001610403565b634e487b7160e01b5f52604160045260245ffd5b6040516346829b8560e01b8152600490fd5b60405163d5069a9b60e01b8152600490fd5b346101f25760203660031901126101f2576004356001548110156101f2576104b56020916119a9565b905460405160039290921b1c6001600160a01b03168152f35b346101f25760203660031901126101f2576001600160a01b036104ef6115b8565b165f526002602052602060405f20541515604051908152f35b346101f25760203660031901126101f2576105216115b8565b610529611d63565b506001600160a01b03165f81815260026020526040902054156101e0575f5260036020526101dc61055c60405f20611da2565b60405191829160208352602083019061192c565b346101f25760403660031901126101f2576101dc610275602435600435611c7f565b346101f25760203660031901126101f2576001600160a01b036105b36115b8565b165f52600260205260405f20541515806105d5575b6020906040519015158152f35b505f6020819052604090206007015460ff166105c8565b611780565b6118b2565b346101f2575f3660031901126101f2576020604051610bb88152f35b346101f2576106203661174e565b335f526020906002825260405f2054156101e05761063e81806119d5565b91908382019261064e84846119d5565b905061066c604085019361066285876119d5565b9490503691611a07565b805115610a085760409051116109f6576101f4106109e45760c8106109d25760808201359060a08301359160c08401359360e0810135956106af87878786611e1f565b335f525f885260405f20936106c483806119d5565b6001600160401b039360019392909188850191868211610454578d906106f4836106ee86546115ce565b86611a58565b5f91601f84116001146109695750918061071c926107259695945f9261095e575b5050611aa7565b90555b856119d5565b6002880191858211610454576107458261073f85546115ce565b85611a58565b5f908d601f84116001146108f55750918061076d926107769695945f926108ea575050611aa7565b90555b846119d5565b90916003870193821161045457610791826106ee86546115ce565b5f90601f8311600114610886575081906107b2935f9261087b575050611aa7565b90555b60608101359260038410156101f2577faafd21dd0b6c53b48d41823748c88d4bc361e39efa336fc0538c1d1b96149b9e9661086a9661087396610856956107ff8860048701611ab9565b60088501556009840155600a830155600b820155610100820135600c820155610120820135600d820155610140820135600e820155610160820135600f8201556101808201356010820155600642910155806119d5565b939060405194604086526040860191611ad1565b94830190611741565b8033930390a2005b013590508b80610715565b928b9183601f198116875f52845f20945f905b888383106108d057505050106108b7575b505050811b0190556107b5565b01355f19600384901b60f8161c191690558a80806108aa565b868601358855909601959384019387935090810190610899565b013590508f80610715565b869295949391601f198316855f52825f20925f905b8282106109455750509683610776981061092c575b505050811b019055610770565b01355f19600384901b60f8161c191690558e808061091f565b898401358555988901988a96909401939081019061090a565b013590505f80610715565b879295949391601f198316855f52825f20925f905b8282106109b9575050968361072598106109a0575b505050811b01905561071f565b01355f19600384901b60f8161c191690558f8080610993565b898401358555988901988b96909401939081019061097e565b604051639049092560e01b8152600490fd5b604051630d7cfc5960e41b8152600490fd5b60405163680b6caf60e01b8152600490fd5b604051632ef1310560e01b8152600490fd5b346101f25760203660031901126101f257610a336115b8565b610a3b611af1565b506001600160a01b03165f81815260026020526040902054156101e0575f525f6020526101dc610a6d60405f20611b6e565b6040519182916020835260208301906117c9565b346101f2575f3660031901126101f257335f52600260205260405f2054156101e057335f525f60205260405f206007810160ff198154169055600642910155337f07645aa614e7e509e4e09ca3dc57980735884f4b94a7172817c55d1472e36cad5f80a2005b346101f25760603660031901126101f2576001600160401b036004358181116101f257610b1890369060040161179c565b6024356001600160a01b03811692908390036101f2576044358481116101f257610b4690369060040161179c565b929092335f526020956002875260405f2054156101e05760408311610d4f5760c88211610d3d57335f526003875260405f20600481019082851161045457610b9885610b9284546115ce565b84611a58565b5f9185601f8111600114610cd55780610bba916006955f91610cca5750611aa7565b90555b6005810180546001600160a01b031916891790550190821161045457610be78261032883546115ce565b5f601f8311600114610c5457915f80516020611e5283398151915295969791610c1b8280610c44965f91610c495750611aa7565b90555b610c35604051958695604087526040870191611ad1565b91848303908501523396611ad1565b0390a3005b90508a01358c610347565b601f19831690825f52885f20915f5b818110610cb35750915f80516020611e52833981519152979899939185610c44969410610c9a575b5050600182811b019055610c1e565b8901355f19600385901b60f8161c191690558980610c8b565b91928a60018192868c013581550194019201610c63565b90508901358d610347565b505f8181528a8120909387601f1981165b8d818810610d2157506006965010610d08575b5050600186811b019055610bbd565b8801355f19600389901b60f8161c191690558a80610cf9565b838c013585559687019660019094019390920191899150610ce6565b60405163080b91bf60e41b8152600490fd5b604051631f2118cf60e01b8152600490fd5b346101f2575f3660031901126101f2576020600154604051908152f35b346101f257610d8c3661174e565b335f52600260205260405f20546112f157610da781806119d5565b6020830190610db682856119d5565b9050610dca604086019461066286886119d5565b805115610a085760409051116109f6576101f4106109e45760c8106109d257610e2091610e2991610e0d60e086013560c087013560a08801356080890135611e1f565b610e1785806119d5565b949091866119d5565b939092866119d5565b9190926003606088013510156101f257610e7394610e5b610e679360405198610e518a611606565b338a523691611a07565b60208801523691611a07565b60408501523691611a07565b6060820152610e89606083013560808301611a4c565b4260a08201524260c0820152600160e0820152608082013561010082015260a082013561012082015260c082013561014082015260e08201356101608201526101008201356101808201526101208201356101a08201526101408201356101c08201526101608201356101e0820152610180820135610200820152335f525f60205260405f209060018060a01b0381511660018060a01b0319835416178255602081015192835160018060401b03811161045457610f5781610f4e60018701546115ce565b60018701611a58565b6020601f8211600114611286578190610f7a939495965f926111a5575050611aa7565b60018401555b604082015180519093906001600160401b03811161045457610fb281610fa960028501546115ce565b60028501611a58565b6020601f821160011461121b578190610fd5939495965f926111a5575050611aa7565b60028201555b606083015180519093906001600160401b0381116104545761100d8161100460038601546115ce565b60038601611a58565b6020601f82116001146111b0578190611030939495965f926111a5575050611aa7565b60038301555b60808101516003811015611191576010916110576102009260048601611ab9565b60a0810151600585015560c0810151600685015561108a60e08201511515600786019060ff801983541691151516179055565b61010081015160088501556101208101516009850155610140810151600a850155610160810151600b850155610180810151600c8501556101a0810151600d8501556101c0810151600e8501556101e0810151600f8501550151910155600154600160401b8110156104545780600161110692016001556119a9565b81549060031b9033821b9160018060a01b03901b1916179055600154335f52600260205260405f20557f88b47740f094fdd1bef9f2846be8fa80723a8d6732d3f0e8dc50e103bc08347d61117461118361116084806119d5565b929060405193606085526060850191611ad1565b93606060208401910135611741565b4260408201528033930390a2005b634e487b7160e01b5f52602160045260245ffd5b015190508680610715565b600384015f5260205f20905f5b601f1984168110611203575060019394959683601f198116106111eb575b505050811b016003830155611036565b01515f1960f88460031b161c191690558580806111db565b9091602060018192858b0151815501930191016111bd565b600283015f5260205f20905f5b601f198416811061126e575060019394959683601f19811610611256575b505050811b016002820155610fdb565b01515f1960f88460031b161c19169055858080611246565b9091602060018192858b015181550193019101611228565b600185015f5260205f20905f5b601f19841681106112d9575060019394959683601f198116106112c1575b505050811b016001840155610f80565b01515f1960f88460031b161c191690558580806112b1565b9091602060018192858b015181550193019101611293565b604051630ea075bf60e21b8152600490fd5b346101f25760203660031901126101f2576001600160a01b03806113256115b8565b165f525f60205260405f20908154166001820161134190611661565b60a05261135060028301611661565b60e05261135f60038301611661565b91600481015460ff166080526005810154926006820154600783015460ff1660088401546009850154600a86015490600b87015492600c88015494600d89015496600e8a015498600f8b01549a601001549b60405160c0526102209060c051528060c0516020015260c0510160a051906113d891611703565b60c051810360c0516040015260e051906113f191611703565b60c051810360c0516060015261140691611703565b9b60c0516080016080519061141a91611741565b60c05160a0015260c05160c00152151560c05160e0015260c051610100015260c051610120015260c051610140015260c051610160015260c051610180015260c0516101a0015260c0516101c0015260c0516101e0015260c051610200015260c051900360c051f35b346101f2575f3660031901126101f257335f52600260205260405f2054156101e057335f525f60205260405f2060078101600160ff19825416179055600642910155337fba55171f9cd60d2c41ba4e66eaa72291605a5f39900e281631b4da1590fb79ac5f80a2005b346101f25760203660031901126101f25761157c6001600160a01b03806115116115b8565b165f52600360205260405f206115ac61152982611661565b9260018301549261159960028201549460038301549361154b60048501611661565b906005850154169460ff600761156360068801611661565b96015416976040519a8b9a610100808d528c0190611703565b9360208b015260408a015260608901528782036080890152611703565b9160a086015284820360c0860152611703565b90151560e08301520390f35b600435906001600160a01b03821682036101f257565b90600182811c921680156115fc575b60208310146115e857565b634e487b7160e01b5f52602260045260245ffd5b91607f16916115dd565b61022081019081106001600160401b0382111761045457604052565b61010081019081106001600160401b0382111761045457604052565b601f909101601f19168101906001600160401b0382119082101761045457604052565b9060405191825f8254611673816115ce565b908184526020946001916001811690815f146116e157506001146116a3575b5050506116a19250038361163e565b565b5f90815285812095935091905b8183106116c95750506116a193508201015f8080611692565b855488840185015294850194879450918301916116b0565b925050506116a194925060ff191682840152151560051b8201015f8080611692565b91908251928382525f5b84811061172d575050825f602080949584010152601f8019910116010190565b60208183018101518483018201520161170d565b9060038210156111915752565b600319906020818301126101f257600435916001600160401b0383116101f257826101a0920301126101f25760040190565b346101f2575f3660031901126101f25760206040516101f48152f35b9181601f840112156101f2578235916001600160401b0383116101f257602083818601950101116101f257565b9061181a6118086117f661022060018060a01b038651168552602086015190806020870152850190611703565b60408501518482036040860152611703565b60608401518382036060850152611703565b9161182d60808201516080840190611741565b60a081015160a083015260c081015160c083015260e0810151151560e0830152610100808201519083015261012080820151908301526101408082015190830152610160808201519083015261018080820151908301526101a080820151908301526101c080820151908301526101e080820151908301526102008091015191015290565b346101f2575f3660031901126101f257602060405160408152f35b346101f2575f3660031901126101f257602060405160c88152f35b60209060206040818301928281528551809452019301915f5b82811061190f575050505090565b83516001600160a01b031685529381019392810192600101611901565b9060e08061199e61197a61194a610100875190808852870190611703565b60208701516020870152604087015160408701526060870151606087015260808701518682036080880152611703565b60018060a01b0360a08701511660a086015260c086015185820360c0870152611703565b930151151591015290565b6001548110156119c15760015f5260205f2001905f90565b634e487b7160e01b5f52603260045260245ffd5b903590601e19813603018212156101f257018035906001600160401b0382116101f2576020019181360383136101f257565b9192916001600160401b0382116104545760405191611a30601f8201601f19166020018461163e565b8294818452818301116101f2578281602093845f960137010152565b60038210156111915752565b601f8211611a6557505050565b5f5260205f20906020601f840160051c83019310611a9d575b601f0160051c01905b818110611a92575050565b5f8155600101611a87565b9091508190611a7e565b8160011b915f199060031b1c19161790565b9060038110156111915760ff80198354169116179055565b908060209392818452848401375f828201840152601f01601f1916010190565b60405190611afe82611606565b5f6102008382815260606020820152606060408201526060808201528260808201528260a08201528260c08201528260e08201528261010082015282610120820152826101408201528261016082015282610180820152826101a0820152826101c0820152826101e08201520152565b90604051611b7b81611606565b82546001600160a01b0316815291829061020090601090611b9e60018201611661565b6020850152611baf60028201611661565b6040850152611bc060038201611661565b6060850152611bd960ff60048301541660808601611a4c565b600581015460a0850152600681015460c085015260ff600782015416151560e085015260088101546101008501526009810154610120850152600a810154610140850152600b810154610160850152600c810154610180850152600d8101546101a0850152600e8101546101c0850152600f8101546101e08501520154910152565b6001600160401b0381116104545760051b60200190565b919082018092116103d357565b91906001906001549081851015611d3757611c9a9085611c72565b90808211611d2f575b508381039081116103d357611cb781611c5b565b611cc4604051918261163e565b818152611cd082611c5b565b602090601f1901368383013781955f5b848110611cef57505050505050565b611d01611cfc8284611c72565b6119a9565b9190549185518210156119c15760031b9190911c6001600160a01b0316600582901b85018401528501611ce0565b90505f611ca3565b505060405191925050602081016001600160401b03811182821017610454576040525f81525f36813790565b60405190611d7082611622565b5f60e08360608152826020820152826040820152826060820152606060808201528260a0820152606060c08201520152565b90604051611daf81611622565b60e060ff60078395611dc081611661565b8552600181015460208601526002810154604086015260038101546060860152611dec60048201611661565b608086015260058101546001600160a01b031660a0860152611e1060068201611661565b60c08601520154161515910152565b610bb810611e3f576101f410611e3f5760c810611e3f5760c810611e3f57565b6040516376a3f95d60e01b8152600490fdfe71e1a016ff358304e7c0e29301b3053a40633221fc6dec4a698d6c2b4524c30aa2646970667358221220cdba830a9daa52f5a8a54b3e0ad6ab89892f7921e94e2be52fe4daf5a5e4fa8e64736f6c63430008180033",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}

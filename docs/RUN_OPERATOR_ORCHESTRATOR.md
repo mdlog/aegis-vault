@@ -39,7 +39,7 @@ npm install --legacy-peer-deps
 
 ## Step 2 — Register operator on-chain
 
-Anda butuh entry di `OperatorRegistry` (`0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9`) sebelum vault depositor bisa lihat Anda di marketplace.
+Anda butuh entry di `OperatorRegistry` (`0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b`) sebelum vault depositor bisa lihat Anda di marketplace.
 
 **Cara A — UI (paling mudah):**
 
@@ -51,7 +51,7 @@ Anda butuh entry di `OperatorRegistry` (`0x252Ef1B2C3CBe775cdCe8B07192BB8355c759
 
 ```bash
 export OP_KEY=0x...                                           # operator wallet private key
-export REG=0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9
+export REG=0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b
 export RPC=https://evmrpc.0g.ai
 
 # Sesuaikan field: name, perfFee bps, mgmtFee bps, entryFee bps, exitFee bps, feeRecipient
@@ -127,7 +127,7 @@ Tier menentukan max NAV vault yang boleh Anda kelola:
 | Platinum | 1,000,000 | Unlimited |
 
 ```bash
-export STAKING=0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3
+export STAKING=0xF46b6b76c5021a21dc0029FDEAEba6713472CBE6
 export USDC_E=0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E
 
 # 1. Approve
@@ -204,7 +204,7 @@ Yang Anda harapkan di log dalam ~30 detik pertama:
 ```
 [time] INFO  Network:  https://evmrpc.0g.ai
 [time] INFO  Chain ID: 16661
-[time] INFO  Factory:  0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3
+[time] INFO  Factory:  0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F
 [time] INFO  0G Compute: Wallet 0x..., balance: X 0G
 [time] INFO  0G Compute: Ledger account found       ← atau "Creating ledger (deposit 3 0G)..."
 [time] INFO  0G Compute: Selected → zai-org/GLM-5-FP8
@@ -373,15 +373,15 @@ Untuk dashboard, [`docs/OPERATOR_GUIDE.md`](OPERATOR_GUIDE.md) menyebut Grafana 
 
 | Role | Address |
 |---|---|
-| OperatorRegistry | `0x252Ef1B2C3CBe775cdCe8B07192BB8355c7594c9` |
-| OperatorStaking | `0xe153A071FBFFa20Bd1a016C545745EFcAC3F2bc3` |
-| OperatorReputation | `0x855380187f223391b55fc381f33429A14d238879` |
-| InsurancePool | `0xd5eb21420e9D22b763b94fDb396756d820eCa694` |
-| **AegisVaultFactoryV3** (current default) | `0x75668Ca95aCaE419732B0c7AeA1ee7f9B2EFE0e3` |
+| OperatorRegistry | `0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b` |
+| OperatorStaking | `0xF46b6b76c5021a21dc0029FDEAEba6713472CBE6` |
+| OperatorReputation | `0x4389d082dE464defF665612A73f36b99059F2Da4` |
+| InsurancePool | `0xe69eAff976b6AEf35556cb3D09972E401a85DD77` |
+| **AegisVaultFactoryV4** (current default) | `0x9e36520650Fd7d06CA77Fb0045456c03d3582A5F` |
 | ExecutionRegistry V3 | `0x8DD63Cfcf5D5eBef23822b8B7b7b40b8C2DabfE9` |
-| AegisVault impl V3 | `0x0c78257550802bF2fFD201106Fe8096A5211397e` |
+| AegisVault_v4 impl | `0x28F8E1a9Af4eBF4Df323861F499B8d87295b72Ed` |
 | KhalaniVenueAdapter (cross-chain) | `0xB65fdbb69Cbb382792E644b5f9EcA2ff42673dc4` |
-| JaineVenueAdapterV2 (multi-hop) | `0x261244010A6D87e043b3489D93fA573cdc2274B6` |
+| JaineVenueAdapterV2 (multi-hop) | `0xA4E2aeB9e1a5297DE38d7Ad8e11b1714ca481F2f` |
 | ProtocolTreasury | `0xCDc5D994590D0BF407E5be390A62A8d1eBbf0dF4` |
 | AegisGovernor (multisig) | `0x023EC4a54435f94E9395460e4835e75E429D5A2e` |
 | USDC.e | `0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E` |
