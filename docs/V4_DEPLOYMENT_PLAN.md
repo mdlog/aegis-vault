@@ -16,7 +16,7 @@ V4 introduces:
 
 V4 reuses V3's existing `ExecutionRegistry`, `SealedLib`, `IOLib`, and `CrossChainLib` libraries — no fork required for those. V3 vaults are not touched.
 
-The orchestrator already supports both V3 and V4 vaults in the same process (Phase 2 integration). The frontend / SDK are being delivered in parallel by Agent E.
+The orchestrator already supports both V3 and V4 vaults in the same process (Phase 2 integration). The frontend / SDK are being delivered in parallel by the frontend/SDK workstream.
 
 ---
 
@@ -147,7 +147,7 @@ The orchestrator already supports V4 vaults at the code level (Phase 2 integrati
 
 ### 9. Update the frontend
 
-Agent E owns the UI surface. The deployment task hands them:
+The frontend/SDK workstream owns the UI surface. The deployment task hands them:
 
 - `aegisVaultFactoryV4` address (for the "Create V4 Vault" wizard).
 - `aegisVaultImplementationV4` address (for the "verify code" link in the operator-profile screen).

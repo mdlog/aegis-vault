@@ -64,7 +64,7 @@ Boolean/numeric expression language with limited surface:
   - Position: `position.pnl_pct`, `position.holding_seconds`
   - Vault: `vault.maxPositionBps`, `vault.consecutive_losses`, `vault.balance`
 
-The DSL is sandboxed (no I/O, no globals, no Turing-completeness) and deterministic. Implementation in `orchestrator/src/strategy/dsl.js` (Phase 1 Agent B).
+The DSL is sandboxed (no I/O, no globals, no Turing-completeness) and deterministic. Implementation in `orchestrator/src/strategy/dsl.js` (Phase 1 Workstream B).
 
 #### AI integration modes (extension 2)
 
@@ -106,7 +106,7 @@ V4 vaults bind the strategy hash on-chain via two mechanisms:
 1. **`ExecutionIntent.strategyHash` field** — added to the EIP-712 typehash. Vault contract verifies `intent.strategyHash == acceptedManifestHash` on `executeIntent()`.
 2. **`AegisVaultV4.acceptedManifestHash` storage** — set at create time from operator's current `manifestHash`. User-approved upgrades go through a 24-hour timelock.
 
-These are V4 contract changes (Phase 1 Agent A). Phase 1 deployments use the orchestrator-side hash binding only (carried inside the existing `attestationReportHash` extended field) — sufficient for off-chain audit, lacking trustless on-chain enforcement.
+These are V4 contract changes (Phase 1 Workstream A). Phase 1 deployments use the orchestrator-side hash binding only (carried inside the existing `attestationReportHash` extended field) — sufficient for off-chain audit, lacking trustless on-chain enforcement.
 
 ### V3 → V4 migration
 
@@ -115,7 +115,7 @@ V3 vaults remain functional indefinitely. No forced migration. Users may opt to:
 - **Stay on V3** — orchestrator continues serving with off-chain strategy enforcement (decision logs + manual governance audit).
 - **Migrate to V4** — withdraw from V3 vault, create new vault via V4 factory, optionally re-deposit. New vault uses on-chain `acceptedManifestHash` binding.
 
-Migration tooling (Phase 3 Agent F): `contracts/scripts/migrate-v3-to-v4.js` automates the withdraw + create + deposit flow with user signatures.
+Migration tooling (Phase 3 Workstream F): `contracts/scripts/migrate-v3-to-v4.js` automates the withdraw + create + deposit flow with user signatures.
 
 ### Backtest CLI (extension 5)
 
@@ -125,7 +125,7 @@ Operator validates strategy before publishing:
 npm run backtest -- --manifest ./my-strategy.json --asset ETH --period 90d --start-capital 10000
 ```
 
-Output: trades, win rate, total return, max drawdown, Sharpe ratio. See Phase 1 Agent C output.
+Output: trades, win rate, total return, max drawdown, Sharpe ratio. See Phase 1 Workstream C output.
 
 ### Strategy template library (extension 6)
 
@@ -165,25 +165,25 @@ All failures degrade gracefully: cycle skipped, no on-chain tx attempted, alert 
 - ✅ Loader skeleton (`loader.js`) — interface + caching + failure modes
 - ✅ This RFC document
 
-### Phase 1 — Parallel (4 agents)
+### Phase 1 — Parallel (4 workstreams)
 
-- **Agent A**: V4 Solidity contracts
+- **Workstream A**: V4 Solidity contracts
   - `contracts/contracts/v4/AegisVault_v4.sol` — adds `acceptedManifestHash` storage + setter with timelock
   - `contracts/contracts/v4/AegisVaultFactoryV4.sol` — accepts `acceptedManifestHash` parameter at create
   - `contracts/contracts/v4/ExecLibV4.sol` — new EIP-712 typehash including `strategyHash` + `strategySchemaVer`
   - Tests under `contracts/test/AegisVault_v4.test.js`
 
-- **Agent B**: Mini-DSL parser + evaluator
+- **Workstream B**: Mini-DSL parser + evaluator
   - `orchestrator/src/strategy/dsl.js` — parser + AST + evaluator with sandboxed identifier resolution
   - AI mode handler implementing `scoring_input` / `hard_gate` / `context_only`
   - Tests under `orchestrator/test/strategy/dsl.test.js`
 
-- **Agent C**: Backtest CLI + simulator
+- **Workstream C**: Backtest CLI + simulator
   - `orchestrator/scripts/backtest.mjs` — CLI entrypoint
   - `orchestrator/src/services/backtester.js` — historical replay engine using existing indicators
   - Output: trades, win rate, drawdown, Sharpe
 
-- **Agent D**: Strategy template library
+- **Workstream D**: Strategy template library
   - `orchestrator/strategies/trend-following-v1.json`
   - `orchestrator/strategies/mean-reversion-v1.json`
   - `orchestrator/strategies/momentum-breakout-v1.json`
@@ -199,15 +199,15 @@ All failures degrade gracefully: cycle skipped, no on-chain tx attempted, alert 
 - Implement extension 7 failure mode handlers in cycle loop
 - End-to-end local test: 3 different strategies producing 3 different decisions for same market
 
-### Phase 3 — Parallel (2 agents)
+### Phase 3 — Parallel (2 workstreams)
 
-- **Agent E**: SDK + frontend
+- **Workstream E**: SDK + frontend
   - `sdk/src/strategy.js` — strategy SDK (load, hash, publish helpers)
   - `frontend/src/hooks/useStrategy.js` — fetch operator strategy
   - `frontend/src/pages/CreateVaultPage.jsx` — strategy preview at vault create
   - Updated CONTRACTS.md
 
-- **Agent F**: Tests + docs + migration
+- **Workstream F**: Tests + docs + migration
   - `contracts/test/AegisVault_v4.test.js` — comprehensive V4 contract tests
   - `orchestrator/test/strategy/loader.test.js`, `dsl.test.js` — unit tests
   - `contracts/scripts/migrate-v3-to-v4.js` — migration automation
@@ -221,7 +221,7 @@ All failures degrade gracefully: cycle skipped, no on-chain tx attempted, alert 
 - Generate `docs/V4_DEPLOYMENT_PLAN.md` — exact steps for eventual mainnet deploy
 - Final review pass
 
-## File ownership map (no agent collisions)
+## File ownership map (no workstream overlap)
 
 | Path | Owner | Phase |
 |---|---|---|
@@ -229,23 +229,23 @@ All failures degrade gracefully: cycle skipped, no on-chain tx attempted, alert 
 | `orchestrator/src/strategy/hash.js` | foundation | 0 |
 | `orchestrator/src/strategy/validator.js` | foundation | 0 |
 | `orchestrator/src/strategy/loader.js` | foundation + Phase 2 wiring | 0 → 2 |
-| `orchestrator/src/strategy/dsl.js` | Agent B | 1 |
-| `orchestrator/src/strategy/aiModes.js` | Agent B | 1 |
-| `orchestrator/src/services/backtester.js` | Agent C | 1 |
-| `orchestrator/scripts/backtest.mjs` | Agent C | 1 |
-| `orchestrator/strategies/*.json` | Agent D | 1 |
-| `contracts/contracts/v4/*.sol` | Agent A | 1 |
+| `orchestrator/src/strategy/dsl.js` | Workstream B | 1 |
+| `orchestrator/src/strategy/aiModes.js` | Workstream B | 1 |
+| `orchestrator/src/services/backtester.js` | Workstream C | 1 |
+| `orchestrator/scripts/backtest.mjs` | Workstream C | 1 |
+| `orchestrator/strategies/*.json` | Workstream D | 1 |
+| `contracts/contracts/v4/*.sol` | Workstream A | 1 |
 | `orchestrator/src/services/decisionEngine.js` | Phase 2 (refactor) | 2 |
 | `orchestrator/src/services/signalScoring.js` | Phase 2 (refactor) | 2 |
 | `orchestrator/src/services/riskVeto.js` | Phase 2 (refactor) | 2 |
 | `orchestrator/src/services/orchestrator.js` | Phase 2 (wire loader + failure modes) | 2 |
 | `orchestrator/src/services/executor.js` | Phase 2 (strategyHash binding) | 2 |
-| `sdk/src/strategy.js` | Agent E | 3 |
-| `frontend/src/hooks/useStrategy.js` | Agent E | 3 |
-| `frontend/src/pages/CreateVaultPage.jsx` | Agent E | 3 |
-| `contracts/test/AegisVault_v4.test.js` | Agent F | 3 |
-| `contracts/scripts/migrate-v3-to-v4.js` | Agent F | 3 |
-| `docs/V4_MIGRATION_GUIDE.md` | Agent F | 3 |
+| `sdk/src/strategy.js` | Workstream E | 3 |
+| `frontend/src/hooks/useStrategy.js` | Workstream E | 3 |
+| `frontend/src/pages/CreateVaultPage.jsx` | Workstream E | 3 |
+| `contracts/test/AegisVault_v4.test.js` | Workstream F | 3 |
+| `contracts/scripts/migrate-v3-to-v4.js` | Workstream F | 3 |
+| `docs/V4_MIGRATION_GUIDE.md` | Workstream F | 3 |
 
 ## Open questions
 

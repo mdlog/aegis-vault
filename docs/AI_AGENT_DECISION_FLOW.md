@@ -1,45 +1,45 @@
 # Aegis Vault AI Agent — Decision Flow
 
-Dokumen ini menjelaskan secara detail bagaimana AI agent di Aegis Vault memutuskan untuk melakukan **BUY**, **SELL**, atau **HOLD** pada setiap cycle.
+This document explains in detail how the AI agent in Aegis Vault decides between **BUY**, **SELL**, and **HOLD** on every cycle.
 
 ---
 
 ## Overview
 
-Aegis Vault menggunakan AI inference dari **0G Compute Network** (model `GLM-5-FP8` di mainnet) untuk menganalisis kondisi pasar dan menghasilkan keputusan trading terstruktur. Keputusan AI kemudian divalidasi oleh **12 policy rules on-chain** sebelum swap dieksekusi.
+Aegis Vault uses AI inference from the **0G Compute Network** (model `GLM-5-FP8` on mainnet) to analyze market conditions and produce a structured trading decision. The AI's decision is then validated by **12 on-chain policy rules** before any swap is executed.
 
 ```
-Setiap 2 menit:
+Every 2 minutes:
 
   [Market Data]  →  [AI Inference]  →  [Policy Check]  →  [Execute/Block]
    CoinGecko        0G Compute         Off-chain +         On-chain TX
    Pyth Hermes      GLM-5-FP8          On-chain rules      via MockDEX
 ```
 
-**Prinsip utama:** AI hanya **mengusulkan** — smart contract yang **memutuskan** apakah proposal valid.
+**Core principle:** the AI only **proposes** — the smart contract is what **decides** whether the proposal is valid.
 
 ---
 
-## Step 1: Pengumpulan Data Market
+## Step 1: Market Data Collection
 
-Setiap cycle, orchestrator mengumpulkan data dari dua sumber:
+On every cycle, the orchestrator collects data from two sources:
 
 ### CoinGecko API
-- Harga real-time BTC, ETH, USDC dalam USD
-- Perubahan harga 24 jam (%)
-- Volume 24 jam
+- Real-time BTC, ETH, USDC prices in USD
+- 24h price change (%)
+- 24h volume
 - Market cap
 
 ### Pyth Hermes Oracle
-- Harga real-time dengan confidence interval
-- Update setiap 15 detik
+- Real-time prices with confidence interval
+- Updates every 15 seconds
 
 ### Volatility Calculation
-- Mengambil harga 7 hari terakhir dari CoinGecko
-- Menghitung **annualized volatility** menggunakan standar deviasi return harian
-- Digunakan sebagai indikator risiko pasar
+- Pulls the last 7 days of prices from CoinGecko
+- Computes **annualized volatility** from the standard deviation of daily returns
+- Used as a market risk indicator
 
-**Contoh data yang dikumpulkan:**
+**Example of collected data:**
 ```
 BTC:
   Price: $68,376
@@ -56,28 +56,28 @@ ETH:
 
 ---
 
-## Step 2: Pembacaan Vault State (On-chain)
+## Step 2: Vault State Read (On-chain)
 
-Orchestrator membaca state vault langsung dari smart contract:
+The orchestrator reads vault state directly from the smart contract:
 
-| Data | Sumber | Contoh |
-|------|--------|--------|
+| Data | Source | Example |
+|------|--------|---------|
 | NAV (Net Asset Value) | `vault.getVaultSummary()` | $30,000 |
 | Policy | `vault.getPolicy()` | Max position 50%, confidence threshold 60% |
 | Allowed Assets | `vault.getAllowedAssets()` | USDC, WBTC, WETH |
 | Daily Actions Used | `vault.getVaultSummary()` | 2 / 20 |
-| Last Execution Time | `vault.getVaultSummary()` | 2 jam lalu |
+| Last Execution Time | `vault.getVaultSummary()` | 2 hours ago |
 | Paused | `vault.getVaultSummary()` | false |
 | Auto-execution | `vault.getPolicy()` | true |
-| Mandate | Derived dari maxPositionBps | Balanced |
+| Mandate | Derived from maxPositionBps | Balanced |
 
 ---
 
 ## Step 3: Prompt Construction
 
-Orchestrator membangun prompt yang dikirim ke AI model.
+The orchestrator builds the prompt sent to the AI model.
 
-### System Prompt (identitas + aturan)
+### System Prompt (identity + rules)
 
 ```
 You are Aegis Vault AI — a disciplined, risk-aware autonomous trading agent.
@@ -95,7 +95,7 @@ CONSTRAINTS:
 - Never trade more than one asset at a time
 ```
 
-### User Prompt (data real-time)
+### User Prompt (real-time data)
 
 ```
 === CURRENT MARKET DATA ===
@@ -128,9 +128,9 @@ Based on the above data, what is your recommended action?
 
 ## Step 4: AI Reasoning & Decision
 
-### Menggunakan 0G Compute (GLM-5-FP8)
+### Using 0G Compute (GLM-5-FP8)
 
-Model melakukan **reasoning chain** internal sebelum memberikan jawaban:
+The model runs an internal **reasoning chain** before answering:
 
 ```
 [REASONING — internal, not exposed to user]
@@ -171,75 +171,75 @@ Analysis:
 
 | Field | Type | Range | Meaning |
 |-------|------|-------|---------|
-| `action` | string | `buy`, `sell`, `hold` | Apa yang harus dilakukan |
-| `asset` | string | `BTC`, `ETH`, `USDC` | Asset yang di-trade |
-| `size_bps` | number | 0 - 5000 | Ukuran posisi dalam basis points (100 = 1% dari vault NAV) |
-| `confidence` | number | 0.0 - 1.0 | Seberapa yakin AI (0 = tidak yakin, 1 = sangat yakin) |
-| `risk_score` | number | 0.0 - 1.0 | Tingkat risiko pasar (0 = sangat aman, 1 = sangat berisiko) |
-| `reason` | string | - | Penjelasan satu kalimat dari keputusan |
+| `action` | string | `buy`, `sell`, `hold` | What to do |
+| `asset` | string | `BTC`, `ETH`, `USDC` | Asset to trade |
+| `size_bps` | number | 0 - 5000 | Position size in basis points (100 = 1% of vault NAV) |
+| `confidence` | number | 0.0 - 1.0 | How confident the AI is (0 = uncertain, 1 = very confident) |
+| `risk_score` | number | 0.0 - 1.0 | Market risk level (0 = very safe, 1 = very risky) |
+| `reason` | string | - | One-sentence explanation of the decision |
 
 ---
 
-## Step 5: Kapan AI Memutuskan Buy / Sell / Hold
+## Step 5: When the AI Decides Buy / Sell / Hold
 
-### BUY — Kondisi yang memicu:
+### BUY — Triggers:
 
-| Trigger | Contoh | Confidence |
-|---------|--------|-----------|
-| BTC momentum kuat ke atas (+2.5%+ 24h) | BTC $69k (+2.8%) | ~72% |
-| ETH momentum kuat ke atas (+3%+ 24h) | ETH $2.2k (+3.3%) | ~66% |
-| Vault belum punya exposure (100% USDC) | NAV $30k all stablecoin | Lebih tinggi |
-| Volatility rendah-sedang (<60%) | BTC vol 42% | Lebih tinggi |
+| Trigger | Example | Confidence |
+|---------|---------|-----------|
+| Strong BTC upward momentum (+2.5%+ 24h) | BTC $69k (+2.8%) | ~72% |
+| Strong ETH upward momentum (+3%+ 24h) | ETH $2.2k (+3.3%) | ~66% |
+| Vault has no existing exposure (100% USDC) | NAV $30k all stablecoin | Higher |
+| Low-to-moderate volatility (<60%) | BTC vol 42% | Higher |
 
-### SELL — Kondisi yang memicu:
+### SELL — Triggers:
 
-| Trigger | Contoh | Confidence |
-|---------|--------|-----------|
-| BTC turun tajam (-3%+ 24h) | BTC $66k (-3.2%) | ~68% |
-| ETH turun tajam (-3.5%+ 24h) | ETH $2k (-4%) | ~65% |
-| Vault punya exposure besar ke asset yang turun | 40% di BTC, BTC -3% | Lebih tinggi |
-| Drawdown mendekati limit | Loss 4% dari 5% max | Lebih tinggi |
+| Trigger | Example | Confidence |
+|---------|---------|-----------|
+| Sharp BTC drop (-3%+ 24h) | BTC $66k (-3.2%) | ~68% |
+| Sharp ETH drop (-3.5%+ 24h) | ETH $2k (-4%) | ~65% |
+| Vault has large exposure to a falling asset | 40% in BTC, BTC -3% | Higher |
+| Drawdown approaching its limit | Loss 4% out of 5% max | Higher |
 
-### HOLD — Kondisi yang memicu:
+### HOLD — Triggers:
 
-| Trigger | Contoh | Confidence |
-|---------|--------|-----------|
+| Trigger | Example | Confidence |
+|---------|---------|-----------|
 | Market sideways / no clear signal | BTC +0.5%, ETH -0.3% | ~45% |
-| Volatility terlalu tinggi (>80%) | BTC vol 92% | ~55% |
-| Confidence < 50% | Sinyal ambigu | ~35% |
-| Risk score > 70% | Market crash banyak indikator negatif | ~40% |
-| Daily action limit tercapai | 20/20 actions hari ini | ~25% |
-| Vault paused | Owner pause vault | N/A |
+| Volatility too high (>80%) | BTC vol 92% | ~55% |
+| Confidence < 50% | Ambiguous signals | ~35% |
+| Risk score > 70% | Market crash, many negative indicators | ~40% |
+| Daily action limit reached | 20/20 actions today | ~25% |
+| Vault paused | Owner has paused the vault | N/A |
 
 ---
 
 ## Step 6: Policy Check (Double Layer)
 
-Keputusan AI harus melewati **dua layer** validasi:
+The AI's decision must pass **two layers** of validation:
 
-### Layer 1: Off-chain Pre-check (10 rules — hemat gas)
+### Layer 1: Off-chain Pre-check (10 rules — gas-saving)
 
 ```
 ✅ Auto-execution enabled?
 ✅ Vault not paused?
-✅ Confidence >= threshold? (misal 72% >= 60%)
-✅ Position size <= max? (misal 40% <= 50%)
-✅ Daily actions < limit? (misal 2 < 20)
-✅ Cooldown elapsed? (misal 2 jam > 60 detik)
-✅ Asset whitelisted? (BTC dalam allowed assets)
+✅ Confidence >= threshold? (e.g. 72% >= 60%)
+✅ Position size <= max? (e.g. 40% <= 50%)
+✅ Daily actions < limit? (e.g. 2 < 20)
+✅ Cooldown elapsed? (e.g. 2 hours > 60 seconds)
+✅ Asset whitelisted? (BTC in the allowed assets list)
 ✅ Daily loss within limit?
 ✅ Risk score acceptable?
 ✅ Auto-execution flag on?
 ```
 
-Jika SATU SAJA gagal → intent **tidak dikirim** ke blockchain (hemat gas).
+If even ONE check fails → the intent is **never submitted** to the blockchain (gas saved).
 
 ### Layer 2: On-chain Enforcement (12 rules — immutable)
 
 ```
 ✅ autoExecution == true
-✅ intent.vault == address(this) (anti cross-vault attack)
-✅ EIP-712 intentHash recomputed dan cocok (anti tampering + cross-chain replay)
+✅ intent.vault == address(this) (prevents cross-vault attacks)
+✅ EIP-712 intentHash recomputed and matches (anti-tampering + cross-chain replay)
 ✅ [Sealed mode] ECDSA signature verified against policy.attestedSigner
 ✅ [Sealed mode] commit-reveal: commit exists at block < current (anti-MEV)
 ✅ [Sealed mode] commit deleted after use (anti-replay)
@@ -249,13 +249,13 @@ Jika SATU SAJA gagal → intent **tidak dikirim** ke blockchain (hemat gas).
    - Confidence threshold
    - Daily action count
    - Token balance sufficient
-✅ Intent registered di ExecutionRegistry (anti replay)
+✅ Intent registered in ExecutionRegistry (anti-replay)
 ✅ Swap executed via venue (ExecLib._swap with slippage check)
 ```
 
 ---
 
-## Contoh Lengkap: Cycle #573 (Data Real)
+## Full Example: Cycle #573 (Real Data)
 
 ### Input
 
@@ -288,17 +288,17 @@ Vault (0xFFac...DAB2):
 }
 ```
 
-**Mengapa HOLD:**
-1. Daily action limit 20/20 sudah tercapai — AI tahu tidak bisa trading lagi hari ini
-2. Volatility data unavailable (CoinGecko rate limited)
-3. Market movement tidak cukup kuat untuk sinyal jelas
-4. Confidence hanya 25% — jauh di bawah threshold 60%
+**Why HOLD:**
+1. Daily action limit 20/20 reached — the AI knows no more trading is allowed today
+2. Volatility data unavailable (CoinGecko rate-limited)
+3. Market movement not strong enough for a clear signal
+4. Confidence only 25% — well below the 60% threshold
 
-### Hasil: Skipped (tidak ada transaksi on-chain)
+### Result: Skipped (no on-chain transaction)
 
 ---
 
-## Contoh Lengkap: Cycle BUY ETH (Data Real)
+## Full Example: BUY ETH Cycle (Real Data)
 
 ### Input
 
@@ -329,12 +329,12 @@ Vault (0xFFac...DAB2):
 }
 ```
 
-**Mengapa BUY ETH:**
-1. ETH naik +3.0% dalam 24 jam — memenuhi threshold momentum (+3%+)
-2. BTC juga naik (+2.0%) tapi belum memenuhi threshold buy BTC (+2.5%+)
-3. Risk score 38% — moderate, di bawah 70% threshold
-4. Confidence 66% — di atas policy threshold 60%
-5. Size 600 bps (6%) — conservative, jauh di bawah max 50%
+**Why BUY ETH:**
+1. ETH up +3.0% in 24h — meets the momentum threshold (+3%+)
+2. BTC also up (+2.0%) but does not meet the BTC buy threshold (+2.5%+)
+3. Risk score 38% — moderate, below the 70% threshold
+4. Confidence 66% — above the 60% policy threshold
+5. Size 600 bps (6%) — conservative, well under the 50% max
 
 ### Policy Check
 
@@ -366,11 +366,11 @@ vault.executeIntent(intent):
   → emit IntentExecuted
 ```
 
-**Hasil:** TX `0x6611cca6...` confirmed on Galileo testnet. USDC diswap ke WETH.
+**Result:** TX `0x6611cca6...` confirmed on Galileo testnet. USDC swapped into WETH.
 
 ---
 
-## Contoh Lengkap: BLOCKED oleh Policy
+## Full Example: BLOCKED by Policy
 
 ### AI Decision
 
@@ -406,27 +406,27 @@ Off-chain:
 }
 ```
 
-**Hasil:** Tidak ada transaksi on-chain. Gas disimpan. AI diinformasikan bahwa action diblokir.
+**Result:** No on-chain transaction. Gas saved. The AI is informed that the action was blocked.
 
 ---
 
-## Statistik Real (dari Orchestrator)
+## Real Stats (from the Orchestrator)
 
-Data dari orchestrator yang sedang berjalan:
+Data from a running orchestrator:
 
 ```
 Total Cycles:        574
 Total Decisions:     574
 
 Buy Decisions:       127 (BTC + ETH)
-Sell Decisions:      0 (market belum turun tajam)
+Sell Decisions:      0 (market hasn't dropped sharply)
 Hold Decisions:      447
 
 Executed on-chain:   18
 Blocked by policy:   109 (mostly "daily limit 20/20")
 Skipped (hold):      447
 
-Source 0G Compute:   1 (baru aktif)
+Source 0G Compute:   1 (just activated)
 Source local-fallback: 573
 
 Block Reasons:
@@ -437,7 +437,7 @@ Block Reasons:
 
 ## Track 2: Sealed Strategy Mode — Decision Flow Extension
 
-Ketika vault menggunakan **Sealed Strategy Mode** (`policy.sealedMode = true`), ada langkah tambahan sebelum dan sesudah AI decision:
+When a vault uses **Sealed Strategy Mode** (`policy.sealedMode = true`), additional steps wrap the AI decision:
 
 ### Pre-Execution: TEE Attestation
 
@@ -451,30 +451,30 @@ Sealed Flow:
               → wait 1 block (anti-MEV)
               → executeIntent(intent, teeSignature)
               → vault verifies ECDSA signature (EIP-712 typed data)
-              → vault checks commit exists and is old enough
+              → vault checks that commit exists and is old enough
               → vault deletes commit (replay protection)
               → execute swap
 ```
 
 ### Attestation Report Hash
 
-Orchestrator menghitung hash dari 0G Compute response:
+The orchestrator computes a hash of the 0G Compute response:
 ```
 attestationReportHash = keccak256(abi.encode(
-  providerAddress,   // 0G Compute provider yang menjalankan inference
-  chatId,            // ID percakapan (unik per request)
-  model,             // Model yang digunakan (e.g., "GLM-5-FP8")
-  keccak256(content) // Hash dari output AI (keputusan JSON)
+  providerAddress,   // 0G Compute provider that ran inference
+  chatId,            // conversation ID (unique per request)
+  model,             // model used (e.g., "GLM-5-FP8")
+  keccak256(content) // hash of the AI output (decision JSON)
 ))
 ```
 
-Hash ini di-bind ke dalam intent hash (EIP-712), sehingga:
-- Output AI tidak bisa ditukar setelah attestation
-- Vault bisa di-audit: cocokkan attestation hash dengan 0G Compute log
+This hash is bound into the intent hash (EIP-712), so:
+- The AI output cannot be swapped out after attestation
+- The vault is auditable: match the attestation hash against the 0G Compute log
 
 ### EIP-712 Intent Hash
 
-Intent hash sekarang menggunakan **EIP-712 typed structured data**:
+The intent hash now uses **EIP-712 typed structured data**:
 ```
 digest = keccak256(\x19\x01 || domainSeparator || structHash)
 
@@ -487,32 +487,32 @@ domainSeparator = keccak256(EIP712Domain(name, version, chainId, verifyingContra
 structHash = keccak256(ExecutionIntent typehash || vault || assetIn || ... || attestationReportHash)
 ```
 
-Keuntungan:
-- Replay protection lintas chain (testnet hash ≠ mainnet hash)
-- Replay protection lintas vault (vault A hash ≠ vault B hash)
-- Standar industri (MetaMask, Ledger, dll. bisa display readable data)
+Benefits:
+- Cross-chain replay protection (testnet hash ≠ mainnet hash)
+- Cross-vault replay protection (vault A hash ≠ vault B hash)
+- Industry standard (MetaMask, Ledger, etc. can display readable data)
 
 ### Trust Model
 
-| Layer | Apa yang dilindungi | Tergantung pada |
+| Layer | What it protects | Depends on |
 |---|---|---|
-| On-chain: ECDSA verify | Hanya `attestedSigner` yang bisa otorisasi trade | Private key `TEE_SIGNER_PRIVATE_KEY` aman |
-| On-chain: commit-reveal | Front-runner tidak bisa lihat swap params sebelum reveal | ≥1 block delay antara commit dan reveal |
-| Off-chain: 0G Compute | Inference jalan di provider terdaftar | Provider integrity + `processResponse()` verification |
-| Off-chain: TEE hardware | Strategy params tetap confidential selama inference | Provider hardware (SGX/TDX) — honest disclosure |
+| On-chain: ECDSA verify | Only `attestedSigner` can authorize a trade | `TEE_SIGNER_PRIVATE_KEY` stays safe |
+| On-chain: commit-reveal | Front-runners cannot see swap params before reveal | ≥ 1 block delay between commit and reveal |
+| Off-chain: 0G Compute | Inference runs on a registered provider | Provider integrity + `processResponse()` verification |
+| Off-chain: TEE hardware | Strategy params stay confidential during inference | Provider hardware (SGX/TDX) — honest disclosure |
 
 ---
 
-## Ringkasan
+## Summary
 
-| Aspek | Detail |
-|-------|--------|
-| **Siapa yang memutuskan?** | AI (GLM-5-FP8 via 0G Compute) mengusulkan, Smart Contract memutuskan |
-| **Data input** | Harga real-time (CoinGecko + Pyth), volatility 7d, vault state on-chain |
+| Aspect | Detail |
+|--------|--------|
+| **Who decides?** | AI (GLM-5-FP8 via 0G Compute) proposes, the Smart Contract decides |
+| **Input data** | Real-time prices (CoinGecko + Pyth), 7d volatility, on-chain vault state |
 | **Output** | JSON: action, asset, size, confidence, risk_score, reason |
-| **Kapan BUY?** | Momentum kuat (+2.5%+ BTC, +3%+ ETH), volatility rendah, confidence tinggi |
-| **Kapan SELL?** | Penurunan tajam (-3%+ BTC, -3.5%+ ETH), exposure perlu dikurangi |
-| **Kapan HOLD?** | Pasar netral, volatility tinggi, confidence rendah, limit tercapai |
+| **When BUY?** | Strong momentum (+2.5%+ BTC, +3%+ ETH), low volatility, high confidence |
+| **When SELL?** | Sharp drop (-3%+ BTC, -3.5%+ ETH), exposure needs to be reduced |
+| **When HOLD?** | Sideways market, high volatility, low confidence, action limit reached |
 | **Safety** | EIP-712 intent hash, commit-reveal, TEE attestation, policy rules, replay prevention |
-| **Sealed mode** | TEE-attested 0G Compute inference + commit-reveal anti-MEV + ECDSA on-chain verify |
-| **Transparency** | Setiap keputusan dicatat di journal + 0G Storage (immutable) |
+| **Sealed mode** | TEE-attested 0G Compute inference + commit-reveal anti-MEV + on-chain ECDSA verify |
+| **Transparency** | Every decision is recorded in the journal + 0G Storage (immutable) |
