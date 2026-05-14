@@ -15,9 +15,12 @@ HACKATHON_DESCRIPTION.txt
 Aegis_Vault_0G_Architecture.md
 Aegis_Vault_Decision_Matrix_v1.md
 CHECKPOINT_DRAFT.md
+CHECKPOINT_DRAFT_*.md
 DEMO_SCRIPT.md
 PITCH_SCRIPT.md
 PRE_DEPLOY_CHECKLIST.md
+OPERATOR_REGISTRATION_KIT.md
+setup.sh
 
 # Hardhat build artifacts only — DO NOT ignore the entire contracts/ folder
 contracts/cache/
