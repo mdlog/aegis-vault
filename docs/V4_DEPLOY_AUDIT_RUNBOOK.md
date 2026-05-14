@@ -101,16 +101,59 @@ Post-deploy: `deployments-mainnet.json::jaineVenueAdapterV2` updated.
 CONFIRM_MAINNET=1 npx hardhat run scripts/deploy-v4.js --network og_mainnet
 ```
 
-Effect: deploys `ExecLibV4` + `AegisVault_v4` (impl) + `AegisVaultFactoryV4`,
+Effect: deploys `ExecLibV4` + **`CrossChainLibV4`** (V4-only — V3 lib has
+the wrong typehash) + `AegisVault_v4` (impl) + `AegisVaultFactoryV4`,
 authorizes the V4 factory in the existing `ExecutionRegistry`. The
 **implementation** carries the constructor lock fix (H-1) — anyone calling
 `initialize` on the impl directly will revert. Clones are unaffected.
 
 Post-deploy:
-- `deployments-mainnet.json::aegisVaultFactoryV4` etc. updated
+- `deployments-mainnet.json::aegisVaultFactoryV4` + `crossChainLibraryV4` etc. updated
 - `executionRegistryV3.authorizedFactories(factoryV4) == true`
 
-### 2.4 — Decision: ProtocolTreasury
+### 2.4 — Fresh marketplace (for clean-slate cutover)
+
+For a truly clean V4 launch where the operator marketplace must start
+with zero operators / zero stakers / zero claim history, deploy a fresh
+marketplace stack. The 4 contracts are interlinked (staking's `registry`
+is `immutable`, pool's `setNotifier` is arbitrator-gated), so they
+deploy together.
+
+```bash
+ROTATE_TO_GOVERNOR=1 CONFIRM_MAINNET=1 \
+  npx hardhat run scripts/deploy-fresh-marketplace.js --network og_mainnet
+```
+
+Effect:
+- Deploys fresh `OperatorRegistry` (empty operator list).
+- Deploys fresh `InsurancePool_v2` (deployer as initial arbitrator).
+- Deploys fresh `OperatorStaking_v2` (bound to fresh registry + fresh pool;
+  deployer as initial arbitrator).
+- Deploys fresh `OperatorReputation` (deployer as initial admin).
+- Auto-wires `pool.setNotifier(staking, true)` (works because deployer is
+  the fresh pool's arbitrator — sidesteps the live pool's governor-gated
+  notifier flow).
+- If `ROTATE_TO_GOVERNOR=1`, rotates arbitrator + admin of the three
+  stateful contracts to `AegisGovernor` at the end. This closes audit
+  H-7 (reputation admin EOA) + posture for H-6/H-9 on the fresh
+  instances.
+
+Old marketplace addresses are preserved in `deployments-mainnet.json`
+under `*_retired` keys for the on-chain audit trail; the canonical keys
+(`operatorRegistryV2`, `operatorStakingV2`, `insurancePoolV2`,
+`operatorReputation`) overwrite with the fresh addresses so
+`sync-frontend.js` cuts the UI over automatically.
+
+Operators who were registered on the OLD registry are not migrated —
+they must re-register on the new registry. This is the desired
+clean-slate behavior.
+
+Skip this step if you want to keep the existing marketplace (just hide
+the 1 existing operator via `OperatorRegistry.deactivate()` from the
+operator's wallet; the frontend's `op.active === true` filter takes
+care of UI hiding without redeploy).
+
+### 2.5 — Decision: ProtocolTreasury
 
 The patched treasury (Ownable2Step + `NativeTransferFailed` error) requires
 a fresh deploy. Two paths:
@@ -122,7 +165,7 @@ a fresh deploy. Two paths:
 
 **Recommended: Path A.** Document plan to migrate in the next ProtocolTreasury_v2 deploy.
 
-### 2.5 — Sync downstream
+### 2.6 — Sync downstream
 
 ```bash
 node scripts/sync-frontend.js deployments-mainnet.json
