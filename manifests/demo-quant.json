@@ -70,10 +70,10 @@
 
   "rules": {
     "entry_long": {
-      "expression": "rsi_14 < 50 && price < bollinger_lower && regime in ['RANGE_STABLE', 'RANGE_NOISY', 'TREND_UP_WEAK']"
+      "expression": "rsi_14 < 50 && price < bb_lower && regime in ['RANGE_STABLE', 'RANGE_NOISY', 'TREND_UP_WEAK']"
     },
     "exit_long": {
-      "expression": "rsi_14 > 65 || price > bollinger_upper || position.pnl_pct < -10.0"
+      "expression": "rsi_14 > 65 || price > bb_upper || position.pnl_pct < -10.0"
     },
     "size_bps": {
       "expression": "min(4000, ai.confidence * 4000, vault.maxPositionBps)"
