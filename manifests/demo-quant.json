@@ -1,8 +1,9 @@
 {
+  "schemaVersion": 1,
   "name": "Demo Quant Alpha — Conservative Defensive",
   "version": "1.0.0",
   "operator": "0xbEa8A3562473F11de7AB1510759412F0A0153b58",
-  "publishedAt": "2026-05-16T00:00:00Z",
+  "publishedAt": "2026-05-17T00:00:00Z",
   "network": {
     "chain": "0G Aristotle Mainnet",
     "chainId": 16661,
@@ -11,6 +12,12 @@
   "mandate": "Conservative Defensive",
 
   "strategy": {
+    "id": "demo-quant-alpha-conservative-defensive",
+    "name": "Demo Quant Alpha — Conservative Defensive",
+    "type": "mean_reversion",
+    "timeframe": "1h",
+    "basedOn": null,
+    "basedOnHash": null,
     "summary": "Stablecoin-anchored defensive rotation across USDC.e / WETH / W0G on Jaine V3. Maximum 40% single-asset exposure, 60% confidence floor, sealed mode mandatory. Built as the canonical demo operator for the V4 marketplace cutover.",
     "thesis": "Defensive-first sizing — never more than 40% in any non-base asset, never trade below 60% AI confidence, and never trade through the mempool. Every intent is EIP-712 bound to a TEE-attested GLM-5-FP8 inference response via ExecutionIntent.attestationReportHash, and committed before reveal via sealed mode to defeat MEV.",
     "venues": [
@@ -22,6 +29,75 @@
       }
     ],
     "executionMode": ["sealed"]
+  },
+
+  "indicators": {
+    "rsi": {
+      "period": 14,
+      "buyMin": 30,
+      "buyMax": 50,
+      "overbought": 70,
+      "oversold": 30
+    },
+    "macd": {
+      "fast": 12,
+      "slow": 26,
+      "signal": 9,
+      "requireHistogramPositive": false
+    },
+    "ema": {
+      "periods": [20, 50, 200]
+    },
+    "atr": {
+      "period": 14
+    },
+    "bollinger": {
+      "period": 20,
+      "stdDev": 2.0
+    }
+  },
+
+  "scoring": {
+    "weights": {
+      "trend": 0.15,
+      "momentum": 0.10,
+      "volatility": 0.20,
+      "liquidity": 0.20,
+      "riskState": 0.25,
+      "aiContext": 0.10
+    }
+  },
+
+  "rules": {
+    "entry_long": {
+      "expression": "rsi_14 < 50 && price < bollinger_lower && regime in ['RANGE_STABLE', 'RANGE_NOISY', 'TREND_UP_WEAK']"
+    },
+    "exit_long": {
+      "expression": "rsi_14 > 65 || price > bollinger_upper || position.pnl_pct < -10.0"
+    },
+    "size_bps": {
+      "expression": "min(4000, ai.confidence * 4000, vault.maxPositionBps)"
+    }
+  },
+
+  "gates": {
+    "minEdgeBuy": 60,
+    "minQualityBuy": 60,
+    "minConfidenceBuy": 0.60,
+    "maxRiskBuy": 0.50,
+    "minEdgeSell": 50,
+    "minQualitySell": 50,
+    "allowedBuyRegimes": ["RANGE_STABLE", "RANGE_NOISY", "TREND_UP_WEAK"],
+    "allowedSellRegimes": ["TREND_UP_STRONG", "TREND_UP_WEAK", "RANGE_STABLE", "RANGE_NOISY", "TREND_DOWN_WEAK", "TREND_DOWN_STRONG", "PANIC_VOLATILE"]
+  },
+
+  "veto": {
+    "maxAtrPct": 2.5,
+    "rsiOverbought": 75,
+    "rsiOversold": 25,
+    "maxSpreadBps": 50,
+    "maxSlippageBps": 100,
+    "maxConsecutiveLosses": 3
   },
 
   "allowedAssets": [
@@ -49,7 +125,11 @@
   },
 
   "ai": {
+    "mode": "scoring_input",
     "model": "zai-org/GLM-5-FP8",
+    "providerAddress": "0xd9966e13a6026Fcca4b13E7ff95c94DE268C471C",
+    "temperature": 0.3,
+    "scoringWeight": 0.10,
     "provider": "0G Compute",
     "rpc": "https://evmrpc.0g.ai",
     "inputs": [
