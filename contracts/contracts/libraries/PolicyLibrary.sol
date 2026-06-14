@@ -67,18 +67,12 @@ library PolicyLibrary {
         return (false, "Asset not in whitelist");
     }
 
-    /// @notice Validates that the daily loss limit has not been exceeded
-    /// @param currentDailyLossBps Current daily loss in basis points
-    /// @param maxDailyLossBps Maximum daily loss allowed
-    function validateDailyLoss(
-        uint256 currentDailyLossBps,
-        uint256 maxDailyLossBps
-    ) internal pure returns (bool valid, string memory reason) {
-        if (currentDailyLossBps > maxDailyLossBps) {
-            return (false, "Daily loss limit exceeded");
-        }
-        return (true, "");
-    }
+    // NOTE: validateDailyLoss / validateAll were removed (Post-TEE remediation
+    // P0-5). They were never wired into any executeIntent path — the live gate
+    // is ExecLib(V4).runExecution, which enforces trade-shape only. Daily-loss /
+    // stop-loss are enforced OFF-CHAIN by the orchestrator risk veto
+    // (see orchestrator/src/services/riskVeto.js). Keeping a dead on-chain
+    // validator here falsely implied on-chain loss enforcement.
 
     /// @notice Validates that the intent has not expired
     /// @param expiresAt The expiry timestamp of the intent
@@ -141,74 +135,6 @@ library PolicyLibrary {
         if (tradeBps < MIN_TRADE_BPS) {
             return (false, "Trade size below minimum (1%)");
         }
-        return (true, "");
-    }
-
-    /// @notice Runs all policy checks and returns the first failure reason
-    function validateAll(
-        VaultPolicy memory _policy,
-        uint256 intentAmountIn,
-        uint256 vaultTotalValue,
-        uint256 lastExecutionTime,
-        uint256 currentDailyLossBps,
-        uint256 intentExpiresAt,
-        uint256 intentConfidenceBps,
-        uint256 dailyActionCount,
-        address assetIn,
-        address assetOut,
-        address baseAsset,
-        uint256 tokenInBalance,
-        address[] memory allowedAssets
-    ) external view returns (bool valid, string memory reason) {
-        bool isSellToBase = assetOut == baseAsset && assetIn != baseAsset;
-
-        // 1. Not paused
-        (valid, reason) = validateNotPaused(_policy.paused);
-        if (!valid) return (valid, reason);
-
-        // 2. Intent not expired
-        (valid, reason) = validateIntentExpiry(intentExpiresAt);
-        if (!valid) return (valid, reason);
-
-        // 3. Cooldown
-        (valid, reason) = validateCooldown(lastExecutionTime, _policy.cooldownSeconds);
-        if (!valid) return (valid, reason);
-
-        // 4. Token balance
-        (valid, reason) = validateAvailableBalance(intentAmountIn, tokenInBalance);
-        if (!valid) return (valid, reason);
-
-        // 5. Entry-only sizing checks.
-        // Exits are validated against the actual tokenIn balance above and should
-        // remain possible even when the vault is fully rotated out of the base asset.
-        if (!isSellToBase) {
-            (valid, reason) = validatePositionSize(intentAmountIn, vaultTotalValue, _policy.maxPositionBps);
-            if (!valid) return (valid, reason);
-
-            (valid, reason) = validateMinTradeSize(intentAmountIn, vaultTotalValue);
-            if (!valid) return (valid, reason);
-        }
-
-        // 6. Daily loss
-        (valid, reason) = validateDailyLoss(currentDailyLossBps, _policy.maxDailyLossBps);
-        if (!valid) return (valid, reason);
-
-        // 7. Confidence
-        (valid, reason) = validateConfidence(intentConfidenceBps, _policy.confidenceThresholdBps);
-        if (!valid) return (valid, reason);
-
-        // 8. Action count
-        (valid, reason) = validateActionCount(dailyActionCount, _policy.maxActionsPerDay);
-        if (!valid) return (valid, reason);
-
-        // 9. Asset whitelist (assetIn)
-        (valid, reason) = validateAssetWhitelist(assetIn, allowedAssets);
-        if (!valid) return (false, "AssetIn not in whitelist");
-
-        // 10. Asset whitelist (assetOut)
-        (valid, reason) = validateAssetWhitelist(assetOut, allowedAssets);
-        if (!valid) return (false, "AssetOut not in whitelist");
-
         return (true, "");
     }
 }

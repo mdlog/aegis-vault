@@ -30,10 +30,19 @@ services:
       # mount below. Default path inside the image (../../contracts/…) doesn't
       # exist because the Dockerfile build context only includes orchestrator/.
       DEPLOYMENTS_FILE: contracts/deployments-mainnet.json
+      # Persist the local journal / KV / index under the bind-mounted data dir
+      # below so it survives container recreate (Post-TEE remediation P0-8).
+      DATA_DIR: /app/data
     ports:
       - "4002:4002"
     volumes:
       - ./orchestrator/logs:/app/logs
+      # Persist orchestrator state (journal.json, kv-state.json, vault index).
+      # Without this the decision journal is lost on every `docker compose up`
+      # recreate — a SPOF for the post-hoc audit mirror (Post-TEE remediation
+      # P0-8). Back this directory up if you rely on the local journal; the
+      # authoritative audit trail remains on-chain regardless.
+      - ./orchestrator/data:/app/data
       # Read-only mount of the deploy artefact. Contract addresses live here
       # and the orchestrator config falls back to it when env-var overrides
       # are absent — without this the container starts with empty registry,
