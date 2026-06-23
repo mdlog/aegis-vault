@@ -38,6 +38,11 @@ export default function TEEAttestationPanel({ vaultAddress, policy, explorerHref
     ? executions.find((e) => e?.sealed || e?.attestationReportHash || e?.attestedSigner)
     : null;
 
+  // Most recent execution with a REAL hardware-TEE verification (DCAP) this cycle.
+  const lastTeeVerified = Array.isArray(executions)
+    ? executions.find((e) => e?.teeVerified === true)
+    : null;
+
   // Count sealed executions in recent journal
   const sealedExecCount = Array.isArray(executions)
     ? executions.filter((e) => e?.sealed || e?.attestationReportHash).length
@@ -89,6 +94,20 @@ export default function TEEAttestationPanel({ vaultAddress, policy, explorerHref
                 from the attested signer before executing. Commit-reveal hides swap parameters from public
                 mempool front-runners.
               </p>
+              {lastTeeVerified ? (
+                <p className="mt-2 text-[11px] text-emerald-soft/80 flex items-center gap-1.5">
+                  <Check className="w-3 h-3 shrink-0" />
+                  <span>
+                    Intel-TDX quote DCAP-verified
+                    {lastTeeVerified.verifierContract ? ` via ${lastTeeVerified.verifierContract.slice(0, 10)}…` : ''}
+                    {lastTeeVerified.attestedEnclaveSigner ? ` · enclave signer ${lastTeeVerified.attestedEnclaveSigner.slice(0, 10)}…` : ''}
+                  </span>
+                </p>
+              ) : (
+                <p className="mt-2 text-[11px] text-steel/45 leading-relaxed">
+                  Hardware TEE quote not verified for the latest execution (signed intent + commit-reveal only).
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -145,6 +164,18 @@ export default function TEEAttestationPanel({ vaultAddress, policy, explorerHref
                   <CopyAddr value={lastSealedExec.attestationReportHash} className="text-white/80" />
                 </div>
               )}
+              {lastSealedExec.teeVerified && (
+                <>
+                  <div className="flex items-center gap-3 text-[11px]">
+                    <span className="text-steel/50 w-28 shrink-0">DCAP verifier</span>
+                    <CopyAddr value={lastSealedExec.verifierContract} className="text-emerald-soft/90" />
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px]">
+                    <span className="text-steel/50 w-28 shrink-0">Enclave signer</span>
+                    <CopyAddr value={lastSealedExec.attestedEnclaveSigner} className="text-emerald-soft/90" />
+                  </div>
+                </>
+              )}
               {lastSealedExec.executedAt && (
                 <div className="flex items-center gap-3 text-[11px]">
                   <span className="text-steel/50 w-28 shrink-0">Executed at</span>
@@ -178,7 +209,7 @@ export default function TEEAttestationPanel({ vaultAddress, policy, explorerHref
             <li>Inference runs on the 0G Compute provider above; content digest is hashed into the on-chain intent.</li>
             <li>Before executing, the vault checks ECDSA(attestedSigner) on the intent hash.</li>
             <li>Commit → 1-block delay → reveal hides swap parameters from public mempool observers.</li>
-            <li>Hardware-level confidentiality (SGX/TDX) depends on the selected compute provider.</li>
+            <li>For vaults with <span className="font-mono text-steel/70">requireTeeAttestation</span>, the provider's Intel-TDX quote is DCAP-verified off-chain each cycle (Automata); otherwise hardware confidentiality depends on the selected compute provider.</li>
           </ul>
         </div>
       </GlassPanel>
