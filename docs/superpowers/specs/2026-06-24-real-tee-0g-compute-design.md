@@ -91,13 +91,14 @@ without it, a cryptographically valid TDX quote from a *different or malicious i
 quote+signer alone. Only positive Layer-A results are cached; Layer B runs every cycle so a
 stale/forged response is always caught.
 
-### 3.3 Raw-quote extraction (implementation risk to confirm)
+### 3.3 Raw-quote extraction (RESOLVED live 2026-06-24)
 
-`getQuote()` returns `{ rawReport (JSON string), signingAddress }`. `Automata.verifyQuote(rawQuote)`
-expects the raw TDX quote bytes. During implementation, confirm the exact field inside `rawReport`
-that holds the quote bytes (likely `quote` / `intel_quote`) and whether it needs hex/base64
-decoding before being passed to the verifier. This is the single integration unknown in an otherwise
-SDK-backed path; cover it with a probe (§7) and a unit test fixture.
+`getQuote()` returns `{ rawReport (JSON string), signingAddress }`. The parsed report has keys
+`quote, event_log, report_data, vm_config, tcb_info`. The `quote` field is **plain hex without a
+`0x` prefix** — decoded it is a valid Intel TDX v4 quote (header `0400 0200 81000000` = version 4,
+ECDSA-256, tee_type `0x81`), 5006 bytes for the live GLM-5-FP8 provider. Extraction: prepend `0x` to
+plain hex; base64-decode only as a fallback. **Do not** base64-decode the plain-hex value (that was
+the probe's initial bug, which produced a garbage header and a false negative).
 
 ## 4. Data flow & gate placement
 
@@ -140,9 +141,11 @@ Rules:
   cycle retries cleanly.
 - A skip is *not* an error: it logs at `warn`, sets `vaultResult.status = 'skipped_tee_unattested'`,
   and the cycle continues to the next vault.
-- **`TargetSeparated` (broker + LLM in two enclaves):** MVP handles the `combined` architecture.
-  Separated-mode (two reports) is a documented follow-up; until then a separated provider is treated
-  as `provider_not_attestable` (fail-closed for flagged vaults).
+- **`TargetSeparated` (broker + LLM in two enclaves):** SUPPORTED. The live GLM-5-FP8 provider is
+  separated, and `getQuote()` returns the broker-enclave report whose quote passes DCAP and whose
+  embedded signer equals the registered `teeSignerAddress` (which signs responses). We verify that
+  broker quote. Verifying the *second* LLM-inference enclave report (`getQuoteInLLMServer`) for full
+  end-to-end coverage is a documented follow-up (§10), not a blocker.
 
 ## 6. UI / honesty alignment
 
@@ -166,11 +169,14 @@ Rules:
 ## 7. Step 0 — feasibility probe (must run first)
 
 `orchestrator/scripts/probe-tee-attestation.js`: for the configured provider, call `getService`,
-`getQuote`, extract the quote bytes, and run `automata.verifyAndAttestOnChain.staticCall`. Print a
-clear PASS/FAIL plus the embedded vs on-chain signer. This closes the one runtime unknown — whether
-the 0G Compute provider actually exposes a TDX quote — **before** any vault enables the flag and
-halts trading. If no TEE-capable provider is available, we learn it here and can (a) select an
-attested provider or (b) postpone enabling the flag.
+`getQuote`, extract the quote bytes, and run `automata.verifyAndAttestOnChain`. Print a clear
+PASS/FAIL plus the embedded vs on-chain signer.
+
+**Live result (2026-06-24): ✅ PASS.** Provider `0xd9966e13…471C` (zai-org/GLM-5-FP8) runs a
+dstack/Intel-TDX enclave; its 5006-byte v4 quote verifies on-chain via the Automata DCAP verifier
+(`0xE26E…351F` on Automata mainnet, `rpc.ata.network`), and the enclave-embedded signer
+`0x4C1b546f…7ee8` equals the on-chain registered `teeSignerAddress`. Real TEE attestation via 0G
+Compute is therefore achievable today for this provider — the engine just has to wire these calls.
 
 ## 8. Testing
 

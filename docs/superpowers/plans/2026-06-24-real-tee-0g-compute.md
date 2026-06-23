@@ -11,7 +11,9 @@
 ## Global Constraints
 
 - **On-chain unchanged.** No edits to any `.sol` file, no contract deploy, no gas spent on verification. Verification is a read-only `eth_call`.
-- **Automata verifier:** address `0xE26E11B257856B0bEBc4C759aaBDdea72B64351F`, RPC `https://1rpc.io/ata`, function `verifyAndAttestOnChain(bytes) view returns (bool success, bytes output)`.
+- **Automata verifier:** address `0xE26E11B257856B0bEBc4C759aaBDdea72B64351F`, RPC `https://rpc.ata.network` (the SDK default `https://1rpc.io/ata` is rate-limited — confirmed live), function `verifyAndAttestOnChain(bytes) view returns (bool success, bytes output)`.
+- **Quote field encoding (confirmed live):** the 0G dstack report's `quote` is **plain hex WITHOUT a `0x` prefix** (header `0400 0200 81000000` = TDX v4). Prepend `0x`; do NOT base64-decode it.
+- **Separated providers verify:** the live GLM-5-FP8 provider is `TargetSeparated=true`, yet `getQuote()` returns the broker-enclave report whose 5006-byte quote passes DCAP and whose embedded signer equals the registered `teeSignerAddress`. Do NOT reject separated providers; verify the broker quote (LLM-enclave verification is a follow-up).
 - **Verifier access:** instance methods via `broker.inference.verifier` (`getService`, `getQuote`, `extractTeeSignerAddress`, `processDStackVerification`); static methods via the same class (`fetchSignatureByChatID`, `verifySignature`).
 - **Fail-closed, opt-in.** Gate active only when `vaultState._strategy.execution.requireTeeAttestation === true` (manifest field, integrity-anchored by on-chain `acceptedManifestHash`). Vaults without it behave exactly as today.
 - **No env override flag** for enabling the gate (project prefers manifest-derived policy over env flags).
@@ -126,7 +128,7 @@ import config from '../src/config/index.js';
 
 test('teeAttestation config has sane defaults', () => {
   assert.equal(config.teeAttestation.automataAddress, '0xE26E11B257856B0bEBc4C759aaBDdea72B64351F');
-  assert.equal(config.teeAttestation.automataRpc, 'https://1rpc.io/ata');
+  assert.equal(config.teeAttestation.automataRpc, 'https://rpc.ata.network');
   assert.equal(config.teeAttestation.cacheTtlMs, 3_600_000);
   assert.equal(config.teeAttestation.fetchTimeoutMs, 60_000);
 });
@@ -147,7 +149,9 @@ In `orchestrator/src/config/index.js`, immediately after the `teeSigner: { ... }
   // verifier (Automata mainnet, read-only). cacheTtlMs caches positive
   // provider-enclave verifications; fetchTimeoutMs bounds quote/RPC fetches.
   teeAttestation: {
-    automataRpc: process.env.AUTOMATA_RPC || 'https://1rpc.io/ata',
+    // rpc.ata.network is the official Automata mainnet RPC with the DCAP
+    // verifier deployed; the SDK default 1rpc.io/ata is rate-limited.
+    automataRpc: process.env.AUTOMATA_RPC || 'https://rpc.ata.network',
     automataAddress: process.env.AUTOMATA_CONTRACT_ADDRESS || '0xE26E11B257856B0bEBc4C759aaBDdea72B64351F',
     cacheTtlMs: parseInt(process.env.TEE_CACHE_TTL_MS || '3600000'),
     fetchTimeoutMs: parseInt(process.env.TEE_FETCH_TIMEOUT_MS || '60000'),
@@ -258,11 +262,21 @@ test('verifyProviderEnclave reports verifier_unreachable on RPC throw', async ()
   assert.equal(r.reason, 'verifier_unreachable');
 });
 
-test('separated-mode provider treated as not attestable (MVP)', async () => {
+test('separated-mode provider still verifies via broker quote', async () => {
   _resetCache();
   const v = fakeVerifier({ getService: async () => ({
     teeSignerAddress: SIGNER,
-    additionalInfo: JSON.stringify({ TEEVerifier: 'dstack', TargetSeparated: true }),
+    additionalInfo: JSON.stringify({ TEEVerifier: 'dstack', TargetSeparated: true, ImageDigest: 'sha256:abc' }),
+  }) });
+  const r = await verifyProviderEnclave(v, '0xprov', deps(passAutomata));
+  assert.equal(r.ok, true);
+  assert.equal(r.attestedSigner, SIGNER);
+});
+
+test('provider without TEEVerifier is not attestable', async () => {
+  _resetCache();
+  const v = fakeVerifier({ getService: async () => ({
+    teeSignerAddress: SIGNER, additionalInfo: JSON.stringify({}),
   }) });
   const r = await verifyProviderEnclave(v, '0xprov', deps(passAutomata));
   assert.equal(r.ok, false);
@@ -309,13 +323,13 @@ export function isTeeAttestationRequired(vaultState) {
 }
 
 export function extractRawQuote(parsed) {
-  // 0G TDX report JSON carries the raw quote bytes. Field confirmed by the
-  // probe (Task 1). If the probe printed a different key, update both places.
+  // 0G dstack report's `quote` is PLAIN HEX without a 0x prefix (confirmed
+  // live: header 0400 0200 81000000 = TDX v4). Prepend 0x; base64 is a fallback.
   const q = parsed.quote || parsed.intel_quote || parsed.tdx_quote || parsed.report;
-  if (!q) throw new Error('no_quote_field');
-  return typeof q === 'string' && q.startsWith('0x')
-    ? q
-    : '0x' + Buffer.from(q, 'base64').toString('hex');
+  if (!q || typeof q !== 'string') throw new Error('no_quote_field');
+  if (q.startsWith('0x')) return q;
+  if (/^[0-9a-fA-F]+$/.test(q)) return '0x' + q;
+  return '0x' + Buffer.from(q, 'base64').toString('hex');
 }
 
 function makeAutomata(deps) {
@@ -336,7 +350,10 @@ export async function verifyProviderEnclave(verifier, providerAddress, deps = {}
     return { ok: false, reason: 'provider_not_attestable', detail: e.message };
   }
   if (!additional.TEEVerifier) return { ok: false, reason: 'provider_not_attestable' };
-  if (additional.TargetSeparated === true) return { ok: false, reason: 'provider_not_attestable' };
+  // Separated providers (broker + LLM in distinct enclaves) ARE supported:
+  // getQuote() returns the broker-enclave report, whose quote verifies and
+  // whose embedded signer is the response signer. (LLM-enclave verification
+  // via getQuoteInLLMServer is a documented follow-up, see §10.)
 
   const imageDigest = additional.ImageDigest || 'unknown';
   const cacheKey = `${providerAddress.toLowerCase()}:${imageDigest}`;
