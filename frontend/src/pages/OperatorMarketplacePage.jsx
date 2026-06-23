@@ -12,111 +12,145 @@ import {
   demoOperatorReputations,
   demoOperatorTiers,
 } from '../data/demoContent';
-import { useOperatorList, MandateLabel, useOperatorExtendedBatch } from '../hooks/useOperatorRegistry';
-import { formatBps } from '../hooks/useVaultFees';
-import {
-  useOperatorTiers, TIER_LABELS, TIER_COLORS, formatVaultCap,
-} from '../hooks/useOperatorStaking';
-import {
-  useOperatorReputations, reputationScore,
-} from '../hooks/useOperatorReputation';
-import GlassPanel from '../components/ui/GlassPanel';
-import ControlButton from '../components/ui/ControlButton';
-import {
-  Cpu, Search, Plus, ArrowRight, Users, Activity, ShieldCheck,
-  TrendingUp, Percent, Award, Star, BadgeCheck, ExternalLink,
-  Trophy, RefreshCw, Zap as Bolt, Sparkles, Clock, Layers, Bookmark, Shield,
-} from 'lucide-react';
+import { useOperatorList } from '../hooks/useOperatorRegistry';
+import { useOperatorTiers, TIER_LABELS } from '../hooks/useOperatorStaking';
+import { useOperatorReputations, reputationScore } from '../hooks/useOperatorReputation';
+import { Search, Plus, ArrowRight, ShieldCheck, RefreshCw, Zap } from 'lucide-react';
 
-// Row-stat Pill — tiny tinted chip with label + value used on operator rows.
-// Mirrors the visual density of the editorial HTML reference (colour-coded
-// per metric: perf=emerald, mgmt=cyan, actions=amber, rep=cyan).
-function RowPill({ label, value, tone, Icon: PillIcon }) {
-  const tones = {
-    emerald: { color: 'var(--ed-emerald)', bg: 'rgba(16,185,129,0.06)' },
-    cyan:    { color: 'var(--ed-cyan)',    bg: 'rgba(76,201,240,0.06)' },
-    gold:    { color: 'var(--ed-gold)',    bg: 'rgba(201,168,76,0.06)' },
-    steel:   { color: 'var(--ed-steel-300)', bg: 'rgba(255,255,255,0.03)' },
-  }[tone] || { color: 'var(--ed-steel-300)', bg: 'rgba(255,255,255,0.03)' };
+/* ─────────────────────────────────────────────────────────────────────────
+   "Ledger" palette — ported 1:1 from Aegis Marketplace.dc.html (shares the
+   DashboardPage system: IBM Plex, brighter gold). Scoped to this page via
+   inline styles so the editorial pages keep their own palette.
+   ──────────────────────────────────────────────────────────────────────── */
+const P = {
+  bg: '#0a0b0e',
+  card: '#14161b',
+  inner: '#1a1d23',
+  inset: '#0e1014',
+  tag: '#22262e',
+  line: 'rgba(255,255,255,0.07)',
+  lineSoft: 'rgba(255,255,255,0.05)',
+  gold: '#e3b34e',
+  goldHover: '#edc05f',
+  emerald: '#5cb88a',
+  violet: '#6f7bdb',
+  rose: '#df7373',
+  ink: '#eceef1',
+  body: '#c4c8cf',
+  sub: '#9499a2',
+  faint: '#6b7078',
+  track: '#2a2e36',
+};
+const SANS = "'IBM Plex Sans', system-ui, sans-serif";
+const MONO = "'IBM Plex Mono', ui-monospace, monospace";
+
+// Mandate → accent. Balanced=gold, Conservative=emerald, Tactical=violet.
+function mandateTone(label) {
+  switch (label) {
+    case 'Balanced':     return { fg: P.gold,    chip: 'rgba(227,179,78,0.12)', icon: 'rgba(227,179,78,0.10)' };
+    case 'Conservative': return { fg: P.emerald, chip: 'rgba(92,184,138,0.12)', icon: 'rgba(92,184,138,0.10)' };
+    case 'Tactical':     return { fg: P.violet,  chip: 'rgba(111,123,219,0.12)', icon: 'rgba(111,123,219,0.10)' };
+    default:             return { fg: P.sub,     chip: P.tag,                    icon: P.tag };
+  }
+}
+
+const pct1 = (bps) => (bps === undefined || bps === null ? '—' : `${(Number(bps) / 100).toFixed(1)}%`);
+const initialOf = (name) => (name || '?').trim().charAt(0).toUpperCase() || '?';
+// Featured tier letter from the operator's stake tier (3→S, 2→A, 1→B, else C).
+const stakeLetter = (tier) => (tier >= 3 ? 'S' : tier === 2 ? 'A' : tier === 1 ? 'B' : 'C');
+const tierName = (td) => td?.tierLabel || TIER_LABELS[td?.tier || 0] || 'None';
+const handleOf = (op) => (op.endpoint ? op.endpoint.replace(/^https?:\/\//, '').split('/')[0] : op.name);
+
+/* ─────────────── Small inline-styled primitives ─────────────── */
+
+function GoldButton({ children, full, style, ...rest }) {
   return (
-    <span
-      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md ed-ghost"
-      style={{ background: tones.bg }}
+    <button
+      type="button"
+      style={{
+        fontFamily: MONO, fontSize: 12, fontWeight: 600, color: P.bg, background: P.gold,
+        border: 'none', borderRadius: 9, padding: '10px 16px', cursor: 'pointer',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+        width: full ? '100%' : undefined, ...style,
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = P.goldHover)}
+      onMouseLeave={(e) => (e.currentTarget.style.background = P.gold)}
+      {...rest}
     >
-      {PillIcon && <PillIcon className="w-2.5 h-2.5" style={{ color: tones.color }} />}
-      <span className="ed-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--ed-steel-500)' }}>
-        {label}
-      </span>
-      <span className="ed-mono text-[11px]" style={{ color: tones.color }}>{value}</span>
-    </span>
+      {children}
+    </button>
   );
 }
 
-// Segmented toolbar group — shared by Mandate / Perf / Tier / Sort filters.
-// Active option switches to the tinted state using a tone colour map so each
-// filter group has a subtle visual identity without going overboard.
-function SegGroup({ label, options, activeKey, onChange, tone = 'gold' }) {
-  const tones = {
-    gold:    { bg: 'rgba(201,168,76,0.15)',  fg: 'var(--ed-gold)' },
-    cyan:    { bg: 'rgba(76,201,240,0.15)',  fg: 'var(--ed-cyan)' },
-    emerald: { bg: 'rgba(16,185,129,0.15)',  fg: 'var(--ed-emerald)' },
-  }[tone] || { bg: 'rgba(201,168,76,0.15)', fg: 'var(--ed-gold)' };
-
+function GhostButton({ children, style, ...rest }) {
   return (
-    <div className="flex items-center gap-1 flex-wrap">
-      <span
-        className="ed-mono text-[10px] uppercase tracking-[0.2em] mr-1 whitespace-nowrap"
-        style={{ color: 'var(--ed-steel-500)' }}
-      >
-        {label}
-      </span>
-      {options.map((o) => {
-        const active = activeKey === o.key;
-        return (
-          <button
-            key={o.key}
-            onClick={() => onChange(o.key)}
-            className="ed-mono text-[11px] uppercase tracking-[0.16em] px-3 h-7 rounded-md ed-ghost transition whitespace-nowrap"
-            style={{
-              background: active ? tones.bg : 'rgba(255,255,255,0.02)',
-              color: active ? tones.fg : 'var(--ed-steel-300)',
-            }}
-          >
-            {o.label}
-          </button>
-        );
-      })}
+    <button
+      type="button"
+      style={{
+        fontFamily: MONO, fontSize: 12, fontWeight: 500, color: P.ink, background: 'transparent',
+        border: '1px solid rgba(255,255,255,0.14)', borderRadius: 9, padding: '10px 16px', cursor: 'pointer',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, ...style,
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.04)')}
+      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+      {...rest}
+    >
+      {children}
+    </button>
+  );
+}
+
+// One segmented filter/sort button.
+function Seg({ active, children, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        fontFamily: MONO, fontSize: 11, fontWeight: 600, letterSpacing: '0.4px',
+        padding: '7px 12px', borderRadius: 8, cursor: 'pointer', border: 'none', whiteSpace: 'nowrap',
+        background: active ? 'rgba(227,179,78,0.14)' : 'rgba(255,255,255,0.03)',
+        color: active ? P.gold : P.sub,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Section divider eyebrow: "M.0x · Title ─────────"
+function SectionRule({ tag, trailing, color = P.faint }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+      <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '1.6px', textTransform: 'uppercase', color }}>{tag}</span>
+      <div style={{ flex: 1, height: 1, background: P.line }} />
+      {trailing && (
+        <span style={{ fontFamily: MONO, fontSize: 10.5, letterSpacing: '1.4px', textTransform: 'uppercase', color: P.faint }}>{trailing}</span>
+      )}
     </div>
   );
 }
 
-// Inline metric shown in the header's footer strip (Operators / Active / …).
-// Keeps the rhythm consistent: small mono label, large display value, optional
-// leading status dot.
-function FootStat({ label, value, tone, dot }) {
+function HeaderStat({ label, value, dot, color }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className="ed-mono text-[9.5px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
-        {label}
-      </span>
-      <div className="flex items-center gap-1.5">
-        {dot && (
-          <span
-            className="inline-block rounded-full"
-            style={{ width: 5, height: 5, background: tone || 'var(--ed-emerald)' }}
-          />
-        )}
-        <span className="ed-mono text-[13px]" style={{ color: tone || 'var(--ed-steel-100)' }}>{value}</span>
+    <div>
+      <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '1.8px', textTransform: 'uppercase', color: P.faint }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+        {dot && <span style={{ width: 5, height: 5, borderRadius: 999, background: color || P.ink }} />}
+        <span style={{ fontFamily: MONO, fontSize: 18, color: color || P.ink }}>{value}</span>
       </div>
     </div>
   );
 }
 
-const MANDATE_FILTERS = [
-  { key: 'all', label: 'All' },
-  { key: 'Conservative', label: 'Conservative' },
-  { key: 'Balanced', label: 'Balanced' },
-  { key: 'Tactical', label: 'Tactical' },
+/* ─────────────── Page ─────────────── */
+
+const MANDATE_FILTERS = ['all', 'Conservative', 'Balanced', 'Tactical'];
+const SORT_OPTIONS = [
+  { key: 'reputation', label: 'Reputation' },
+  { key: 'trades', label: 'Most Trades' },
+  { key: 'lowFee', label: 'Lowest Fee' },
+  { key: 'tier', label: 'Highest Tier' },
 ];
 
 export default function OperatorMarketplacePage() {
@@ -127,52 +161,37 @@ export default function OperatorMarketplacePage() {
   const reputationAddress = deployments.operatorReputation;
   const { operators, count, isLoading } = useOperatorList(registryAddress);
 
-  // Batch-fetch tiers + reputation for all operators
-  const allOperatorAddrs = operators.filter((op) => op.loaded).map((op) => op.wallet);
-  const { tiersByAddress } = useOperatorTiers(stakingAddress, allOperatorAddrs);
-  const { reputationByAddress } = useOperatorReputations(reputationAddress, allOperatorAddrs);
-  const { byAddress: extendedByAddress } = useOperatorExtendedBatch(registryAddress, allOperatorAddrs);
+  const liveAddrs = operators.filter((op) => op.loaded).map((op) => op.wallet);
+  const { tiersByAddress } = useOperatorTiers(stakingAddress, liveAddrs);
+  const { reputationByAddress } = useOperatorReputations(reputationAddress, liveAddrs);
 
-  const [filter, setFilter] = useState('all');
+  const [mandate, setMandate] = useState('all');
+  const [sort, setSort] = useState('reputation');
   const [search, setSearch] = useState('');
-  const [feeFilter, setFeeFilter] = useState('all');
-  const [tierFilter, setTierFilter] = useState('all');
-  const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const [sortBy, setSortBy] = useState('newest');
 
   const registryConfigured = Boolean(registryAddress);
-  const activeLiveOperators = operators.filter((op) => op.loaded && op.active);
-  const useDemoOperators = ENABLE_DEMO_FALLBACKS && (!registryConfigured || (!isLoading && activeLiveOperators.length === 0));
-  const operatorSource = useDemoOperators ? demoOperators : operators;
-  const countLabel = useDemoOperators ? demoOperators.length : count;
-  const tierSource = useDemoOperators ? demoOperatorTiers : tiersByAddress;
-  const reputationSource = useDemoOperators ? demoOperatorReputations : reputationByAddress;
-  const registryExplorerHref = getExplorerAddressHref(chainId, registryAddress);
+  const activeLive = operators.filter((op) => op.loaded && op.active);
+  const useDemo = ENABLE_DEMO_FALLBACKS && (!registryConfigured || (!isLoading && activeLive.length === 0));
 
-  const filtered = operatorSource
-    .filter((op) => op.loaded && op.active)
+  const opSource = useDemo ? demoOperators : operators;
+  const tierSource = useDemo ? demoOperatorTiers : tiersByAddress;
+  const repSource = useDemo ? demoOperatorReputations : reputationByAddress;
+  const countLabel = useDemo ? demoOperators.length : count;
+
+  const tierOf = (op) => tierSource[op.wallet?.toLowerCase()] || null;
+  const repOf = (op) => repSource[op.wallet?.toLowerCase()] || null;
+
+  const activeOps = opSource.filter((op) => op.loaded && op.active);
+  const mandateSet = [...new Set(activeOps.map((o) => o.mandateLabel).filter(Boolean))];
+  const mandatesValue = mandateSet.length
+    ? `${mandateSet.length} · ${mandateSet.map((m) => m.slice(0, 3)).join('·')}`
+    : '—';
+
+  const filtered = activeOps
+    .filter((op) => (mandate === 'all' ? true : op.mandateLabel === mandate))
     .filter((op) => {
-      if (filter === 'all') return true;
-      return op.mandateLabel === filter;
-    })
-    .filter((op) => {
-      if (feeFilter === 'all') return true;
-      if (feeFilter === 'low') return (op.performanceFeeBps || 0) <= 1000; // ≤10%
-      if (feeFilter === 'mid') return (op.performanceFeeBps || 0) <= 2000; // ≤20%
-      return true;
-    })
-    .filter((op) => {
-      if (tierFilter === 'all') return true;
-      const tier = tierSource[op.wallet?.toLowerCase()]?.tier || 0;
-      return tier >= Number(tierFilter);
-    })
-    .filter((op) => {
-      if (!verifiedOnly) return true;
-      return reputationSource[op.wallet?.toLowerCase()]?.verified || false;
-    })
-    .filter((op) => {
-      if (!search.trim()) return true;
-      const q = search.toLowerCase().trim();
+      const q = search.trim().toLowerCase();
+      if (!q) return true;
       return (
         op.name?.toLowerCase().includes(q) ||
         op.description?.toLowerCase().includes(q) ||
@@ -180,842 +199,360 @@ export default function OperatorMarketplacePage() {
       );
     })
     .sort((a, b) => {
-      if (sortBy === 'lowestFee') {
-        return (a.performanceFeeBps || 0) - (b.performanceFeeBps || 0);
-      }
-      if (sortBy === 'highestTier') {
-        const ta = tierSource[a.wallet?.toLowerCase()]?.tier || 0;
-        const tb = tierSource[b.wallet?.toLowerCase()]?.tier || 0;
-        return tb - ta;
-      }
-      if (sortBy === 'reputation') {
-        const ra = reputationScore(reputationSource[a.wallet?.toLowerCase()]);
-        const rb = reputationScore(reputationSource[b.wallet?.toLowerCase()]);
-        return rb - ra;
-      }
-      if (sortBy === 'mostExecutions') {
-        const ea = reputationSource[a.wallet?.toLowerCase()]?.totalExecutions || 0;
-        const eb = reputationSource[b.wallet?.toLowerCase()]?.totalExecutions || 0;
-        return eb - ea;
-      }
-      if (sortBy === 'name') {
-        return (a.name || '').localeCompare(b.name || '');
-      }
-      // newest first
-      return (b.registeredAt || 0) - (a.registeredAt || 0);
+      if (sort === 'reputation') return reputationScore(repOf(b)) - reputationScore(repOf(a));
+      if (sort === 'trades') return (repOf(b)?.totalExecutions || 0) - (repOf(a)?.totalExecutions || 0);
+      if (sort === 'lowFee') return (a.performanceFeeBps || 0) - (b.performanceFeeBps || 0);
+      if (sort === 'tier') return (tierOf(b)?.tier || 0) - (tierOf(a)?.tier || 0);
+      return 0;
     });
 
-  return (
-    <div className="max-w-[1540px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
-      {/* Header — editorial hero with ghost numeral + inline register CTA card */}
-      <section
-        className="relative rounded-[28px] p-8 lg:p-10 mb-6 overflow-hidden ed-ghost"
-        style={{ background: 'linear-gradient(180deg, var(--ed-surface-0), var(--ed-obsidian))' }}
-      >
-        <div aria-hidden className="absolute inset-0 ed-dotgrid opacity-40 pointer-events-none" />
-        <div
-          aria-hidden
-          className="absolute pointer-events-none"
-          style={{
-            top: -96,
-            right: -96,
-            width: 420,
-            height: 420,
-            borderRadius: '50%',
-            opacity: 0.14,
-            background: 'radial-gradient(circle, var(--ed-gold) 0%, transparent 60%)',
-            filter: 'blur(10px)',
-          }}
-        />
-        <div
-          aria-hidden
-          className="absolute hidden lg:block pointer-events-none ed-ghost-numeral"
-          style={{ top: -16, right: 40, fontSize: 160 }}
-        >
-          M.01
-        </div>
+  const registryExplorerHref = getExplorerAddressHref(chainId, registryAddress);
+  const sourceMeta = useDemo
+    ? { label: 'Demo roster', color: P.gold }
+    : registryAddress
+      ? { label: 'Live · on-chain', color: P.emerald }
+      : { label: 'Offline', color: P.rose };
 
-        <div className="relative grid gap-8 lg:grid-cols-[1.6fr_1fr]">
-          {/* Left: eyebrow + title + footer stats */}
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-3">
-              <span className="ed-eyebrow">§ M.01 · Operator Marketplace</span>
-              <div className="flex-1 ed-hairline" />
-              <span className="ed-chip ed-chip-cyan">
-                <span className="inline-block rounded-full" style={{ width: 5, height: 5, background: 'var(--ed-cyan)' }} />
-                On-chain registry
+  return (
+    <div style={{ fontFamily: SANS, color: P.ink, background: P.bg }}>
+      <style>{`.mkt-search::placeholder{color:${P.faint}}.mkt-search:focus{outline:none}`}</style>
+      <div className="max-w-[1540px] mx-auto px-4 lg:px-6" style={{ paddingTop: 24, paddingBottom: 48, display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+        {/* ============ HEADER ============ */}
+        <section style={{ position: 'relative', overflow: 'hidden', background: P.card, border: `1px solid ${P.line}`, borderRadius: 16, padding: 34, display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 36 }}>
+          <div aria-hidden style={{ position: 'absolute', top: -120, right: -60, width: 380, height: 380, background: 'radial-gradient(circle,rgba(227,179,78,0.09),transparent 65%)', pointerEvents: 'none' }} />
+
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+              <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '1.8px', textTransform: 'uppercase', color: P.faint }}>Operator Marketplace · M.01</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: MONO, fontSize: 10, color: P.emerald, background: 'rgba(92,184,138,0.12)', padding: '3px 9px', borderRadius: 6 }}>
+                <span style={{ width: 6, height: 6, borderRadius: 999, background: P.emerald }} />
+                {registryAddress && !useDemo ? 'On-chain registry' : 'Registry preview'}
               </span>
             </div>
-
-            <h1
-              className="ed-display"
-              style={{ fontSize: 'clamp(40px, 6vw, 68px)', fontWeight: 600, letterSpacing: '-0.025em', lineHeight: 0.98, margin: 0, color: 'var(--ed-steel-100)' }}
-            >
-              The operators,{' '}
-              <span className="ed-italic" style={{ fontWeight: 400, color: 'var(--ed-steel-100)' }}>
-                and their record.
-              </span>
+            <h1 style={{ fontSize: 40, lineHeight: 1.1, fontWeight: 600, letterSpacing: '-1.2px', margin: '0 0 14px' }}>
+              The operators,<br /><span style={{ color: P.gold }}>and their record.</span>
             </h1>
-
-            <p
-              className="max-w-[620px]"
-              style={{ fontSize: 14.5, color: 'var(--ed-steel-400)', lineHeight: 1.6 }}
-            >
-              Stake is skin. Reputation is history. Every operator here can be slashed — and every vault is free to{' '}
-              <span className="ed-italic" style={{ color: 'var(--ed-steel-100)' }}>replace them.</span>
+            <p style={{ fontSize: 14.5, lineHeight: 1.6, color: P.sub, maxWidth: 480, margin: '0 0 26px' }}>
+              Stake is skin. Reputation is history. Every operator here can be slashed — and every vault is free to replace them.
             </p>
 
-            <div
-              className="flex items-center gap-6 pt-5 mt-1 flex-wrap"
-              style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
-            >
-              <FootStat label="Operators" value={String(countLabel).padStart(2, '0')} />
-              <FootStat
-                label="Active"
-                value={String(operatorSource.filter((o) => o.loaded && o.active).length).padStart(2, '0')}
-                dot
-                tone="var(--ed-emerald)"
-              />
-              <FootStat
-                label="Mandates"
-                value={`${new Set(operatorSource.filter((o) => o.loaded).map((o) => o.mandateLabel)).size} · Bal·Tac·Con`}
-              />
-              <FootStat
-                label="Source"
-                value={useDemoOperators ? 'Demo roster' : registryAddress ? 'Live · on-chain' : 'Offline'}
-                dot
-                tone={useDemoOperators ? 'var(--ed-gold)' : registryAddress ? 'var(--ed-emerald)' : 'var(--ed-rose)'}
-              />
+            <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', paddingTop: 22, borderTop: `1px solid ${P.line}` }}>
+              <HeaderStat label="Operators" value={String(countLabel).padStart(2, '0')} />
+              <HeaderStat label="Active" value={String(activeOps.length).padStart(2, '0')} dot color={P.emerald} />
+              <HeaderStat label="Mandates" value={mandatesValue} />
+              <HeaderStat label="Source" value={sourceMeta.label} dot color={sourceMeta.color} />
             </div>
           </div>
 
-          {/* Right: inline register CTA card */}
-          <div className="flex flex-col items-end relative">
-            <div className="rounded-2xl ed-ghost p-5 w-full" style={{ background: 'rgba(255,255,255,0.03)' }}>
-              <div className="flex items-start gap-3 mb-4">
-                <div
-                  className="h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{
-                    background: 'rgba(201,168,76,0.15)',
-                    boxShadow: 'inset 0 0 0 1px rgba(201,168,76,0.3)',
-                    color: 'var(--ed-gold)',
-                  }}
-                >
-                  <Plus className="w-4 h-4" />
+          {/* register CTA */}
+          <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ background: P.inner, border: '1px solid rgba(227,179,78,0.18)', borderRadius: 14, padding: 22 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(227,179,78,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: P.gold }}>
+                  <Plus style={{ width: 18, height: 18 }} />
                 </div>
-                <div className="flex-1">
-                  <div className="ed-mono text-[10.5px] uppercase tracking-[0.22em] whitespace-nowrap" style={{ color: 'var(--ed-gold)' }}>
-                    Join the registry
-                  </div>
-                  <div className="ed-italic mt-0.5" style={{ fontSize: 18, color: 'var(--ed-steel-100)' }}>
-                    Register as operator
-                  </div>
+                <div>
+                  <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '1.6px', textTransform: 'uppercase', color: P.gold }}>Join the registry</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, marginTop: 3 }}>Register as operator</div>
                 </div>
               </div>
-              <p style={{ fontSize: 12.5, color: 'var(--ed-steel-400)', lineHeight: 1.55, marginBottom: 16 }}>
+              <p style={{ fontSize: 12.5, lineHeight: 1.55, color: P.sub, margin: '0 0 18px' }}>
                 Bond a manifest, declare your model, stake collateral, and start executing signed intents on vaults that pick you.
               </p>
-              <Link to="/operator/register" className="block">
-                <ControlButton variant="gold" className="w-full">
-                  <Plus className="w-3 h-3" /> Register as operator
-                </ControlButton>
-              </Link>
-              <div
-                className="flex items-center justify-between mt-3 ed-mono text-[10.5px]"
-                style={{ color: 'var(--ed-steel-500)' }}
-              >
-                <span>Onboarding · 24 h review</span>
-                <Link to="/whitepaper" className="transition-colors" style={{ color: 'var(--ed-cyan)' }}>
-                  Read spec →
-                </Link>
+              <Link to="/operator/register"><GoldButton full><Plus style={{ width: 13, height: 13 }} /> Register as operator</GoldButton></Link>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, fontFamily: MONO, fontSize: 10.5, color: P.faint }}>
+                <span>Onboarding · 24h review</span>
+                <Link to="/whitepaper" style={{ color: P.gold, textDecoration: 'none' }}>Read spec →</Link>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Registry banner — adapts copy to demo vs live, single compact strip */}
-      <div
-        className="relative rounded-2xl ed-ghost p-5 flex items-start gap-4 overflow-hidden mb-6"
-        style={{
-          background: useDemoOperators
-            ? 'linear-gradient(90deg, rgba(201,168,76,0.06), rgba(15,15,19,0.8))'
-            : 'linear-gradient(90deg, rgba(76,201,240,0.06), rgba(15,15,19,0.8))',
-        }}
-      >
-        <div aria-hidden className="absolute inset-0 ed-dotgrid opacity-20 pointer-events-none" />
-        <div
-          className="relative h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={{
-            background: useDemoOperators ? 'rgba(201,168,76,0.15)' : 'rgba(76,201,240,0.15)',
-            color: useDemoOperators ? 'var(--ed-gold)' : 'var(--ed-cyan)',
-          }}
-        >
-          <Activity className="w-3.5 h-3.5" />
-        </div>
-        <div className="relative flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-            <span
-              className="ed-mono text-[11px] uppercase tracking-[0.2em] whitespace-nowrap"
-              style={{ color: 'var(--ed-steel-100)' }}
-            >
-              {useDemoOperators ? 'Demo roster' : 'Live registry'}
-            </span>
-            <span className={`ed-chip ${useDemoOperators ? 'ed-chip-gold' : 'ed-chip-cyan'}`}>
-              {useDemoOperators ? 'Preview mode' : 'On-chain'}
-            </span>
-          </div>
-          <p style={{ fontSize: 13, color: 'var(--ed-steel-400)', lineHeight: 1.55, maxWidth: 760 }}>
-            {useDemoOperators ? (
-              <>
-                Preloaded with three differentiated operators so selection, pricing, tiers, and reputation stay demo-legible
-                even when the on-chain registry is empty. Real state takes over as soon as someone registers.
-              </>
-            ) : (
-              <>
-                This marketplace reads from the real operator registry on-chain. If the roster is still small, that&rsquo;s genuine{' '}
-                <span className="ed-italic" style={{ color: 'var(--ed-steel-100)' }}>live state</span>, not missing mock data.
-              </>
-            )}
-          </p>
-        </div>
-        {useDemoOperators ? (
-          <Link
-            to="/governance"
-            className="ed-mono text-[11px] uppercase tracking-[0.2em] whitespace-nowrap inline-flex items-center gap-1.5 transition-colors"
-            style={{ color: 'var(--ed-cyan)' }}
-          >
-            View governance oversight
-          </Link>
-        ) : registryExplorerHref ? (
-          <a
-            href={registryExplorerHref}
-            target="_blank"
-            rel="noreferrer"
-            className="ed-mono text-[11px] uppercase tracking-[0.2em] whitespace-nowrap inline-flex items-center gap-1.5 transition-colors"
-            style={{ color: 'var(--ed-cyan)' }}
-          >
-            View registry on explorer <ExternalLink className="w-3 h-3" />
-          </a>
-        ) : null}
-      </div>
-
-      {/* Toolbar — search + mandate in row 1, filters + sort in row 2 */}
-      <div
-        className="rounded-2xl ed-ghost p-3 flex flex-col gap-3 mb-6"
-        style={{ background: 'var(--ed-surface-0)' }}
-      >
-        <div className="flex flex-col lg:flex-row gap-3">
-          <div
-            className="flex items-center gap-2 flex-1 px-3 rounded-xl ed-ghost"
-            style={{ background: 'rgba(0,0,0,0.3)', height: 40 }}
-          >
-            <Search className="w-3.5 h-3.5" style={{ color: 'var(--ed-steel-500)' }} />
+        {/* ============ TOOLBAR ============ */}
+        <section style={{ background: P.card, border: `1px solid ${P.line}`, borderRadius: 14, padding: 14, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 1, minWidth: 220, background: P.inset, border: `1px solid ${P.line}`, borderRadius: 10, padding: '0 13px', height: 42 }}>
+            <Search style={{ width: 15, height: 15, color: P.faint, flexShrink: 0 }} />
             <input
+              className="mkt-search"
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search operators by name, description, or address…"
-              className="flex-1 bg-transparent outline-none text-[13px]"
-              style={{ color: 'var(--ed-steel-100)' }}
+              placeholder="Search by name, strategy, or address…"
+              style={{ flex: 1, background: 'transparent', border: 'none', color: P.ink, fontFamily: SANS, fontSize: 13 }}
             />
           </div>
-          <SegGroup
-            label="Mandate"
-            activeKey={filter}
-            onChange={setFilter}
-            options={MANDATE_FILTERS}
-          />
-        </div>
 
-        <div className="flex items-center gap-4 flex-wrap">
-          <SegGroup
-            label="Perf"
-            activeKey={feeFilter}
-            onChange={setFeeFilter}
-            tone="cyan"
-            options={[
-              { key: 'all', label: 'Any' },
-              { key: 'low', label: '≤ 10% perf' },
-              { key: 'mid', label: '≤ 20% perf' },
-            ]}
-          />
-          <span className="h-5 w-px" style={{ background: 'rgba(255,255,255,0.06)' }} />
-          <SegGroup
-            label="Tier"
-            activeKey={tierFilter}
-            onChange={setTierFilter}
-            options={[
-              { key: 'all', label: 'Any' },
-              { key: '1', label: 'Bronze+' },
-              { key: '2', label: 'Silver+' },
-              { key: '3', label: 'Gold+' },
-            ]}
-          />
-          <button
-            onClick={() => setVerifiedOnly((v) => !v)}
-            className="ed-mono text-[11px] uppercase tracking-[0.16em] h-7 px-3 rounded-md ed-ghost whitespace-nowrap flex items-center gap-1.5 transition-all"
-            style={{
-              background: verifiedOnly ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.02)',
-              color: verifiedOnly ? 'var(--ed-emerald)' : 'var(--ed-steel-300)',
-            }}
-          >
-            <BadgeCheck className="w-3 h-3" /> Verified only
-          </button>
-          <div className="flex-1" />
-          <SegGroup
-            label="Sort"
-            activeKey={sortBy}
-            onChange={setSortBy}
-            tone="emerald"
-            options={[
-              { key: 'newest', label: 'Newest' },
-              { key: 'reputation', label: 'Reputation' },
-              { key: 'mostExecutions', label: 'Most Trades' },
-              { key: 'lowestFee', label: 'Lowest Fee' },
-              { key: 'highestTier', label: 'Highest Tier' },
-              { key: 'name', label: 'Name' },
-            ]}
-          />
-        </div>
-      </div>
-
-      {/* Featured operator + staking tiers legend (2-col) */}
-      {filtered.length > 0 && (
-        <>
-          <div className="flex items-center gap-4 mb-4">
-            <span className="ed-eyebrow">§ M.02 · Featured · tier S</span>
-            <div className="flex-1 ed-hairline" />
-          </div>
-          <div className="grid gap-5 mb-8" style={{ gridTemplateColumns: '1.55fr 1fr' }}>
-            <FeaturedOperatorCard
-              op={filtered[0]}
-              tier={tierSource[filtered[0].wallet?.toLowerCase()]}
-              reputation={reputationSource[filtered[0].wallet?.toLowerCase()]}
-            />
-            <StakingTiersPanel />
-          </div>
-        </>
-      )}
-
-      {/* Operator Grid */}
-      {!registryConfigured && !useDemoOperators ? (
-        <GlassPanel className="p-8 text-center">
-          <Cpu className="w-10 h-10 text-steel/20 mx-auto mb-3" />
-          <p className="text-sm text-steel/50">Operator Registry not deployed on this network yet.</p>
-          <p className="text-[11px] text-steel/30 mt-1">Run the deploy script to enable the marketplace.</p>
-        </GlassPanel>
-      ) : isLoading ? (
-        <GlassPanel className="p-8 text-center">
-          <div className="w-6 h-6 border-2 border-gold/30 border-t-gold rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-xs text-steel/40">Loading operators from chain...</p>
-        </GlassPanel>
-      ) : filtered.length === 0 ? (
-        <GlassPanel className="p-12 text-center border-dashed">
-          <Users className="w-10 h-10 text-steel/20 mx-auto mb-3" />
-          <p className="text-sm text-steel/50">
-            {operatorSource.length === 0
-              ? 'No operators registered yet — be the first.'
-              : 'No operators match your filters.'}
-          </p>
-          <p className="text-[11px] text-steel/35 mt-1 max-w-xl mx-auto leading-relaxed">
-            {operatorSource.length === 0
-              ? 'The registry is live, but nobody has published an active operator profile yet. Vaults can still use a custom executor while the marketplace warms up.'
-              : 'The live registry has entries, but your current filters are hiding all of them. Reset filters or search a broader term.'}
-          </p>
-          {operatorSource.length === 0 && (
-            <div className="mt-4 flex items-center justify-center gap-2 flex-wrap">
-              <Link to="/operator/register">
-                <ControlButton variant="gold" size="sm">
-                  <Plus className="w-3 h-3" /> Register as Operator
-                </ControlButton>
-              </Link>
-              <Link to="/create">
-                <ControlButton variant="secondary" size="sm">
-                  <Cpu className="w-3 h-3" /> Use Custom Executor
-                </ControlButton>
-              </Link>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '1.5px', textTransform: 'uppercase', color: P.faint }}>Mandate</span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {MANDATE_FILTERS.map((m) => (
+                <Seg key={m} active={mandate === m} onClick={() => setMandate(m)}>{m === 'all' ? 'All' : m}</Seg>
+              ))}
             </div>
-          )}
-        </GlassPanel>
-      ) : (
-        <>
-          {/* Listings section header */}
-          <div className="flex items-center gap-4 mb-4">
-            <span className="ed-eyebrow">§ M.02 · Operator listings</span>
-            <div className="flex-1 ed-hairline" />
-            <span
-              className="ed-mono text-[10.5px] uppercase tracking-[0.2em]"
-              style={{ color: 'var(--ed-steel-500)' }}
-            >
-              Showing {String(filtered.length).padStart(2, '0')} of {String(operatorSource.filter((o) => o.loaded && o.active).length).padStart(2, '0')}
-            </span>
           </div>
 
-          <div className="flex flex-col gap-3">
+          <div style={{ width: 1, height: 22, background: 'rgba(255,255,255,0.08)' }} />
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '1.5px', textTransform: 'uppercase', color: P.faint }}>Sort</span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {SORT_OPTIONS.map((s) => (
+                <Seg key={s.key} active={sort === s.key} onClick={() => setSort(s.key)}>{s.label}</Seg>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ============ FEATURED + TIERS ============ */}
+        {filtered.length > 0 && (
+          <>
+            <SectionRule tag="M.02 · Featured" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1.55fr 1fr', gap: 22 }}>
+              <FeaturedCard op={filtered[0]} tier={tierOf(filtered[0])} rep={repOf(filtered[0])} />
+              <StakeTiers />
+            </div>
+          </>
+        )}
+
+        {/* ============ LISTINGS ============ */}
+        <SectionRule
+          tag="M.04 · Operator listings"
+          trailing={`Showing ${String(filtered.length).padStart(2, '0')} of ${String(activeOps.length).padStart(2, '0')}`}
+        />
+
+        {!registryConfigured && !useDemo ? (
+          <EmptyCard title="Operator registry not deployed on this network yet." sub="Run the deploy script to enable the marketplace." />
+        ) : isLoading && !useDemo ? (
+          <EmptyCard title="Loading operators from chain…" sub="Reading the on-chain registry." />
+        ) : filtered.length === 0 ? (
+          <EmptyCard
+            title={activeOps.length === 0 ? 'No active operators registered yet.' : 'No operators match your filters.'}
+            sub={activeOps.length === 0 ? 'Vaults can still use a custom executor while the registry warms up.' : 'Reset the mandate filter or search a broader term.'}
+          />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {filtered.map((op) => (
-              <OperatorRowCard
-                key={op.wallet}
-                op={op}
-                chainId={chainId}
-                tierData={tierSource[op.wallet?.toLowerCase()]}
-                repData={reputationSource[op.wallet?.toLowerCase()]}
-                extended={extendedByAddress[op.wallet?.toLowerCase()]}
-              />
+              <OperatorRow key={op.wallet} op={op} tier={tierOf(op)} rep={repOf(op)} chainId={chainId} />
             ))}
           </div>
-        </>
-      )}
+        )}
 
-      {/* Trust model — emerald gradient strip with three reassurances */}
-      <div
-        className="rounded-2xl ed-ghost p-5 relative overflow-hidden mt-6"
-        style={{ background: 'linear-gradient(90deg, rgba(16,185,129,0.04), rgba(15,15,19,0.8))' }}
-      >
-        <div className="flex items-center gap-4 mb-4">
-          <span className="ed-eyebrow" style={{ color: 'var(--ed-emerald)' }}>— trust model</span>
-          <div className="flex-1 ed-hairline" />
-        </div>
-        <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
-          {[
-            {
-              Icon: ShieldCheck,
-              accent: 'Operators have zero access',
-              body: (
-                <>
-                  {' '}to your funds. They can only call
-                  <code className="ed-mono ml-1" style={{ color: 'var(--ed-cyan)' }}>executeIntent()</code> and pass on-chain policy checks.
-                </>
-              ),
-            },
-            {
-              Icon: RefreshCw,
-              accent: 'You can switch operators anytime',
-              body: (
-                <>
-                  {' '}from the vault detail page —
-                  <code className="ed-mono ml-1" style={{ color: 'var(--ed-cyan)' }}>setExecutor()</code> is owner-only.
-                </>
-              ),
-            },
-            {
-              Icon: Bolt,
-              accent: 'Set tight policies',
-              body: ' (low max position, low daily loss) and you cap any operator’s worst-case behavior.',
-            },
-          ].map((t, i) => (
-            <div key={i} className="flex items-start gap-3">
-              <div
-                className="h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--ed-emerald)' }}
-              >
-                <t.Icon className="w-[13px] h-[13px]" />
-              </div>
-              <p style={{ fontSize: 13, color: 'var(--ed-steel-400)', lineHeight: 1.55, margin: 0 }}>
-                <span className="ed-italic" style={{ color: 'var(--ed-steel-100)' }}>{t.accent}</span>{t.body}
-              </p>
+        {/* ============ TRUST MODEL ============ */}
+        <section style={{ background: P.card, border: `1px solid ${P.line}`, borderRadius: 14, padding: 24, marginTop: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
+            <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '1.6px', textTransform: 'uppercase', color: P.emerald }}>Trust model</span>
+            <div style={{ flex: 1, height: 1, background: P.line }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 22 }}>
+            <TrustItem Icon={ShieldCheck}>
+              <strong style={{ color: P.ink, fontWeight: 500 }}>Operators have zero access</strong> to your funds. They can only call <code style={{ fontFamily: MONO, color: P.violet }}>executeIntent()</code> and pass on-chain policy checks.
+            </TrustItem>
+            <TrustItem Icon={RefreshCw}>
+              <strong style={{ color: P.ink, fontWeight: 500 }}>Switch operators anytime</strong> from the vault detail page — <code style={{ fontFamily: MONO, color: P.violet }}>setExecutor()</code> is owner-only.
+            </TrustItem>
+            <TrustItem Icon={Zap}>
+              <strong style={{ color: P.ink, fontWeight: 500 }}>Set tight policies</strong> (low max position, low daily loss) and you cap any operator&rsquo;s worst-case behavior.
+            </TrustItem>
+          </div>
+          {registryExplorerHref && !useDemo && (
+            <div style={{ marginTop: 18, fontFamily: MONO, fontSize: 11, color: P.faint }}>
+              <a href={registryExplorerHref} target="_blank" rel="noreferrer" style={{ color: P.violet, textDecoration: 'none' }}>View registry on explorer →</a>
             </div>
-          ))}
-        </div>
+          )}
+        </section>
+
       </div>
     </div>
   );
 }
 
-// Editorial featured-operator card — highlighted top row in the marketplace.
-// Uses the actual filtered[0] operator so featured content is data-driven, not
-// hardcoded. Bio comes from the on-chain description field.
-function FeaturedOperatorCard({ op, tier, reputation }) {
+/* ─────────────── Featured operator ─────────────── */
+
+function FeaturedCard({ op, tier, rep }) {
   if (!op) return null;
-  const tierLabel = tier?.tier === 3 ? 'S' : tier?.tier === 2 ? 'A' : tier?.tier === 1 ? 'B' : '—';
-  const handle = op.endpoint ? op.endpoint.replace(/^https?:\/\//, '').split('/')[0] : op.name;
-  const shortAddr = op.wallet ? `${op.wallet.slice(0, 8)}…${op.wallet.slice(-6)}` : '—';
-  const bio = op.description || 'No strategy description provided.';
-  const perfPct = ((op.performanceFeeBps || 0) / 100).toFixed(1);
-  const mgmtPct = ((op.managementFeeBps || 0) / 100).toFixed(1);
-  const repScore = reputation?.reputationScore ?? reputation?.score;
-  const totalExec = reputation?.totalExecutions ?? 0;
-  return (
-    <div
-      className="ed-card ed-ghost-gold relative overflow-hidden"
-      style={{ padding: 28 }}
-    >
-      <div
-        className="absolute pointer-events-none"
-        style={{
-          top: 0,
-          right: 0,
-          width: 300,
-          height: 300,
-          backgroundImage:
-            'radial-gradient(circle at 100% 0%, rgba(201,168,76,0.10), transparent 60%)',
-        }}
-      />
-      <div className="relative">
-        <div className="flex items-center justify-between gap-2.5 mb-3">
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <span className="ed-chip ed-chip-gold">
-              <Trophy className="w-[11px] h-[11px]" /> Featured · tier {tierLabel}
-            </span>
-            <span
-              className="ed-mono text-[10.5px] uppercase"
-              style={{ color: 'var(--ed-steel-500)', letterSpacing: '0.22em' }}
-            >
-              Rank #01
-            </span>
-          </div>
-          <button
-            className="transition-colors"
-            style={{ color: 'var(--ed-steel-500)' }}
-            aria-label="Bookmark operator"
-            type="button"
-          >
-            <Bookmark className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <div className="grid items-start gap-5" style={{ gridTemplateColumns: 'auto 1fr' }}>
-          <div
-            className="flex items-center justify-center"
-            style={{
-              width: 80,
-              height: 80,
-              borderRadius: 16,
-              background: 'linear-gradient(135deg, var(--ed-surface-2), var(--ed-surface-1))',
-              boxShadow: 'var(--ed-ghost-border-gold)',
-              color: 'var(--ed-gold)',
-            }}
-          >
-            <Cpu className="w-9 h-9" />
-          </div>
-          <div className="min-w-0">
-            <h3
-              className="ed-display"
-              style={{ fontSize: 32, fontWeight: 600, letterSpacing: '-0.03em', margin: 0 }}
-            >
-              {op.name}
-            </h3>
-            <div className="flex gap-2.5 items-center flex-wrap mt-1.5">
-              <span className="ed-mono text-[12px]" style={{ color: 'var(--ed-cyan)' }}>
-                {handle}
-              </span>
-              <span style={{ color: 'var(--ed-steel-600)' }}>·</span>
-              <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>
-                {shortAddr}
-              </span>
-            </div>
-            <p
-              className="ed-italic mt-3.5"
-              style={{
-                fontSize: 14,
-                color: 'var(--ed-steel-200)',
-                lineHeight: 1.55,
-                margin: '14px 0 0',
-                maxWidth: 560,
-              }}
-            >
-              "{bio}"
-            </p>
-          </div>
-        </div>
-
-        <div className="ed-hairline my-5" />
-
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-          {[
-            { k: 'Mandate', v: op.mandateLabel || '—', c: 'var(--ed-gold)' },
-            { k: 'Perf fee', v: `${perfPct}%`, c: 'var(--ed-steel-100)' },
-            { k: 'Mgmt fee', v: `${mgmtPct}%`, c: 'var(--ed-steel-100)' },
-            {
-              k: repScore != null ? 'Reputation' : 'Actions',
-              v: repScore != null ? String(repScore) : String(totalExec),
-              c: 'var(--ed-emerald)',
-            },
-          ].map((x, i) => (
-            <div
-              key={i}
-              style={{ borderLeft: i ? '1px solid rgba(255,255,255,0.06)' : 'none', paddingLeft: i ? 18 : 0 }}
-            >
-              <div
-                className="ed-mono mb-1"
-                style={{ fontSize: 9.5, color: 'var(--ed-steel-500)', letterSpacing: '0.2em' }}
-              >
-                {x.k.toUpperCase()}
-              </div>
-              <div
-                className="ed-display"
-                style={{ fontSize: 20, color: x.c, fontWeight: 600, letterSpacing: '-0.02em' }}
-              >
-                {x.v}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex gap-2.5 mt-5">
-          <Link to={`/operator/${op.wallet}`}>
-            <ControlButton variant="gold">
-              View profile <ArrowRight className="w-3.5 h-3.5" />
-            </ControlButton>
-          </Link>
-          <Link to={`/create?operator=${op.wallet}`}>
-            <ControlButton variant="secondary">Assign to vault</ControlButton>
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Editorial stake-tiers panel — reference legend showing what each tier
-// entitles an operator to, and a short note on how slashing works. Sits next
-// to the featured operator card so vault owners see the floor requirement
-// alongside who's at the top of the leaderboard.
-function StakingTiersPanel() {
-  const tiers = [
-    {
-      t: 'S',
-      range: '≥ 50K A0G',
-      perks: 'Featured + sealed mode + governance vote',
-      color: 'var(--ed-gold)',
-      border: 'rgba(201,168,76,0.28)',
-    },
-    {
-      t: 'A',
-      range: '20K – 50K',
-      perks: 'Multi-vault assignments · slashing 20%',
-      color: 'var(--ed-cyan)',
-      border: 'rgba(255,255,255,0.08)',
-    },
-    {
-      t: 'B',
-      range: '5K – 20K',
-      perks: 'Single vault · review-tier signals',
-      color: 'var(--ed-emerald)',
-      border: 'rgba(255,255,255,0.08)',
-    },
-    {
-      t: 'C',
-      range: '< 5K',
-      perks: 'Shadow mode · no live assignment',
-      color: 'var(--ed-steel-300)',
-      border: 'rgba(255,255,255,0.08)',
-    },
+  const repScore = reputationScore(rep);
+  const stats = [
+    { k: 'Mandate', v: op.mandateLabel || '—', c: P.gold },
+    { k: 'Perf fee', v: pct1(op.performanceFeeBps), c: P.ink },
+    { k: 'Mgmt fee', v: pct1(op.managementFeeBps), c: P.ink },
+    { k: 'Reputation', v: rep ? String(repScore) : '—', c: P.emerald },
   ];
   return (
-    <div className="ed-card p-6 flex flex-col">
-      <div className="flex items-baseline gap-3.5 mb-2">
-        <span className="ed-eyebrow">§ M.03</span>
-        <span
-          className="ed-mono text-[10.5px] tracking-[0.22em] uppercase"
-          style={{ color: 'var(--ed-steel-400)' }}
-        >
-          Stake tiers
-        </span>
-      </div>
-      <h3
-        className="ed-display mb-4"
-        style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}
-      >
-        Skin,{' '}
-        <span className="ed-italic" style={{ color: 'var(--ed-gold)', fontWeight: 400 }}>
-          in tiers
-        </span>
-      </h3>
+    <section style={{ position: 'relative', overflow: 'hidden', background: P.card, border: '1px solid rgba(227,179,78,0.2)', borderRadius: 16, padding: 26 }}>
+      <div aria-hidden style={{ position: 'absolute', top: 0, right: 0, width: 280, height: 280, background: 'radial-gradient(circle at 100% 0%,rgba(227,179,78,0.1),transparent 60%)', pointerEvents: 'none' }} />
+      <div style={{ position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: MONO, fontSize: 10, fontWeight: 600, color: P.gold, background: 'rgba(227,179,78,0.12)', padding: '4px 10px', borderRadius: 6 }}>
+            ★ Featured · tier {stakeLetter(tier?.tier || 0)}
+          </span>
+          <span style={{ fontFamily: MONO, fontSize: 10.5, letterSpacing: '1.6px', textTransform: 'uppercase', color: P.faint }}>Rank #01</span>
+        </div>
 
-      <div className="mt-3">
-        {tiers.map((r, i) => (
-          <div
-            key={r.t}
-            className="grid items-center gap-3 py-3.5"
-            style={{
-              gridTemplateColumns: '38px 1fr auto',
-              borderTop: i ? '1px solid rgba(255,255,255,0.05)' : 'none',
-            }}
-          >
-            <div
-              className="flex items-center justify-center"
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 8,
-                background: 'var(--ed-surface-2)',
-                boxShadow: `inset 0 0 0 1px ${r.border}`,
-                color: r.color,
-              }}
-            >
-              <span className="ed-mono text-[13px] font-bold">{r.t}</span>
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 20, alignItems: 'start' }}>
+          <div style={{ width: 72, height: 72, borderRadius: 16, background: P.tag, border: '1px solid rgba(227,179,78,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: P.gold, fontSize: 30, fontWeight: 600 }}>
+            {initialOf(op.name)}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ fontSize: 28, fontWeight: 600, letterSpacing: '-0.8px', margin: 0 }}>{op.name}</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 6 }}>
+              <span style={{ fontFamily: MONO, fontSize: 11.5, color: P.violet }}>{handleOf(op)}</span>
+              <span style={{ color: '#3a3e46' }}>·</span>
+              <span style={{ fontFamily: MONO, fontSize: 11, color: P.faint }}>{shortHexLabel(op.wallet)}</span>
             </div>
+            <p style={{ fontSize: 13.5, color: P.body, lineHeight: 1.55, margin: '14px 0 0', maxWidth: 520 }}>{op.description || 'No strategy description provided.'}</p>
+          </div>
+        </div>
+
+        <div style={{ height: 1, background: P.line, margin: '22px 0' }} />
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)' }}>
+          {stats.map((s, i) => (
+            <div key={s.k} style={{ borderLeft: i ? `1px solid ${P.line}` : 'none', paddingLeft: i ? 18 : 0 }}>
+              <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '1.8px', textTransform: 'uppercase', color: P.faint }}>{s.k}</div>
+              <div style={{ fontSize: 20, fontWeight: 600, color: s.c, marginTop: 6 }}>{s.v}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+          <Link to={`/operator/${op.wallet}`}><GoldButton>View profile <ArrowRight style={{ width: 14, height: 14 }} /></GoldButton></Link>
+          <Link to={`/create?operator=${op.wallet}`}><GhostButton>Assign to vault</GhostButton></Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─────────────── Stake tiers legend ─────────────── */
+
+const TIERS = [
+  { t: 'S', range: '≥ 50K A0G', perks: 'Featured + sealed mode + governance vote', col: '#e3b34e', border: 'rgba(227,179,78,0.28)' },
+  { t: 'A', range: '20K – 50K', perks: 'Multi-vault assignments · slashing 20%', col: '#6f7bdb', border: 'rgba(255,255,255,0.08)' },
+  { t: 'B', range: '5K – 20K', perks: 'Single vault · review-tier signals', col: '#5cb88a', border: 'rgba(255,255,255,0.08)' },
+  { t: 'C', range: '< 5K', perks: 'Shadow mode · no live assignment', col: '#9499a2', border: 'rgba(255,255,255,0.08)' },
+];
+
+function StakeTiers() {
+  return (
+    <section style={{ background: P.card, border: `1px solid ${P.line}`, borderRadius: 16, padding: 24, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ marginBottom: 14 }}>
+        <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '1.6px', textTransform: 'uppercase', color: P.faint }}>M.03 · Stake tiers</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {TIERS.map((t, i) => (
+          <div key={t.t} style={{ display: 'grid', gridTemplateColumns: '34px 1fr', gap: 12, alignItems: 'center', padding: '13px 0', borderTop: i ? `1px solid ${P.lineSoft}` : 'none' }}>
+            <div style={{ width: 30, height: 30, borderRadius: 8, background: P.tag, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: MONO, fontSize: 13, fontWeight: 700, color: t.col, border: `1px solid ${t.border}` }}>{t.t}</div>
             <div>
-              <div className="text-[12.5px]" style={{ color: 'var(--ed-steel-100)' }}>
-                {r.perks}
-              </div>
-              <div
-                className="ed-mono text-[10px] mt-0.5"
-                style={{ color: 'var(--ed-steel-500)' }}
-              >
-                {r.range}
-              </div>
+              <div style={{ fontSize: 12.5, color: P.ink }}>{t.perks}</div>
+              <div style={{ fontFamily: MONO, fontSize: 10, color: P.faint, marginTop: 2 }}>{t.range}</div>
             </div>
-            <ArrowRight className="w-3.5 h-3.5" color="var(--ed-steel-500)" />
           </div>
         ))}
       </div>
-
-      <div className="flex-1" />
-      <div
-        className="ed-ghost-gold mt-4 p-3.5"
-        style={{ background: 'var(--ed-obsidian-dim)', borderRadius: 10 }}
-      >
-        <div
-          className="ed-mono mb-1.5"
-          style={{ fontSize: 10, color: 'var(--ed-gold)', letterSpacing: '0.18em' }}
-        >
-          SLASHING
-        </div>
-        <p style={{ fontSize: 12, color: 'var(--ed-steel-300)', lineHeight: 1.5, margin: 0 }}>
-          Misbehavior forfeits 10–50% of stake. Treasury claim goes to the affected vault first,
-          then to the insurance tranche.
+      <div style={{ marginTop: 16, background: P.inset, border: '1px solid rgba(227,179,78,0.15)', borderRadius: 10, padding: 14 }}>
+        <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: '1.6px', color: P.gold, marginBottom: 6 }}>SLASHING</div>
+        <p style={{ fontSize: 12, color: P.sub, lineHeight: 1.5, margin: 0 }}>
+          Misbehavior forfeits 10–50% of stake. Treasury claim goes to the affected vault first, then to the insurance tranche.
         </p>
+      </div>
+    </section>
+  );
+}
+
+/* ─────────────── Operator listing row ─────────────── */
+
+function OperatorRow({ op, tier, rep, chainId }) {
+  const tone = mandateTone(op.mandateLabel);
+  const repScore = reputationScore(rep);
+  const stake = tier?.stakeAmount;
+  const trades = rep?.totalExecutions;
+  const success = rep?.successRatePct != null ? `${rep.successRatePct.toFixed(1)}%` : null;
+  const rating = rep?.ratingCount > 0 ? rep.averageRating.toFixed(1) : null;
+  const explorerHref = getExplorerAddressHref(chainId, op.wallet);
+
+  return (
+    <div style={{ background: P.card, border: `1px solid ${P.line}`, borderRadius: 14, padding: 20, display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 20, alignItems: 'center' }}>
+      <div style={{ width: 48, height: 48, borderRadius: 12, background: tone.icon, display: 'flex', alignItems: 'center', justifyContent: 'center', color: tone.fg, fontSize: 19, fontWeight: 600 }}>
+        {initialOf(op.name)}
+      </div>
+
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', marginBottom: 5 }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: P.ink }}>{op.name}</span>
+          {rep?.verified && (
+            <span style={{ fontFamily: MONO, fontSize: 9, fontWeight: 600, color: P.violet, background: 'rgba(111,123,219,0.12)', padding: '2px 7px', borderRadius: 5 }}>✓ VERIFIED</span>
+          )}
+          <span style={{ fontFamily: MONO, fontSize: 10.5, color: P.faint }}>{shortHexLabel(op.wallet)}</span>
+          {op.mandateLabel && (
+            <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, color: tone.fg, background: tone.chip, padding: '3px 9px', borderRadius: 6, letterSpacing: '0.4px' }}>{op.mandateLabel}</span>
+          )}
+          <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, color: P.sub, background: P.tag, padding: '3px 9px', borderRadius: 6, textTransform: 'uppercase' }}>{tierName(tier)}</span>
+        </div>
+        <p style={{ fontSize: 12.5, color: P.sub, lineHeight: 1.5, margin: '0 0 12px', maxWidth: 640 }}>{op.description || 'No description provided.'}</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+          <RowMetric label="Perf" value={pct1(op.performanceFeeBps)} color={P.emerald} />
+          <RowMetric label="Mgmt" value={pct1(op.managementFeeBps)} color={P.violet} />
+          {trades != null && <RowMetric label="Trades" value={trades} color={P.gold} />}
+          {success && <RowMetric label="Success" value={success} color={P.ink} />}
+          {rating && <RowMetric label="Rating" value={`★ ${rating}`} color={P.gold} />}
+          {stake != null && (
+            <span style={{ fontFamily: MONO, fontSize: 10.5, color: P.faint }}>Stake {formatStake(stake)}</span>
+          )}
+          {explorerHref && (
+            <a href={explorerHref} target="_blank" rel="noreferrer" style={{ fontFamily: MONO, fontSize: 10.5, color: P.faint, textDecoration: 'none' }}>Explorer ↗</a>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 12, minWidth: 130 }}>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '1px', textTransform: 'uppercase', color: P.faint }}>Reputation</div>
+          <div style={{ fontSize: 22, fontWeight: 600, color: P.emerald, marginTop: 2 }}>{rep ? repScore : '—'}</div>
+        </div>
+        <div style={{ width: 120, height: 6, borderRadius: 99, background: P.track, overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${rep ? repScore : 0}%`, background: P.emerald, borderRadius: 99 }} />
+        </div>
+        <Link to={`/operator/${op.wallet}`}>
+          <GhostButton style={{ fontSize: 11, fontWeight: 600, padding: '8px 16px' }}>View →</GhostButton>
+        </Link>
       </div>
     </div>
   );
 }
 
-// Full-width operator row — [icon | main column | actions] grid, dense
-// metadata pills + tiny mono annotations underneath. Used for every
-// non-featured operator listing. Mirrors the OpRow component in the
-// editorial Marketplace.html reference.
-function OperatorRowCard({ op, chainId, tierData, repData, extended }) {
-  const operatorExplorerHref = getExplorerAddressHref(chainId, op.wallet);
-  const tier = tierData?.tier || 0;
-  const aiModelShort = extended?.aiModel
-    ? (extended.aiModel.split('/').pop()?.split('-').slice(0, 2).join('-') || extended.aiModel)
-    : null;
-  // `nowSec` is captured once per mount — re-reading Date.now() during render
-  // is flagged by react-hooks/purity and can give unstable results across
-  // re-renders. Pinning it at mount is fine: the "new operator" badge drifts
-  // off on the next mount, which happens every navigation.
-  const [nowSec] = useState(() => Math.floor(Date.now() / 1000));
-  const isNew = op.registeredAt && (nowSec - op.registeredAt) < 7 * 24 * 3600;
-
+function RowMetric({ label, value, color }) {
   return (
-    <div
-      className="rounded-2xl ed-ghost p-5 grid gap-5 items-center transition-all hover:bg-white/[0.02]"
-      style={{ background: 'var(--ed-surface-0)', gridTemplateColumns: 'auto 1fr auto' }}
-    >
-      {/* Icon tile */}
-      <div
-        className="h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{
-          background: 'rgba(76,201,240,0.1)',
-          boxShadow: 'inset 0 0 0 1px rgba(76,201,240,0.25)',
-          color: 'var(--ed-cyan)',
-        }}
-      >
-        <Cpu className="w-5 h-5" />
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: '1px', textTransform: 'uppercase', color: P.faint }}>{label}</span>
+      <span style={{ fontFamily: MONO, fontSize: 12, color }}>{value}</span>
+    </div>
+  );
+}
+
+function formatStake(n) {
+  if (n >= 1000) return `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}K`;
+  return String(n);
+}
+
+/* ─────────────── Misc ─────────────── */
+
+function EmptyCard({ title, sub }) {
+  return (
+    <div style={{ background: P.card, border: '1px dashed rgba(255,255,255,0.12)', borderRadius: 14, padding: 48, textAlign: 'center' }}>
+      <div style={{ fontSize: 14, color: P.sub }}>{title}</div>
+      <div style={{ fontFamily: MONO, fontSize: 11.5, color: P.faint, marginTop: 8 }}>{sub}</div>
+    </div>
+  );
+}
+
+function TrustItem({ Icon, children }) {
+  return (
+    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+      <div style={{ width: 32, height: 32, borderRadius: 9, background: 'rgba(92,184,138,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', color: P.emerald }}>
+        <Icon style={{ width: 15, height: 15 }} />
       </div>
-
-      {/* Main column: name + description + pills */}
-      <div className="min-w-0">
-        <div className="flex items-center gap-2 mb-1 flex-wrap">
-          <span className="text-[15px] font-medium whitespace-nowrap" style={{ color: 'var(--ed-steel-100)' }}>
-            {op.name}
-          </span>
-          {repData?.verified && (
-            <BadgeCheck className="w-3.5 h-3.5" style={{ color: 'var(--ed-cyan)' }} />
-          )}
-          <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>
-            {shortHexLabel(op.wallet)}
-          </span>
-          <span className="ed-chip ed-chip-cyan">{op.mandateLabel}</span>
-          {isNew && (
-            <span className="ed-chip ed-chip-emerald">
-              <span className="inline-block rounded-full" style={{ width: 4, height: 4, background: 'var(--ed-emerald)' }} />
-              New
-            </span>
-          )}
-          {tier > 0 && (
-            <span className={`ed-chip ed-chip-steel ${TIER_COLORS[tier] || ''}`}>
-              <Award className="w-2.5 h-2.5" /> {TIER_LABELS[tier]}
-            </span>
-          )}
-          {tierData?.frozen && <span className="ed-chip ed-chip-rose">Frozen</span>}
-        </div>
-
-        <p
-          className="line-clamp-2"
-          style={{ fontSize: 12.5, color: 'var(--ed-steel-400)', lineHeight: 1.5 }}
-        >
-          {op.description || 'No description provided.'}
-        </p>
-
-        <div className="flex items-center gap-3 mt-2.5 flex-wrap">
-          <RowPill label="Perf" value={formatBps(op.performanceFeeBps)} tone="emerald" Icon={TrendingUp} />
-          <RowPill label="Mgmt" value={formatBps(op.managementFeeBps)} tone="cyan" Icon={Percent} />
-          {repData && repData.totalExecutions > 0 && (
-            <RowPill label="Actions" value={repData.totalExecutions} tone="gold" Icon={Bolt} />
-          )}
-          {repData && typeof repData.reputationScore === 'number' && (
-            <RowPill label="Rep" value={repData.reputationScore} tone="cyan" Icon={Trophy} />
-          )}
-          {repData && repData.ratingCount > 0 && (
-            <RowPill label="Rating" value={repData.averageRating.toFixed(1)} tone="gold" Icon={Star} />
-          )}
-
-          {/* Tiny metadata annotations */}
-          <span className="ed-mono text-[10.5px] ml-1 flex items-center gap-1.5" style={{ color: 'var(--ed-steel-500)' }}>
-            <Clock className="w-2.5 h-2.5" />
-            Since {new Date(op.registeredAt * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-          </span>
-          {aiModelShort && (
-            <span
-              className="ed-mono text-[10.5px] flex items-center gap-1.5"
-              style={{ color: 'var(--ed-steel-500)' }}
-              title={`AI Model: ${extended.aiModel}`}
-            >
-              <Sparkles className="w-2.5 h-2.5" />
-              {aiModelShort}
-            </span>
-          )}
-          {extended?.manifestURI && (
-            <span
-              className="ed-mono text-[10.5px] flex items-center gap-1.5"
-              style={{ color: extended.manifestBonded ? 'var(--ed-gold)' : 'var(--ed-steel-500)' }}
-              title={extended.manifestBonded ? 'Bonded manifest — slashable on deviation' : 'Strategy manifest published'}
-            >
-              <Shield className="w-2.5 h-2.5" />
-              {extended.manifestBonded ? 'Bonded' : 'Manifest'}
-            </span>
-          )}
-          {tierData && tierData.maxVaultSize > 0 && (
-            <span className="ed-mono text-[10.5px] flex items-center gap-1.5" style={{ color: 'var(--ed-steel-500)' }}>
-              <Layers className="w-2.5 h-2.5" />
-              Cap {formatVaultCap(tierData.maxVaultSize, tierData.isUnlimited)}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-2 flex-shrink-0">
-        {operatorExplorerHref && (
-          <a
-            href={operatorExplorerHref}
-            target="_blank"
-            rel="noreferrer"
-            className="ed-mono text-[11px] uppercase tracking-[0.2em] inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
-            style={{ color: 'var(--ed-steel-500)' }}
-          >
-            Explorer <ExternalLink className="w-[11px] h-[11px]" />
-          </a>
-        )}
-        <Link to={`/operator/${op.wallet}`}>
-          <ControlButton variant="secondary" size="sm">
-            <ArrowRight className="w-3 h-3" /> View
-          </ControlButton>
-        </Link>
-      </div>
+      <p style={{ fontSize: 13, color: P.sub, lineHeight: 1.55, margin: 0 }}>{children}</p>
     </div>
   );
 }
