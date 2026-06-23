@@ -170,7 +170,7 @@ export default function VaultDetailPage() {
   const { state: feeState, refetch: refetchFees } = useVaultFeeState(vaultAddr, 6);
   const { navUsd: liveNavUsd, refetch: refetchNav } = useVaultNav(vaultAddr, 6);
   const { claim: claimFees, hash: claimHash, isPending: claimPending, isSuccess: claimSuccess } = useClaimFees();
-  const { accrue: accrueFees, hash: accrueHash, isPending: accruePending, isSuccess: accrueSuccess } = useAccrueFees();
+  const { accrue: accrueFees, hash: accrueHash, isPending: accruePending, isSuccess: accrueSuccess, _unsupported: feesUnsupported } = useAccrueFees();
 
   // Wallet balances — reuse the `address` already destructured above from
   // useAccount (line 97) instead of re-calling the hook, so both the UI
@@ -892,6 +892,7 @@ export default function VaultDetailPage() {
                   feeRecipientExplorerHref={feeRecipientExplorerHref}
                   walletAddress={walletAddress}
                   isConnected={isConnected}
+                  feesUnsupported={feesUnsupported}
                   accruePending={accruePending}
                   claimPending={claimPending}
                   claimSuccess={claimSuccess}
@@ -1447,11 +1448,11 @@ function StrategyPanel({
             <span className="ed-mono" style={{ color: 'var(--ed-steel-50)' }}>
               {(pol.maxPositionPct || 0).toFixed(0)}%
             </span>{' '}
-            single-position exposure. Vault-side stop-loss enforced on-chain at{' '}
+            single-position exposure. Stop-loss enforced off-chain by the orchestrator at{' '}
             <span className="ed-mono" style={{ color: 'var(--ed-steel-50)' }}>
               {(pol.stopLossPct || 0).toFixed(1)}%
             </span>
-            .
+            {' '}(min-confidence and position-size caps are enforced on-chain).
           </p>
           <div className="mt-2 flex items-center gap-3 flex-wrap">
             <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
@@ -2117,7 +2118,7 @@ function TicketRow({ label, value, tone = 'default' }) {
 
 function FeesPanel({
   policy, feeState, liveNavUsd, feeRecipientExplorerHref, walletAddress, isConnected,
-  accruePending, claimPending, claimSuccess, accrueSuccess, onAccrue, onClaim,
+  feesUnsupported, accruePending, claimPending, claimSuccess, accrueSuccess, onAccrue, onClaim,
 }) {
   const canClaim = walletAddress && walletAddress.toLowerCase() === (policy?.feeRecipient || '').toLowerCase();
   return (
@@ -2189,29 +2190,44 @@ function FeesPanel({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2">
-          <ControlButton variant="secondary" size="sm" disabled={!isConnected || accruePending} onClick={onAccrue}>
-            <Hourglass className="w-3 h-3" />
-            {accruePending ? 'Accruing…' : 'Accrue'}
-          </ControlButton>
-          <ControlButton
-            variant="gold"
-            size="sm"
-            disabled={!isConnected || claimPending || !(feeState?.accruedTotal > 0) || !canClaim}
-            onClick={onClaim}
+        {feesUnsupported ? (
+          <div
+            className="rounded-md px-3 py-2 text-center"
+            style={{ background: '#15151A', boxShadow: 'inset 0 0 0 1px #ffffff14' }}
           >
-            <Wallet className="w-3 h-3" />
-            {claimPending ? 'Claiming…' : 'Claim'}
-          </ControlButton>
-        </div>
+            <p className="ed-mono text-[10px]" style={{ color: 'var(--ed-steel-50)' }}>
+              Accrue / claim not available on this build — the slim 0G mainnet vault
+              charges entry/exit fees inline (80% operator · 20% treasury). There is no
+              performance/management-fee accrual to claim here.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <ControlButton variant="secondary" size="sm" disabled={!isConnected || accruePending} onClick={onAccrue}>
+                <Hourglass className="w-3 h-3" />
+                {accruePending ? 'Accruing…' : 'Accrue'}
+              </ControlButton>
+              <ControlButton
+                variant="gold"
+                size="sm"
+                disabled={!isConnected || claimPending || !(feeState?.accruedTotal > 0) || !canClaim}
+                onClick={onClaim}
+              >
+                <Wallet className="w-3 h-3" />
+                {claimPending ? 'Claiming…' : 'Claim'}
+              </ControlButton>
+            </div>
 
-        {claimSuccess && (
-          <p className="ed-mono text-[10px] text-center mt-2" style={{ color: '#8AE6C2' }}>
-            Fees claimed · 80% to operator · 20% to treasury
-          </p>
-        )}
-        {accrueSuccess && (
-          <p className="ed-mono text-[10px] text-center mt-2" style={{ color: ACCENTS.cyan }}>Fees accrued on-chain</p>
+            {claimSuccess && (
+              <p className="ed-mono text-[10px] text-center mt-2" style={{ color: '#8AE6C2' }}>
+                Fees claimed · 80% to operator · 20% to treasury
+              </p>
+            )}
+            {accrueSuccess && (
+              <p className="ed-mono text-[10px] text-center mt-2" style={{ color: ACCENTS.cyan }}>Fees accrued on-chain</p>
+            )}
+          </>
         )}
 
         {feeState?.pendingFeeChange?.pending && (

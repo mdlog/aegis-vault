@@ -24,7 +24,8 @@ export function preCheckPolicy(decision, vaultState, policy) {
     checkDailyActions(vaultState, policy),
     checkCooldown(vaultState, policy),
     checkAssetWhitelist(decision, vaultState),
-    checkDailyLoss(vaultState, policy),
+    checkDailyLoss(decision, vaultState, policy),
+    checkNavFloor(decision, vaultState, policy),
     checkRiskScore(decision),
   ];
 
@@ -146,13 +147,42 @@ function checkAssetWhitelist(decision, vaultState) {
   return { valid: true, reason: '' };
 }
 
-function checkDailyLoss(vaultState, policy) {
+function checkDailyLoss(decision, vaultState, policy) {
+  // The daily-loss limit must only block OPENING / INCREASING risk (BUY). A SELL or
+  // REDUCE is precisely the action that CONTAINS the loss this limit exists to cap —
+  // blocking it here traps a losing position and deepens the drawdown each cycle.
+  if (decision.action !== 'buy') return { valid: true, reason: '' };
   const maxLossPct = policy.maxDailyLossBps / 100;
   const currentLossPct = vaultState.currentDailyLossPct || 0;
   if (currentLossPct > maxLossPct) {
     return {
       valid: false,
       reason: `Daily loss ${currentLossPct.toFixed(1)}% exceeds limit ${maxLossPct}%`,
+    };
+  }
+  return { valid: true, reason: '' };
+}
+
+// Journal-independent fail-safe (ORCHESTRATOR_REVIEW.md H3). The in-memory daily-loss /
+// drawdown baselines (peak_nav / daily_open_nav) can be silently re-seeded to a depressed
+// NAV when the local KV journal is lost/corrupt, disarming the daily-loss halt (fails OPEN).
+// This guard derives "are we under water?" purely from on-chain NAV vs deposited principal,
+// so a wiped-state restart fails SAFE: it blocks OPENING new risk (BUY) when NAV is below
+// principal by more than the daily-loss limit. Exits (SELL/REDUCE) are never blocked.
+function checkNavFloor(decision, vaultState, policy) {
+  if (decision.action !== 'buy') return { valid: true, reason: '' };
+  const nav = Number(vaultState.nav);
+  const deposited = Number(vaultState.totalDeposited);
+  // No usable on-chain signal → don't false-block (other checks still apply).
+  if (!Number.isFinite(nav) || !Number.isFinite(deposited) || deposited <= 0) {
+    return { valid: true, reason: '' };
+  }
+  const floor = deposited * (1 - policy.maxDailyLossBps / 10000);
+  if (nav < floor) {
+    const drawdownPct = ((deposited - nav) / deposited) * 100;
+    return {
+      valid: false,
+      reason: `NAV below principal floor (drawdown ${drawdownPct.toFixed(1)}% > ${(policy.maxDailyLossBps / 100)}%) — BUY blocked (fail-safe)`,
     };
   }
   return { valid: true, reason: '' };

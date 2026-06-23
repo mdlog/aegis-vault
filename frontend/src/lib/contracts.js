@@ -257,9 +257,10 @@ export const SHOW_ONLY_V4_VAULTS = isTruthyFlag(
   import.meta.env.VITE_SHOW_ONLY_V4_VAULTS
 );
 
-export const ORCHESTRATOR_URL =
+export const ORCHESTRATOR_URL = (
   import.meta.env.VITE_ORCHESTRATOR_URL ||
-  (import.meta.env.DEV ? 'http://localhost:4002' : '');
+  (import.meta.env.DEV ? 'http://localhost:4002' : '')
+).replace(/\/+$/, '');
 
 export function getDeployments(chainId) {
   const key = String(chainId || 31337);

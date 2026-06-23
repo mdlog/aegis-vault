@@ -171,7 +171,7 @@ export default function DocsPage() {
     >
       {/* Top bar */}
       <header className="sticky top-0 z-40 bg-obsidian/95 backdrop-blur-xl border-b border-white/[0.04]">
-        <div className="max-w-[1180px] mx-auto px-4 sm:px-6 lg:px-10 h-24 flex items-center justify-between gap-4">
+        <div className="max-w-[1320px] mx-auto px-4 sm:px-6 lg:px-10 h-24 flex items-center justify-between gap-4">
           <Link to="/" className="flex items-center group">
             <Logo height={88} />
           </Link>
@@ -200,7 +200,7 @@ export default function DocsPage() {
         </div>
       </header>
 
-      <div className="max-w-[1180px] mx-auto px-4 sm:px-6 lg:px-10 py-10 lg:py-14">
+      <div className="max-w-[1320px] mx-auto px-4 sm:px-6 lg:px-10 py-10 lg:py-14">
         {/* Page intro */}
         <div className="mb-12 pb-8 border-b border-white/[0.06]">
           <div className="flex items-center gap-2 mb-3">
@@ -287,7 +287,7 @@ export default function DocsPage() {
                   number="01"
                   label="Introduction"
                   title="What is Aegis Vault?"
-                  subtitle="Aegis Vault is an AI-managed, risk-controlled trading vault. Users deposit tokens, configure a policy (max position, max daily loss, stop-loss, confidence floor), and an AI operator executes trades within those guardrails. Breaching a guardrail is not a soft warning — it's a reverted transaction."
+                  subtitle="Aegis Vault is an AI-managed, risk-controlled trading vault. Users deposit tokens, configure a policy (max position, asset whitelist, slippage, confidence floor — plus off-chain daily-loss and stop-loss limits), and an AI operator executes trades within those guardrails. Breaching an on-chain guardrail is not a soft warning — it's a reverted transaction."
                 />
                 <div className="grid md:grid-cols-3 gap-3 mt-6">
                   {[
@@ -297,7 +297,7 @@ export default function DocsPage() {
                     },
                     {
                       h: 'Policy-enforced',
-                      p: 'Max position size, daily loss cap, stop-loss, confidence threshold — all stored on-chain and checked every trade.',
+                      p: 'Max position size, asset whitelist, slippage and confidence threshold are checked on-chain every trade. Daily-loss and stop-loss caps are enforced off-chain by the operator risk veto, with owner pause() as the on-chain backstop.',
                     },
                     {
                       h: 'Operator-switchable',
@@ -466,7 +466,7 @@ export default function DocsPage() {
                   number="04"
                   label="Contracts"
                   title="Live deployment addresses."
-                  subtitle="All addresses below are the real 0G Aristotle Mainnet deployment (chain id 16661). Click to open the explorer."
+                  subtitle="All addresses below are the live 0G Aristotle Mainnet deployment (chain id 16661). Vault stack cut over to V4 on 2026-05-14 (manifest-bound factory + refreshed operator marketplace). The V3 factory remains exposed for read-only access to pre-cutover vaults. Click to open the explorer."
                 />
 
                 <div
@@ -492,23 +492,35 @@ export default function DocsPage() {
                   <table className="w-full text-left">
                     <tbody>
                       <AddressRow
-                        label="AegisVaultFactory"
-                        description="Deploys new AegisVault clones (EIP-1167 proxy)."
-                        address={mainnet.aegisVaultFactory}
+                        label="AegisVaultFactoryV4"
+                        description="Live factory — deploys manifest-bound vault clones (7-arg createVault). Default for new vaults since the 2026-05-14 cutover."
+                        address={mainnet.aegisVaultFactoryV4 || mainnet.aegisVaultFactory}
                       />
                       <AddressRow
+                        label="AegisVaultImplementationV4"
+                        description="EIP-1167 implementation linked to execLibraryV4 + crossChainLibraryV4."
+                        address={mainnet.aegisVaultImplementationV4}
+                      />
+                      {mainnet.aegisVaultFactoryV3 && mainnet.aegisVaultFactoryV3 !== mainnet.aegisVaultFactoryV4 ? (
+                        <AddressRow
+                          label="AegisVaultFactoryV3 (legacy)"
+                          description="Pre-cutover factory (6-arg createVault). Kept for read-only access to vaults deployed before 2026-05-14."
+                          address={mainnet.aegisVaultFactoryV3}
+                        />
+                      ) : null}
+                      <AddressRow
                         label="OperatorRegistry"
-                        description="Operator identity, mandate, fees, endpoint, manifest."
+                        description="Operator identity, mandate, fees, endpoint, manifest. Redeployed fresh on 2026-05-14."
                         address={mainnet.operatorRegistry}
                       />
                       <AddressRow
                         label="OperatorStaking"
-                        description="Stake A0G for tier access + slashable bond."
+                        description="Stake A0G for tier access + slashable bond. Redeployed 2026-05-14."
                         address={mainnet.operatorStaking}
                       />
                       <AddressRow
                         label="OperatorReputation"
-                        description="On-chain track record: executions, volume, PnL, ratings."
+                        description="On-chain track record: executions, volume, PnL, ratings. Redeployed 2026-05-14."
                         address={mainnet.operatorReputation}
                       />
                       <AddressRow
@@ -523,7 +535,7 @@ export default function DocsPage() {
                       />
                       <AddressRow
                         label="InsurancePool"
-                        description="Backstop for user losses from slashed operators."
+                        description="Backstop for user losses from slashed operators. Redeployed 2026-05-14."
                         address={mainnet.insurancePool}
                       />
                       <AddressRow
@@ -532,19 +544,15 @@ export default function DocsPage() {
                         address={mainnet.executionRegistry}
                       />
                       <AddressRow
-                        label={mainnet.jaineVenueAdapterV2 ? 'JaineVenueAdapter (V2)' : 'JaineVenueAdapter'}
-                        description={
-                          mainnet.jaineVenueAdapterV2
-                            ? 'Multi-hop adapter — auto-routes USDC.e ↔ BTC/ETH via the W0G hub when no direct pool exists. New vaults use this venue.'
-                            : 'Real DEX settlement adapter for Jaine pools.'
-                        }
+                        label="JaineVenueAdapter (V2)"
+                        description="Multi-hop adapter — auto-routes USDC.e ↔ BTC/ETH via the W0G hub when no direct pool exists. All V4 vaults settle through this venue."
                         address={mainnet.jaineVenueAdapterV2 || mainnet.jaineVenueAdapter}
                       />
-                      {mainnet.jaineVenueAdapterV2 && mainnet.jaineVenueAdapter ? (
+                      {mainnet.khalaniVenueAdapter ? (
                         <AddressRow
-                          label="JaineVenueAdapter (V1, legacy)"
-                          description="Single-hop adapter. Older vaults stay pinned to it (their venue is immutable)."
-                          address={mainnet.jaineVenueAdapter}
+                          label="KhalaniVenueAdapter"
+                          description="Cross-chain venue for routing into deeper liquidity (e.g. Uniswap V3 on Arbitrum) via Khalani."
+                          address={mainnet.khalaniVenueAdapter}
                         />
                       ) : null}
                       <AddressRow
@@ -555,6 +563,39 @@ export default function DocsPage() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* V4 supporting libraries */}
+                {(mainnet.execLibraryV4 || mainnet.crossChainLibraryV4) && (
+                  <div className="mt-5">
+                    <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-steel-400 mb-2">
+                      Supporting libraries (linked into V4 implementation)
+                    </div>
+                    <div
+                      className="rounded-md overflow-hidden"
+                      style={{ background: 'var(--ed-surface-1)', border: '1px solid rgba(255,255,255,0.05)' }}
+                    >
+                      <table className="w-full text-left">
+                        <tbody>
+                          <AddressRow
+                            label="ExecLibraryV4"
+                            description="Trade execution + intent validation library. New in V4 (typehash differs from V3)."
+                            address={mainnet.execLibraryV4}
+                          />
+                          <AddressRow
+                            label="CrossChainLibraryV4"
+                            description="Cross-chain routing helpers (Khalani). New in V4."
+                            address={mainnet.crossChainLibraryV4}
+                          />
+                          <AddressRow
+                            label="IOLibraryV3"
+                            description="Deposit / withdraw / fee accounting. Reused from V3 (unchanged ABI)."
+                            address={mainnet.ioLibraryV3}
+                          />
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
 
                 <div className="mt-5">
                   <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-steel-400 mb-2">
@@ -724,7 +765,7 @@ export default function DocsPage() {
                     },
                     {
                       h: 'Set policy',
-                      p: 'maxPositionBps, maxDailyLossBps, stopLossBps, confidenceThresholdBps, cooldownSeconds, maxActionsPerDay. These are hard gates — the vault reverts if an executed trade would breach them.',
+                      p: 'maxPositionBps, confidenceThresholdBps, cooldownSeconds, maxActionsPerDay (plus the asset whitelist and slippage floor) are on-chain hard gates — the vault reverts if an executed trade would breach them. maxDailyLossBps and stopLossBps are enforced off-chain by the orchestrator risk veto.',
                     },
                     {
                       h: 'Pick an operator',
@@ -956,7 +997,7 @@ export default function DocsPage() {
 
       {/* Footer */}
       <footer className="border-t border-white/[0.04] py-8 mt-10">
-        <div className="max-w-[1180px] mx-auto px-4 sm:px-6 lg:px-10 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] font-mono text-steel-500">
+        <div className="max-w-[1320px] mx-auto px-4 sm:px-6 lg:px-10 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] font-mono text-steel-500">
           <div>© Aegis Vault · Experimental software · Not audited</div>
           <div className="flex items-center gap-4">
             <Link to="/whitepaper" className="hover:text-white transition-colors">

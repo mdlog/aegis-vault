@@ -6,9 +6,11 @@ import zgLogo from '../../assets/0g-logo.png';
 const logos = {
   BTC: btcLogo,
   WBTC: btcLogo,
+  CBBTC: btcLogo,
   ETH: ethLogo,
   WETH: ethLogo,
   USDC: usdcLogo,
+  'USDC.E': usdcLogo,
   WUSDC: usdcLogo,
   '0G': zgLogo,
   W0G: zgLogo,
@@ -18,9 +20,11 @@ const logos = {
 const fallbackColors = {
   BTC: '#f7931a',
   WBTC: '#f7931a',
+  CBBTC: '#0052ff',
   ETH: '#627eea',
   WETH: '#627eea',
   USDC: '#2775ca',
+  'USDC.E': '#2775ca',
   WUSDC: '#2775ca',
   '0G': '#4cc9f0',
   W0G: '#4cc9f0',

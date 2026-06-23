@@ -60,7 +60,7 @@ export function isStrategyHashMismatch(vaultState, loadedStrategyHash) {
   if (!loadedStrategyHash) return true;
   return acceptedLower !== loadedStrategyHash.toLowerCase();
 }
-import { fetchPythPrices } from './pythPrice.js';
+import { fetchPythPrices, calculateMultiAssetNAV } from './pythPrice.js';
 import { requestInference } from './inference.js';
 import { preCheckPolicy } from './policyCheck.js';
 import { buildExecutionIntent, submitIntent, submitCrossChainIntent, setAssetAddresses, recordExecutionToReputation } from './executor.js';
@@ -77,8 +77,9 @@ import { initOGStorage, isOGStorageAvailable, readVaultStateFromOG } from './ogS
 import { initOGCompute, getOGComputeStatus, getBroker, getProviderService } from './ogCompute.js';
 import { isTeeAttestationRequired, attestInference, evaluateTeeGate } from './teeAttestation.js';
 import { evaluateApprovalTier } from './approvalTier.js';
-import { startIndexer, getVaultsByExecutor, getExecutorVaultCounts } from './vaultIndexer.js';
+import { startIndexer, getVaultsByExecutor, getExecutorVaultCounts, getAllVaults } from './vaultIndexer.js';
 import { startVaultEventListener } from './vaultEventListener.js';
+import { recordTvlSnapshot, loadTvlHistory } from './tvlHistory.js';
 import { getPoolAddresses, getPoolStats, getPoolSize } from './walletPool.js';
 import pLimit from 'p-limit';
 import { buildAssetAddressMap } from './assets.js';
@@ -418,6 +419,10 @@ export async function initialize() {
   await startVaultEventListener().catch((err) => {
     logger.warn(`Vault event listener init failed: ${err.message}`);
   });
+
+  // Restore the bounded TVL time-series so the dashboard sparkline survives
+  // restarts and keeps appending to prior history rather than starting blank.
+  loadTvlHistory();
 
   logger.info(`Orchestrator initialized. Previous cycles: ${cycleCount} | Executor pool size: ${getPoolSize()}`);
 }
@@ -930,6 +935,43 @@ async function runVaultCycle(vaultAddress, marketSummary) {
 /**
  * Run one complete orchestrator cycle — processes ALL managed vaults
  */
+/**
+ * Sample platform-wide TVL (Σ NAV across every indexed vault) and append it to
+ * the bounded TVL history that feeds the dashboard hero sparkline. This mirrors
+ * the frontend's platform-TVL computation (Σ /api/nav over all factory vaults),
+ * so the latest point matches the live hero number.
+ *
+ * Best-effort by design: any failure is swallowed so a sampling error can never
+ * affect a cycle. `vaults` counts only the vaults whose NAV actually read — if
+ * none did, tvlHistory skips the point rather than fabricating a zero.
+ */
+async function recordPlatformTvlSnapshot() {
+  try {
+    const all = getAllVaults();
+    let total = 0;
+    let counted = 0;
+    for (const v of all) {
+      const addr = v?.address;
+      if (!addr) continue;
+      try {
+        const { totalNav } = await calculateMultiAssetNAV(addr);
+        if (Number.isFinite(totalNav)) {
+          total += totalNav;
+          counted++;
+        }
+      } catch (err) {
+        logger.debug(`TVL snapshot: NAV read failed for ${addr.slice(0, 10)}: ${err.message}`);
+      }
+    }
+    const snap = recordTvlSnapshot({ tvl: total, vaults: counted });
+    if (snap) {
+      logger.info(`TVL snapshot: $${total.toFixed(2)} across ${counted} vault(s)`);
+    }
+  } catch (err) {
+    logger.warn(`TVL snapshot failed: ${err.message}`);
+  }
+}
+
 export async function runCycle() {
   if (running) {
     logger.warn('Cycle already running, skipping');
@@ -1030,6 +1072,12 @@ export async function runCycle() {
     running = false;
     logger.info(`Cycle #${cycleCount} completed in ${duration}ms — Status: ${cycleResult.status}`);
     logger.info(`${'═'.repeat(50)}\n`);
+
+    // Sample platform TVL AFTER releasing the `running` lock: this does N NAV
+    // reads, and a slow RPC must never keep the lock held and starve the next
+    // scheduled cycle. The snapshot only reads on-chain NAV and appends to an
+    // independent series, so running it outside the lock is safe.
+    await recordPlatformTvlSnapshot();
   }
 }
 

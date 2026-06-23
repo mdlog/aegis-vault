@@ -540,7 +540,12 @@ contract AegisVault_v4 is ReentrancyGuard {
         }
         if (!outOk) revert CrossChain_AssetNotWhitelisted();
 
-        if (policy.maxPositionBps != 0 && totalDeposited != 0) {
+        // Principal-deployment cap: only the BUY leg (assetIn == baseAsset) is
+        // denominated in base-asset units comparable to totalDeposited. A SELL
+        // (assetIn != baseAsset) carries amountIn in the sold asset's own
+        // decimals, so capping it here would revert every non-base cross-chain
+        // SELL by a decimals mismatch (see ExecLibV4 / AUDIT_MONEY_PATH.md).
+        if (policy.maxPositionBps != 0 && totalDeposited != 0 && intent.assetIn == address(baseAsset)) {
             uint256 cap = (totalDeposited * policy.maxPositionBps) / 10_000;
             if (intent.amountIn > cap) revert CrossChain_PositionTooLarge();
         }

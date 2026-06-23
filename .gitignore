@@ -61,3 +61,8 @@ coverage/
 .DS_Store
 .idea/
 .vscode/
+
+# Large media & build/export artifacts (keep out of version control)
+*.mp4
+*.dc.html
+/support.js

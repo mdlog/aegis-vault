@@ -10,6 +10,7 @@ import { readKVState, readJournal, flushJournalBuffer } from './services/storage
 import { isOGStorageAvailable, kvGet, readVaultStateFromOG } from './services/ogStorage.js';
 import { listAvailableModels } from './services/ogCompute.js';
 import { fetchPythPrices, calculateMultiAssetNAV } from './services/pythPrice.js';
+import { getTvlHistory, MAX_POINTS } from './services/tvlHistory.js';
 import logger from './utils/logger.js';
 
 function filterJournalEntries(entries, { type, vault, level }) {
@@ -184,6 +185,7 @@ export function createApp(overrides = {}) {
     readVaultStateFromOG: readVaultStateFromOGFn = readVaultStateFromOG,
     fetchPythPrices: fetchPythPricesFn = fetchPythPrices,
     calculateMultiAssetNAV: calculateMultiAssetNAVFn = calculateMultiAssetNAV,
+    getTvlHistory: getTvlHistoryFn = getTvlHistory,
     apiKey = config.apiKey,
   } = overrides;
 
@@ -355,6 +357,22 @@ export function createApp(overrides = {}) {
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // ── TVL history (public — feeds the dashboard hero sparkline) ──
+  //
+  // Public like /api/journal: the frontend bundle cannot safely carry an API
+  // key, and the series is just platform TVL over time (derived from on-chain
+  // NAV, already public). Ascending order, optionally windowed by `hours`.
+  app.get('/api/tvl/history', (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit, 10) || MAX_POINTS, MAX_POINTS);
+    const opts = { limit };
+    const hours = parseFloat(req.query.hours);
+    if (Number.isFinite(hours) && hours > 0) {
+      opts.sinceMs = hours * 3600_000;
+      opts.nowMs = Date.now();
+    }
+    res.json(getTvlHistoryFn(opts));
   });
 
   // ── Storage / Journal ──

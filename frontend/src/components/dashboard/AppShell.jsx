@@ -15,8 +15,8 @@ import {
   getVaultRoute,
 } from '../../lib/contracts';
 import {
-  LayoutDashboard, Shield, Activity, FileText, Settings, Cpu, Vote, Droplets,
-  ChevronDown, Bell, Globe, Menu, X
+  LayoutDashboard, Shield, Activity, Settings, Cpu, Vote, Droplets,
+  ChevronDown, Bell, Menu, X
 } from 'lucide-react';
 
 export default function AppShell({ children }) {
@@ -100,28 +100,31 @@ export default function AppShell({ children }) {
   return (
     <div className="min-h-screen bg-obsidian flex flex-col">
       {/* Top bar */}
-      <header className="sticky top-0 z-50 bg-obsidian/95 backdrop-blur-xl border-b border-white/[0.04]">
-        <div className="max-w-[1540px] mx-auto px-4 lg:px-6 h-24 flex items-center justify-between gap-4">
+      <header
+        className="sticky top-0 z-50 backdrop-blur-xl"
+        style={{ background: 'rgba(10,11,14,0.85)', borderBottom: '1px solid rgba(255,255,255,0.07)', fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}
+      >
+        <div className="max-w-[1540px] mx-auto px-4 lg:px-6 h-[72px] flex items-center justify-between gap-4">
           {/* Left: Logo + vault switcher */}
           <div className="flex items-center gap-4">
             <Link to="/" className="flex items-center group">
-              <Logo height={88} />
+              <Logo height={56} />
             </Link>
 
-            <div className="h-5 w-px bg-white/[0.06] hidden sm:block" />
+            <div className="h-6 w-px hidden sm:block" style={{ background: 'rgba(255,255,255,0.08)' }} />
 
             {/* Vault switcher */}
             <div className="relative hidden sm:block">
               <button
                 onClick={() => setVaultOpen(!vaultOpen)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.06]
-                  hover:border-white/[0.1] transition-all text-xs"
+                className="flex items-center gap-2 transition-all hover:bg-white/[0.04]"
+                style={{ border: '1px solid rgba(255,255,255,0.09)', borderRadius: 999, padding: '5px 11px' }}
               >
-                <span className={`w-1.5 h-1.5 rounded-full ${isConnected && displayVaults.length > 0 ? 'bg-emerald-soft' : 'bg-steel/50'}`} />
-                <span className="text-white/70 font-medium max-w-[140px] truncate">
-                  {!isConnected ? 'Not Connected' : vaultsLoading ? 'Loading...' : currentVaultLabel}
+                <span className="w-[7px] h-[7px] rounded-full" style={{ background: isConnected && displayVaults.length > 0 ? '#5cb88a' : '#df7373' }} />
+                <span className="font-medium max-w-[150px] truncate" style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: '#8a8f98' }}>
+                  {!isConnected ? 'Not Connected' : vaultsLoading ? 'Loading…' : currentVaultLabel}
                 </span>
-                <ChevronDown className="w-3 h-3 text-steel/50" />
+                <ChevronDown className="w-3 h-3" style={{ color: '#6b7078' }} />
               </button>
 
               {vaultOpen && (
@@ -214,10 +217,10 @@ export default function AppShell({ children }) {
                 <Link
                   key={item.label}
                   to={item.path}
-                  className={`flex items-center px-3.5 py-2 rounded-md text-[13px] font-medium tracking-wide transition-all duration-200
+                  className={`flex items-center px-3.5 py-[7px] rounded-lg text-[13px] font-medium transition-all duration-200
                     ${active
-                      ? 'text-white bg-white/[0.06] border border-white/[0.06]'
-                      : 'text-steel/60 hover:text-steel/90 hover:bg-white/[0.02]'
+                      ? 'text-[#eceef1] bg-[rgba(227,179,78,0.1)]'
+                      : 'text-[#8a8f98] hover:text-[#eceef1] hover:bg-white/[0.04]'
                     }`}
                 >
                   {item.label}
@@ -229,9 +232,9 @@ export default function AppShell({ children }) {
           {/* Right: Status + Wallet + Mobile toggle */}
           <div className="flex items-center gap-3">
             {/* Network */}
-            <div className="hidden sm:flex items-center gap-1.5 text-[10px] font-mono text-steel/50">
-              <Globe className="w-3 h-3" />
-              <span>{getNetworkLabel(chainId)}</span>
+            <div className="hidden sm:flex items-center gap-2">
+              <span className="w-[7px] h-[7px] rounded-full" style={{ background: '#5cb88a' }} />
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: '#8a8f98' }}>{getNetworkLabel(chainId)}</span>
             </div>
             {showDemoPill && (
               <div className="hidden sm:flex items-center gap-1.5 rounded-full border border-gold/20 bg-gold/5 px-2.5 py-1 text-[9px] font-mono uppercase tracking-[0.12em] text-gold/80">
@@ -333,26 +336,30 @@ export default function AppShell({ children }) {
       </main>
 
       {/* Footer */}
-      <footer className="mt-12 py-6" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-        <div className="max-w-[1540px] mx-auto px-4 lg:px-6 flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-3">
-            <Logo height={18} />
-            <span className="ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
-              Aegis · Vault
-            </span>
-          </div>
-          <div className="flex items-center gap-6 ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
-            <Link to="/whitepaper" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
+      <footer
+        className="mt-12 py-7"
+        style={{ borderTop: '1px solid rgba(255,255,255,0.06)', fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}
+      >
+        <div className="max-w-[1540px] mx-auto px-4 lg:px-6 flex items-center justify-between flex-wrap gap-5">
+          {/* Real Aegis Vault logo */}
+          <Link to="/" className="flex items-center">
+            <Logo height={24} />
+          </Link>
+          <div
+            className="flex items-center gap-6"
+            style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#6b7078' }}
+          >
+            <Link to="/whitepaper" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = '#eceef1')} onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7078')}>
               Whitepaper
             </Link>
-            <Link to="/docs" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
+            <Link to="/docs" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = '#eceef1')} onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7078')}>
               Docs
             </Link>
-            <Link to="/marketplace" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')} onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-500)')}>
+            <Link to="/marketplace" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = '#eceef1')} onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7078')}>
               Marketplace
             </Link>
           </div>
-          <span className="ed-mono text-[11px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#6b7078' }}>
             Built on 0G · 2026
           </span>
         </div>

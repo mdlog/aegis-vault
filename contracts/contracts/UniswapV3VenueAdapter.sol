@@ -84,6 +84,10 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
     uint16 public maxSlippageBps = 300;
     mapping(address => bytes32) public priceFeeds;
     mapping(address => uint8)   public tokenDecimals;
+    // When true AND pyth is set, a swap touching a token with NO registered feed
+    // reverts instead of silently bypassing the guard. Default false (lenient) for
+    // backwards-compat and venues intentionally run unguarded; armed on Arbitrum.
+    bool public requireOracleForRegisteredPyth;
 
     // ── Events ──
     event Swapped(
@@ -97,6 +101,7 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
     event PythUpdated(address indexed oldPyth, address indexed newPyth);
     event MaxSlippageUpdated(uint16 oldBps, uint16 newBps);
     event AssetRegistered(address indexed token, bytes32 priceFeedId, uint8 decimals);
+    event RequireOracleUpdated(bool required);
 
     // ── Errors ──
     error NoPoolFound(address tokenIn, address tokenOut);
@@ -112,6 +117,7 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
     error InvalidFeeTier(uint24 fee);
     error PythNotAContract();
     error AssetDecimalsOutOfRange(uint8 decimals);
+    error AssetNotRegistered(address token);
 
     // Additional events
     event TokensRescued(address indexed token, address indexed to, uint256 amount);
@@ -256,7 +262,15 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
         if (address(pyth) == address(0)) return;
         bytes32 feedIn  = priceFeeds[tokenIn];
         bytes32 feedOut = priceFeeds[tokenOut];
-        if (feedIn == bytes32(0) || feedOut == bytes32(0)) return;
+        if (feedIn == bytes32(0) || feedOut == bytes32(0)) {
+            // Strict mode: do not let an unregistered asset slip past the armed
+            // guard with only the (AI-supplied, manipulable down to 1 wei)
+            // minAmountOut as cover. Lenient mode keeps the historical skip.
+            if (requireOracleForRegisteredPyth) {
+                revert AssetNotRegistered(feedIn == bytes32(0) ? tokenIn : tokenOut);
+            }
+            return;
+        }
 
         OracleGuardLib.checkDeviation(
             pyth, feedIn, feedOut,
@@ -295,6 +309,14 @@ contract UniswapV3VenueAdapter is ReentrancyGuard {
         priceFeeds[token]    = feedId;
         tokenDecimals[token] = decimals;
         emit AssetRegistered(token, feedId, decimals);
+    }
+
+    /// @notice When enabled (and pyth is set), a swap touching any token without a
+    ///         registered price feed reverts instead of silently skipping the
+    ///         oracle deviation guard. Should be enabled on guarded venues (Arbitrum).
+    function setRequireOracle(bool _required) external onlyOwner {
+        requireOracleForRegisteredPyth = _required;
+        emit RequireOracleUpdated(_required);
     }
 
     function transferOwnership(address newOwner) external onlyOwner {

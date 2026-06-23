@@ -8,7 +8,7 @@ const pillars = [
     title: 'Fee-aware vault model',
     headline: 'High-water mark performance fees. 80/20 operator/treasury split. Hard-coded caps.',
     description:
-      'Every vault declares its fees upfront. Performance fees only charge on net-new profit above the high-water mark — you never pay twice on volatility. Management fees stream continuously. All fees split 80% to the operator, 20% to the protocol treasury that funds audits and insurance.',
+      'Every vault declares its fee policy upfront. On the current 0G mainnet build, entry/exit fees are collected inline on each deposit/withdraw — split 80% to the operator, 20% to the protocol treasury (which funds audits and grants, and may seed the insurance pool at governance discretion). Performance/management-fee accrual above the high-water mark ships with the full vault build (Arbitrum execution layer).',
     stats: [
       { label: 'Max performance fee', value: '30%' },
       { label: 'Max management fee', value: '5% / yr' },

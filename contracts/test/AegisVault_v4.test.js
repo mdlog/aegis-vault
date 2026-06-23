@@ -581,3 +581,120 @@ describe("AegisVault_v4", function () {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression — maxPositionBps decimals mismatch (AUDIT_MONEY_PATH.md blocker).
+//
+// The trade-size cap is `cap = totalDeposited * maxPositionBps / 10000`, where
+// totalDeposited is in 6-decimal USDC (base asset) units. On a SELL, intent.amountIn
+// is the sold asset in its OWN decimals (WETH = 18-dec). Comparing the two directly
+// reverts every realistic WETH SELL with PositionTooLarge — so the AI can BUY a WETH
+// position but can never SELL / stop-loss it on-chain. The cap is a principal-deployment
+// guard and must only apply to the BUY leg (assetIn == baseAsset).
+// ─────────────────────────────────────────────────────────────────────────────
+describe("AegisVault_v4 — maxPositionBps decimals (18-dec non-base asset)", function () {
+  // setup mirroring setupV4 but whitelisting an 18-decimal WETH alongside 6-dec USDC.
+  async function setupV4Weth({ policyOverrides = {} } = {}) {
+    const [, depositor, operator, treasury] = await ethers.getSigners();
+
+    const MockERC20 = await ethers.getContractFactory("MockERC20");
+    const usdc = await MockERC20.deploy("USDC", "USDC", 6);
+    const weth = await MockERC20.deploy("WETH", "WETH", 18);
+
+    const Registry = await ethers.getContractFactory("ExecutionRegistry");
+    const registry = await Registry.deploy();
+    await registry.waitForDeployment();
+
+    const { impl, VaultV4 } = await deployV4Impl();
+
+    const Factory = await ethers.getContractFactory("AegisVaultFactoryV4");
+    const factory = await Factory.deploy(
+      await impl.getAddress(),
+      await registry.getAddress(),
+      treasury.address
+    );
+    await factory.waitForDeployment();
+    await registry.authorizeFactory(await factory.getAddress());
+
+    const teeWallet = ethers.Wallet.createRandom().connect(ethers.provider);
+    const acceptedManifestHash = ethers.keccak256(ethers.toUtf8Bytes("strategy-v1-default"));
+    const policy = v4Policy(teeWallet.address, policyOverrides);
+
+    const tx = await factory.connect(depositor).createVault(
+      operator.address,
+      await usdc.getAddress(),
+      ethers.ZeroAddress, // venue: no on-chain swap exercised here
+      policy,
+      [await usdc.getAddress(), await weth.getAddress()],
+      50,
+      acceptedManifestHash
+    );
+    const receipt = await tx.wait();
+    const ev = receipt.logs
+      .map((l) => { try { return factory.interface.parseLog(l); } catch { return null; } })
+      .find((p) => p && p.name === "VaultDeployed");
+    const vault = VaultV4.attach(ev.args.vault);
+
+    return { depositor, operator, usdc, weth, vault, teeWallet };
+  }
+
+  async function fundVaultPrincipal(vault, usdc, depositor, usdcUnits) {
+    const amount = usdcUnits * 10n ** 6n;
+    await usdc.mint(depositor.address, amount);
+    await usdc.connect(depositor).approve(await vault.getAddress(), amount);
+    await vault.connect(depositor).deposit(amount);
+  }
+
+  it("does NOT revert on a within-policy WETH SELL (18-dec assetIn vs 6-dec base cap)", async function () {
+    const { depositor, operator, usdc, weth, vault, teeWallet } = await setupV4Weth();
+    const vaultAddr = await vault.getAddress();
+
+    // Principal 10,000 USDC -> totalDeposited = 1e10, cap = 50% = 5e9.
+    await fundVaultPrincipal(vault, usdc, depositor, 10_000n);
+
+    // Vault holds a 1 WETH position (~$1.7k, far under 50% of the $10k vault by
+    // value) — a clearly within-policy size. But 1e18 (18-dec) >> 5e9 (6-dec cap).
+    const oneWeth = 1n * 10n ** 18n;
+    await weth.mint(vaultAddr, oneWeth);
+
+    const { intent } = await buildV4Intent(vaultAddr, {
+      assetIn: await weth.getAddress(),
+      assetOut: await usdc.getAddress(),
+      amountIn: oneWeth,
+      minAmountOut: 0n,
+    });
+    const sig = await signV4Intent(teeWallet, vaultAddr, intent);
+
+    // BUG: current code reverts PositionTooLarge here. The fix scopes the cap to
+    // the BUY leg (assetIn == baseAsset), so this SELL is allowed.
+    await expect(vault.connect(operator).executeIntent(intent, sig)).to.not.be.reverted;
+  });
+
+  it("still caps an oversized BUY (assetIn == baseAsset) and allows a within-cap BUY", async function () {
+    const { depositor, operator, usdc, weth, vault, teeWallet } = await setupV4Weth();
+    const vaultAddr = await vault.getAddress();
+
+    // Principal 10,000 USDC -> cap = 5e9 (6-dec). Vault holds the deposited USDC.
+    await fundVaultPrincipal(vault, usdc, depositor, 10_000n);
+
+    // Within-cap BUY (4,000 USDC <= 5e9 cap): must NOT revert.
+    const within = await buildV4Intent(vaultAddr, {
+      assetIn: await usdc.getAddress(),
+      assetOut: await weth.getAddress(),
+      amountIn: 4_000n * 10n ** 6n,
+      minAmountOut: 0n,
+    });
+    const sigW = await signV4Intent(teeWallet, vaultAddr, within.intent);
+    await expect(vault.connect(operator).executeIntent(within.intent, sigW)).to.not.be.reverted;
+
+    // Oversized BUY (6,000 USDC > 5e9 cap, <= vault USDC balance): must revert.
+    const over = await buildV4Intent(vaultAddr, {
+      assetIn: await usdc.getAddress(),
+      assetOut: await weth.getAddress(),
+      amountIn: 6_000n * 10n ** 6n,
+      minAmountOut: 0n,
+    });
+    const sigO = await signV4Intent(teeWallet, vaultAddr, over.intent);
+    await expect(vault.connect(operator).executeIntent(over.intent, sigO)).to.be.reverted;
+  });
+});

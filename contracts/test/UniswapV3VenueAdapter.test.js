@@ -383,6 +383,39 @@ describe("UniswapV3VenueAdapter", function () {
       ).to.not.be.reverted;
     });
 
+    it("strict mode: reverts on a swap touching an unregistered asset (no silent bypass)", async function () {
+      const Mock20 = await ethers.getContractFactory("MockERC20");
+      const unreg = await Mock20.deploy("Unreg", "UNR", 6);
+      await unreg.mint(await router.getAddress(), USDC_AMT(1000));
+
+      const MockPool = await ethers.getContractFactory("MockUniV3Pool");
+      const p = await MockPool.deploy(1_000_000n);
+      await factory.setPool(
+        await usdc.getAddress(),
+        await unreg.getAddress(),
+        500,
+        await p.getAddress()
+      );
+
+      // Arm strict mode: with Pyth set, a swap touching an asset with no registered
+      // feed must REVERT, not silently bypass the guard (which would leave the
+      // AI-supplied minAmountOut — exploitable down to 1 wei — as the only protection).
+      await adapter.setRequireOracle(true);
+
+      await expect(
+        adapter.connect(user).swap(
+          await usdc.getAddress(),
+          await unreg.getAddress(),
+          USDC_AMT(100),
+          1n
+        )
+      ).to.be.revertedWithCustomError(adapter, "AssetNotRegistered");
+    });
+
+    it("strict mode defaults off (preserves the lenient skip behavior)", async function () {
+      expect(await adapter.requireOracleForRegisteredPyth()).to.equal(false);
+    });
+
     describe("Admin", function () {
       it("setPyth emits PythUpdated and persists", async function () {
         // Disable path: zero address is the explicit "disable oracle guard" value.

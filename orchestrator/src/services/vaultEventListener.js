@@ -13,7 +13,7 @@ import { appendJournal } from './storage.js';
 import logger from '../utils/logger.js';
 
 const POLL_INTERVAL_MS = 30_000; // 30s — balance events don't need sub-block latency
-const MAX_BLOCK_RANGE = 5_000;   // guard against RPCs that reject large ranges
+const MAX_BLOCK_RANGE = 999;     // 0G RPC caps eth_getLogs to 1000-block window
 
 let pollHandle = null;
 let lastProcessedBlock = null;

@@ -1,9 +1,12 @@
 // Network + deployment configuration for Aegis Vault SDK.
 //
-// Address source-of-truth is `deployments-mainnet.json` (bundled). The V3
-// contract stack (with Khalani routing + the redeployed operator marketplace)
-// is the live one on 0G Aristotle Mainnet (chain 16661). Legacy V2/V1 addresses
-// were retired on 2026-04-27 and are no longer surfaced here.
+// Address source-of-truth is `deployments-mainnet.json` (bundled). The V4
+// contract stack (manifest-bound factory + refreshed operator marketplace)
+// went live on 0G Aristotle Mainnet (chain 16661) on 2026-05-14 and is the
+// default surfaced here. The V3 factory + implementation remain exposed as
+// `vaultFactoryV3` / `vaultImplementationV3` for read-only legacy access
+// (e.g. withdrawing residual balances from pre-cutover vaults). Retired
+// operator-marketplace addresses live under `*_retired` keys in the JSON.
 
 import mainnetDeployments from './deployments-mainnet.json' with { type: 'json' };
 
@@ -69,22 +72,29 @@ export const NETWORK_PARAMS = {
 /**
  * Canonical address book per chain.
  *
- * For 0G Mainnet the V3 addresses are the authoritative ones — vault
- * factory, implementation, execution registry, the multi-hop Jaine adapter,
- * the Khalani cross-chain adapter, plus the post-audit operator marketplace
- * (registry / staking / reputation / insurance) redeployed 2026-04-27.
+ * For 0G Mainnet the V4 addresses are the authoritative ones — manifest-bound
+ * vault factory + implementation, execution registry, the multi-hop Jaine
+ * adapter, the Khalani cross-chain adapter, plus the operator marketplace
+ * (registry / staking / reputation / insurance) redeployed 2026-05-14.
+ *
+ * V3 factory + implementation remain exposed as `vaultFactoryV3` /
+ * `vaultImplementationV3` for read-only access to pre-cutover vaults.
  */
 export const ADDRESSES = {
   [CHAINS.OG_MAINNET]: {
-    // V3 stack — live
-    vaultFactory: mainnetDeployments.aegisVaultFactoryV3,
-    vaultImplementation: mainnetDeployments.aegisVaultImplementationV3,
+    // V4 stack — live (cutover 2026-05-14)
+    vaultFactory: mainnetDeployments.aegisVaultFactoryV4,
+    vaultImplementation: mainnetDeployments.aegisVaultImplementationV4,
     executionRegistry: mainnetDeployments.executionRegistryV3,
 
-    // Operator stack — redeployed fresh on 2026-04-27 (post-audit baseline)
-    operatorRegistry: mainnetDeployments.operatorRegistryV2,
-    operatorStaking: mainnetDeployments.operatorStakingV2,
-    insurancePool: mainnetDeployments.insurancePoolV2,
+    // V3 stack — retained for legacy reads (e.g. withdraw from old vaults).
+    vaultFactoryV3: mainnetDeployments.aegisVaultFactoryV3,
+    vaultImplementationV3: mainnetDeployments.aegisVaultImplementationV3,
+
+    // Operator stack — redeployed fresh on 2026-05-14 (V4 cutover baseline)
+    operatorRegistry: mainnetDeployments.operatorRegistry,
+    operatorStaking: mainnetDeployments.operatorStaking,
+    insurancePool: mainnetDeployments.insurancePool,
     operatorReputation: mainnetDeployments.operatorReputation,
 
     // Governance + treasury
@@ -98,11 +108,11 @@ export const ADDRESSES = {
     jaineVenueAdapter: mainnetDeployments.jaineVenueAdapterV2,
     khalaniVenueAdapter: mainnetDeployments.khalaniVenueAdapter,
 
-    // V3 supporting libraries (linked into the vault implementation).
+    // V4 supporting libraries (linked into the V4 vault implementation).
     libraries: {
-      exec: mainnetDeployments.execLibraryV3,
+      exec: mainnetDeployments.execLibraryV4,
       io: mainnetDeployments.ioLibraryV3,
-      crossChain: mainnetDeployments.crossChainLibrary,
+      crossChain: mainnetDeployments.crossChainLibraryV4,
     },
 
     // Tokens (canonical 0G mainnet)
