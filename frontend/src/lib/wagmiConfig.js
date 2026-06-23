@@ -70,8 +70,14 @@ const enabledChains = isProd
 
 export const wagmiConfig = createConfig({
   chains: enabledChains,
+  // Single injected connector bound to window.ethereum, with EIP-6963
+  // multi-provider discovery OFF. This guarantees exactly one connector
+  // observing the same provider that emits `accountsChanged`, so wagmi follows
+  // MetaMask account switches natively. (Two injected connectors +
+  // target:'metaMask' previously split the event stream / bound to a different
+  // provider object, which froze the displayed account on a switch.)
+  multiInjectedProviderDiscovery: false,
   connectors: [
-    injected({ target: 'metaMask' }),
     injected(),
   ],
   transports: {

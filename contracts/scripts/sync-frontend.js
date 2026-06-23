@@ -74,15 +74,15 @@ function buildManifestEntry(targetChainId, source) {
 
     // Resolution chain: prefer the most recent stack version, fall back to
     // older ones, finally empty string. Keeps post-fresh-deploy frontends
-    // working when only V3 is populated, while legacy V1/V2 deployments
-    // remain readable for older frontend code paths that still use the
-    // unsuffixed key names.
-    const factoryAny  = source.aegisVaultFactoryV3  || source.aegisVaultFactoryV2  || source.aegisVaultFactory  || '';
+    // working when only V3 (or only V4) is populated, while legacy V1/V2
+    // deployments remain readable for older frontend code paths that still
+    // use the unsuffixed key names.
+    const factoryAny  = source.aegisVaultFactoryV4 || source.aegisVaultFactoryV3 || source.aegisVaultFactoryV2 || source.aegisVaultFactory || '';
     const registryAny = source.executionRegistryV3 || source.executionRegistryV2 || source.executionRegistry || '';
-    const operatorReg = source.operatorRegistryV2  || source.operatorRegistry      || '';
-    const stakingAny  = source.operatorStakingV2   || source.operatorStaking       || '';
-    const insuranceAny = source.insurancePoolV2    || source.insurancePool         || '';
-    const adapterAny  = source.jaineVenueAdapterV2 || source.jaineVenueAdapter     || '';
+    const operatorReg = source.operatorRegistry    || source.operatorRegistryV2  || '';
+    const stakingAny  = source.operatorStaking     || source.operatorStakingV2   || '';
+    const insuranceAny = source.insurancePool      || source.insurancePoolV2     || '';
+    const adapterAny  = source.jaineVenueAdapterV2 || source.jaineVenueAdapter   || '';
 
     return {
       // Legacy unsuffixed keys — populated via the resolution chain above so
@@ -109,13 +109,19 @@ function buildManifestEntry(targetChainId, source) {
       insurancePoolV2:            source.insurancePoolV2 || '',
       operatorStakingV2:          source.operatorStakingV2 || '',
       operatorRegistryV2:         source.operatorRegistryV2 || '',
-      // v3 stack — canonical surface after `deploy-fresh-mainnet.js`.
+      // v3 stack — kept for legacy reads (e.g. withdraw from pre-cutover vaults).
       execLibraryV3:               source.execLibraryV3 || '',
       ioLibraryV3:                 source.ioLibraryV3 || '',
       crossChainLibrary:           source.crossChainLibrary || '',
       executionRegistryV3:         source.executionRegistryV3 || '',
       aegisVaultImplementationV3:  source.aegisVaultImplementationV3 || '',
       aegisVaultFactoryV3:         source.aegisVaultFactoryV3 || '',
+      // v4 stack — canonical surface after the 2026-05-14 cutover. New vaults
+      // are deployed against AegisVaultFactoryV4 (manifest-bound createVault).
+      execLibraryV4:               source.execLibraryV4 || '',
+      crossChainLibraryV4:         source.crossChainLibraryV4 || '',
+      aegisVaultImplementationV4:  source.aegisVaultImplementationV4 || '',
+      aegisVaultFactoryV4:         source.aegisVaultFactoryV4 || '',
       khalaniVenueAdapter:         source.khalaniVenueAdapter || '',
       USDCe: USDC_E,
       WETH:  WETH_REAL,
@@ -188,8 +194,8 @@ fs.writeFileSync(generatedManifestPath, `${JSON.stringify(generatedManifest, nul
 console.log(`Frontend deployment manifest updated for chain ${chainId}`);
 console.log(`  Source:   ${deploymentsPath}`);
 console.log(`  Output:   ${generatedManifestPath}`);
-// Resolve via the same V3 → V2 → V1 chain that buildManifestEntry uses, so
-// post-fresh-deploy runs (where legacy V1 keys are intentionally absent)
+// Resolve via the same V4 → V3 → V2 → V1 chain that buildManifestEntry uses,
+// so post-fresh-deploy runs (where legacy keys are intentionally absent)
 // don't print misleading "(not set)" lines.
-console.log(`  Factory:  ${deployments.aegisVaultFactoryV3 || deployments.aegisVaultFactoryV2 || deployments.aegisVaultFactory || '(not set)'}`);
+console.log(`  Factory:  ${deployments.aegisVaultFactoryV4 || deployments.aegisVaultFactoryV3 || deployments.aegisVaultFactoryV2 || deployments.aegisVaultFactory || '(not set)'}`);
 console.log(`  Registry: ${deployments.executionRegistryV3 || deployments.executionRegistryV2 || deployments.executionRegistry || '(not set)'}`);

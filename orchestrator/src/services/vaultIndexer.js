@@ -171,7 +171,15 @@ async function pollForNewVaults() {
     if (fromBlock >= currentBlock) return;
 
     const filter = factory.filters.VaultDeployed();
-    const events = await factory.queryFilter(filter, fromBlock, currentBlock);
+    // 0G RPC caps eth_getLogs to a 1000-block window. Chunk so cold-start
+    // scans (up to 5000 blocks back) don't hang the request.
+    const RPC_LOG_RANGE = 999;
+    let events = [];
+    for (let from = fromBlock; from <= currentBlock; from += RPC_LOG_RANGE) {
+      const to = Math.min(from + RPC_LOG_RANGE - 1, currentBlock);
+      const chunk = await factory.queryFilter(filter, from, to);
+      events = events.concat(chunk);
+    }
 
     for (const ev of events) {
       // V1/V2 emit `executor`; V3 renamed it to `operator` (and added `venue`

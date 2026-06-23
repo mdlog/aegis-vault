@@ -188,7 +188,20 @@ async function main() {
   await (await adapter.registerAsset(ARB_USDC, PYTH_FEED_USDC, 6)).wait();
   await (await adapter.registerAsset(ARB_WETH, PYTH_FEED_ETH,  18)).wait();
   await (await adapter.registerAsset(ARB_WBTC, PYTH_FEED_BTC,  8)).wait();
-  console.log("      ✓ guard armed for USDC / WETH / WBTC (maxSlippage 5%)");
+  // Strict mode: a swap touching an unregistered asset reverts instead of
+  // silently bypassing the guard (defense-in-depth on a guarded venue).
+  await (await adapter.setRequireOracle(true)).wait();
+
+  // Read-back assertion — never print "armed" unless the on-chain state confirms
+  // it. (An earlier V1-era adapter silently lacked the guard selectors entirely.)
+  const armedPyth = await adapter.pyth();
+  if (armedPyth.toLowerCase() !== ARB_PYTH.toLowerCase()) throw new Error(`guard arm failed: pyth=${armedPyth}`);
+  for (const [sym, tok] of [["USDC", ARB_USDC], ["WETH", ARB_WETH], ["WBTC", ARB_WBTC]]) {
+    const feed = await adapter.priceFeeds(tok);
+    if (!feed || /^0x0+$/.test(feed)) throw new Error(`guard arm failed: ${sym} feed not registered`);
+  }
+  if (!(await adapter.requireOracleForRegisteredPyth())) throw new Error("guard arm failed: requireOracle not set");
+  console.log("      ✓ guard armed + verified for USDC / WETH / WBTC (maxSlippage 5%, strict)");
 
   // ─── 4: VaultNAVCalculator ───
   console.log("[4/4] VaultNAVCalculator (Pyth)...");

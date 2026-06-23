@@ -268,6 +268,15 @@ export function getOGComputeStatus() {
   };
 }
 
+/** Expose the initialized broker so the TEE attestation engine can reach broker.inference.verifier. */
+export function getBroker() { return broker; }
+
+/** Expose the selected provider service for attestation: { address, endpoint, model }. */
+export function getProviderService() {
+  if (!providerInfo) return null;
+  return { address: providerInfo.address, endpoint: providerInfo.endpoint, model: providerInfo.model };
+}
+
 /**
  * List available chatbot services on 0G Compute, filtered to TEE-acknowledged
  * providers, with TEE metadata surfaced for the operator registration UI.

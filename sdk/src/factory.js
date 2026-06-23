@@ -1,12 +1,12 @@
 // FactoryClient — list & (optionally) create vaults via AegisVaultFactory.
 //
 // Factory ABI is version-aware. The live deployment on 0G Aristotle Mainnet
-// is the V3 factory (6-arg createVault), and a V4 factory may be deployed
-// alongside it (7-arg createVault that binds an accepted manifest hash).
-// The legacy V1 ABI (5-arg createVault) is retained for backwards-compat
-// with older test deployments. Audit review identified that always binding
-// the V1 ABI caused createVault to revert on V3/V4 factories — the fix
-// selects the ABI by which optional args the caller passes.
+// is the V4 factory (7-arg createVault that binds an accepted manifest hash),
+// cut over on 2026-05-14. The V3 ABI (6-arg createVault) and V1 legacy ABI
+// (5-arg createVault) remain available for callers reading older factories.
+// Audit review identified that always binding the V1 ABI caused createVault
+// to revert on V3/V4 factories — the fix selects the ABI by which optional
+// args the caller passes.
 
 import { Contract } from 'ethers';
 import AegisVaultFactoryABI from './abi/AegisVaultFactory.json' with { type: 'json' };
@@ -31,9 +31,10 @@ function pickFactoryAbi({ version }) {
   if (version === 'v4') return AegisVaultFactoryV4ABI;
   if (version === 'v3') return AegisVaultFactoryV3ABI;
   if (version === 'v1') return AegisVaultFactoryABI;
-  // Default: V3 ABI matches the live 0G mainnet factory. V1 ABI is kept
-  // available via the explicit `version: 'v1'` opt-in for legacy networks.
-  return AegisVaultFactoryV3ABI;
+  // Default: V4 ABI matches the live 0G mainnet factory (cutover 2026-05-14).
+  // V3 / V1 ABIs remain available via the explicit `version` opt-in for
+  // reading older factories or legacy networks.
+  return AegisVaultFactoryV4ABI;
 }
 
 /**

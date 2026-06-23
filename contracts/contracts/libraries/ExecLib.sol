@@ -92,13 +92,16 @@ library ExecLib {
         require(dailyActionCount < _policy.maxActionsPerDay, "actions");
         require(IERC20(intent.assetIn).balanceOf(address(this)) >= intent.amountIn, "tokIn");
 
-        // maxPositionBps as defensive trade-size cap. We treat this as a
-        // ceiling on `intent.amountIn` relative to the vault's principal
-        // (`totalDeposited`). Skipped when totalDeposited == 0 (a vault that
-        // hasn't received its first deposit cannot meaningfully bound trade
-        // size yet). The orchestrator risk veto enforces the more accurate
-        // NAV-relative variant off-chain.
-        if (_policy.maxPositionBps != 0 && totalDeposited != 0) {
+        // maxPositionBps as defensive trade-size cap. This is a principal-
+        // DEPLOYMENT ceiling on `intent.amountIn` relative to the vault's
+        // principal (`totalDeposited`), so it only applies on the BUY leg
+        // (assetIn == baseAsset), where amountIn is denominated in base-asset
+        // units matching totalDeposited. On a SELL, amountIn is the sold asset
+        // in its OWN decimals and is not comparable to the base-asset cap;
+        // applying it there would revert every non-base SELL. Skipped when
+        // totalDeposited == 0. The orchestrator risk veto enforces the more
+        // accurate NAV-relative variant off-chain.
+        if (_policy.maxPositionBps != 0 && totalDeposited != 0 && intent.assetIn == baseAssetAddr) {
             uint256 cap = (totalDeposited * _policy.maxPositionBps) / BPS_DENOM;
             if (intent.amountIn > cap) revert PositionTooLarge(intent.amountIn, _policy.maxPositionBps);
         }

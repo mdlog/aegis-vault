@@ -54,16 +54,28 @@ const fs = require("fs");
 const path = require("path");
 
 const MAINNET_CHAIN_ID = 16661;
+const ARBITRUM_CHAIN_ID = 42161;
+
+// Map each production chainId to its deployments file. V4 can be deployed on
+// any of these; everything else needs an explicit ALLOW_NON_MAINNET shakeout.
+const DEPLOYMENTS_FILE_BY_CHAIN = {
+  [MAINNET_CHAIN_ID]: "deployments-mainnet.json",
+  [ARBITRUM_CHAIN_ID]: "deployments-arbitrum.json",
+};
+
+// Per-chain confirmation env var — a production burn can never happen by accident.
+const CONFIRM_BY_CHAIN = {
+  [MAINNET_CHAIN_ID]: "CONFIRM_MAINNET",
+  [ARBITRUM_CHAIN_ID]: "CONFIRM_ARBITRUM",
+};
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function loadDeployments(chainId) {
-  const file = Number(chainId) === MAINNET_CHAIN_ID
-    ? "deployments-mainnet.json"
-    : "deployments.json";
+  const file = DEPLOYMENTS_FILE_BY_CHAIN[Number(chainId)] || "deployments.json";
   const p = path.resolve(__dirname, "..", file);
   if (!fs.existsSync(p)) {
-    throw new Error(`${file} not found — run V3 deploy first`);
+    throw new Error(`${file} not found — run the infra / execution-layer deploy first`);
   }
   return { path: p, data: JSON.parse(fs.readFileSync(p, "utf8")) };
 }
@@ -72,6 +84,18 @@ function requireField(deployments, key, hint) {
   const v = deployments[key];
   if (!v) throw new Error(`${key} missing in deployments file — ${hint}`);
   return v;
+}
+
+// Some chains use different key names for the same reused-infra contract. The
+// Arbitrum execution-layer file predates the V3 suffixing scheme, so it carries
+// `treasuryLink` / `ioLibrary` / `executionRegistry` where the 0G mainnet file
+// carries `protocolTreasury` / `ioLibraryV3` / `executionRegistryV3`. Resolve
+// the first key that is present so deploy-v4 can target either layout.
+function requireAnyField(deployments, keys, hint) {
+  for (const k of keys) {
+    if (deployments[k]) return deployments[k];
+  }
+  throw new Error(`none of [${keys.join(", ")}] present in deployments file — ${hint}`);
 }
 
 function checksum(addr) {
@@ -103,19 +127,22 @@ async function main() {
   console.log("  Balance:  ", ethers.formatEther(balance), "0G/ETH");
   console.log("─".repeat(72));
 
-  // Pre-flight: refuse to run on non-mainnet unless explicitly allowed.
+  // Pre-flight: refuse to run on an unknown chain unless explicitly allowed.
+  const isProductionChain = Boolean(DEPLOYMENTS_FILE_BY_CHAIN[chainId]);
   const allowNonMainnet =
     process.env.ALLOW_NON_MAINNET === "1" || process.argv.includes("--allow-non-mainnet");
-  if (chainId !== MAINNET_CHAIN_ID && !allowNonMainnet) {
+  if (!isProductionChain && !allowNonMainnet) {
     throw new Error(
-      `Refusing to deploy on chainId ${chainId}. Expected ${MAINNET_CHAIN_ID} (0G mainnet). ` +
+      `Refusing to deploy on chainId ${chainId}. Known production chains: ` +
+        `${Object.keys(DEPLOYMENTS_FILE_BY_CHAIN).join(", ")}. ` +
         `Re-run with ALLOW_NON_MAINNET=1 (or --allow-non-mainnet) for testnet / hardhat shakeout.`
     );
   }
-  // Mainnet guard: require explicit confirmation env var.
-  if (chainId === MAINNET_CHAIN_ID && process.env.CONFIRM_MAINNET !== "1") {
+  // Production guard: require an explicit per-chain confirmation env var.
+  const confirmVar = CONFIRM_BY_CHAIN[chainId];
+  if (confirmVar && process.env[confirmVar] !== "1") {
     throw new Error(
-      "Mainnet deploy requires CONFIRM_MAINNET=1 to prevent accidental burns. " +
+      `Deploy on chain ${chainId} requires ${confirmVar}=1 to prevent accidental burns. ` +
       "Set the env var only after reviewing the deploy plan."
     );
   }
@@ -145,16 +172,16 @@ async function main() {
   //                              V3 CrossChainLib MUST NOT be reused — wrong
   //                              digest → signatures fail recovery)
   const treasury = checksum(
-    requireField(deployments, "protocolTreasury", "deploy V3 stack first")
+    requireAnyField(deployments, ["protocolTreasury", "treasuryLink"], "deploy infra / execution layer first")
   );
   const sealedLibAddr = checksum(
     requireField(deployments, "sealedLibrary", "deploy v1/v2 stack first")
   );
   const ioLibAddr = checksum(
-    requireField(deployments, "ioLibraryV3", "deploy V3 stack first")
+    requireAnyField(deployments, ["ioLibraryV3", "ioLibrary"], "deploy infra / execution layer first")
   );
   const registryV3Addr = checksum(
-    requireField(deployments, "executionRegistryV3", "deploy V3 stack first")
+    requireAnyField(deployments, ["executionRegistryV3", "executionRegistry"], "deploy infra / execution layer first")
   );
 
   console.log("\nReused V3 inputs:");

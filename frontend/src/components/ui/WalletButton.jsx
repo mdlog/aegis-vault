@@ -42,16 +42,31 @@ export default function WalletButton() {
     query: { enabled: isConnected && !!address && tokenList.length > 0, refetchInterval: 15000 },
   });
 
+  // Re-open MetaMask's account picker so the user can change which account is
+  // connected to this site. MetaMask only auto-fires `accountsChanged` for
+  // accounts already permitted to the dApp — so switching to an unconnected
+  // account in the MetaMask UI does nothing. This lets the user grant/switch on
+  // demand; wagmi then follows via its native `accountsChanged` handler.
+  const handleSwitchAccount = async () => {
+    try {
+      await window.ethereum?.request?.({
+        method: 'wallet_requestPermissions',
+        params: [{ eth_accounts: {} }],
+      });
+    } catch {
+      // user dismissed the picker — leave the current account as-is
+    }
+    setMenuOpen(false);
+  };
+
   if (!isConnected) {
     return (
       <div className="flex flex-col items-end gap-1">
         <button
           onClick={() => {
-            const mm = connectors.find(c => c.id === 'metaMaskSDK' || c.id === 'metaMask' || c.id === 'injected');
+            const mm = connectors.find(c => c.id === 'injected') ?? connectors[0];
             if (mm) {
               connect({ connector: mm });
-            } else if (connectors.length > 0) {
-              connect({ connector: connectors[0] });
             }
           }}
           disabled={isPending}
@@ -187,6 +202,15 @@ export default function WalletButton() {
                 Switch to {DEFAULT_SWITCH_CHAIN_ID === ogMainnet.id ? '0G Aristotle' : '0G Galileo'}
               </button>
             )}
+            <button
+              onClick={handleSwitchAccount}
+              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-cyan/70 hover:text-cyan hover:bg-white/[0.02] transition-colors text-left"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+              </svg>
+              Switch account
+            </button>
             <button
               onClick={() => { disconnect(); setMenuOpen(false); }}
               className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-red-warn/70 hover:text-red-warn hover:bg-white/[0.02] transition-colors text-left"

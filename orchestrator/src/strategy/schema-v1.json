@@ -12,6 +12,14 @@
       "const": 1,
       "description": "Schema major version. Backwards-compatible parsers in orchestrator may support multiple versions; vault-bound version is snapshot at create time."
     },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Off-chain execution gating. When requireTeeAttestation is true, the orchestrator verifies the 0G Compute provider's Intel-TDX attestation (DCAP) each cycle and skips trading (fail-closed) if it does not pass. Optional; absent means the legacy ungated behavior.",
+      "properties": {
+        "requireTeeAttestation": { "type": "boolean" }
+      }
+    },
     "strategy": {
       "type": "object",
       "additionalProperties": false,

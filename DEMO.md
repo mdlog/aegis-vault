@@ -199,7 +199,7 @@ Point out to judges:
 - `SealedLib` uses raw `ecrecover` — no EIP-191 double-prefix — because the TEE signs the domain-separated hash directly
 - The `attestationReportHash` (keccak256 of provider + chatId + contentHash) is baked into the commit, so strategy parameters **never appear on-chain**
 
-> "This is Track 2 of the 0G Compute integration. The AI's reasoning lives entirely inside a TEE enclave. The vault never sees the prompt, the model output, or the trade rationale — only a cryptographic commitment and a hardware attestation signature."
+> "This is Track 2 of the 0G Compute integration. For vaults that opt in (`requireTeeAttestation`), the orchestrator verifies the 0G Compute provider's Intel-TDX quote against the Automata DCAP verifier each cycle — proving the inference ran in an attested enclave whose signer signed this exact response — and skips the trade if it fails. The intent itself is bound on-chain via an EIP-712 signature and commit-reveal, so strategy parameters never appear in the mempool. (We verify the provider's TDX quote; the prompt's confidentiality depends on that attested provider — we don't re-host the model.)"
 
 ---
 

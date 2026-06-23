@@ -144,6 +144,20 @@ const config = {
     privateKey: process.env.TEE_SIGNER_PRIVATE_KEY || '',
   },
 
+  // ── Real TEE attestation gate (off-chain DCAP verification of the 0G
+  // Compute provider enclave). Defaults mirror the @0glabs SDK's Automata
+  // verifier. rpc.ata.network is the official Automata mainnet RPC with the
+  // DCAP verifier deployed; the SDK default 1rpc.io/ata is rate-limited.
+  // cacheTtlMs caches positive provider-enclave verifications; fetchTimeoutMs
+  // bounds quote/RPC fetches. The gate's *enablement* stays manifest-derived
+  // (execution.requireTeeAttestation), not these env vars.
+  teeAttestation: {
+    automataRpc: process.env.AUTOMATA_RPC || 'https://rpc.ata.network',
+    automataAddress: process.env.AUTOMATA_CONTRACT_ADDRESS || '0xE26E11B257856B0bEBc4C759aaBDdea72B64351F',
+    cacheTtlMs: parseInt(process.env.TEE_CACHE_TTL_MS || '3600000'),
+    fetchTimeoutMs: parseInt(process.env.TEE_FETCH_TIMEOUT_MS || '60000'),
+  },
+
   // 0G Storage
   ogStorage: {
     rpc: process.env.OG_STORAGE_RPC || 'https://storage-testnet.0g.ai',

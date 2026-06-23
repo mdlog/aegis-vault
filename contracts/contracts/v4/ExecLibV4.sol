@@ -114,7 +114,7 @@ library ExecLibV4 {
         VaultPolicy memory _policy,
         address[] memory allowedAssets,
         address venue,
-        address /* baseAssetAddr */,
+        address baseAssetAddr,
         address registryAddr,
         uint256 lastExecutionTime,
         uint256 dailyActionCount,
@@ -130,8 +130,16 @@ library ExecLibV4 {
         require(dailyActionCount < _policy.maxActionsPerDay, "actions");
         require(IERC20(intent.assetIn).balanceOf(address(this)) >= intent.amountIn, "tokIn");
 
-        // maxPositionBps trade-size cap (skipped when totalDeposited == 0).
-        if (_policy.maxPositionBps != 0 && totalDeposited != 0) {
+        // maxPositionBps trade-size cap. This is a principal-DEPLOYMENT ceiling
+        // ("how much base asset to put into a position per BUY"), so it applies
+        // ONLY when assetIn == baseAsset. On that leg amountIn is denominated in
+        // base-asset units, matching totalDeposited. On a SELL, amountIn is the
+        // sold asset in its OWN decimals (e.g. WETH 18-dec) and is NOT comparable
+        // to the base-asset cap (e.g. USDC 6-dec) — applying it there reverts every
+        // realistic SELL/stop-loss. The SELL leg is already bounded by the assetIn
+        // balance check above and by minAmountOut slippage. Skipped when
+        // totalDeposited == 0.
+        if (_policy.maxPositionBps != 0 && totalDeposited != 0 && intent.assetIn == baseAssetAddr) {
             uint256 cap = (totalDeposited * _policy.maxPositionBps) / BPS_DENOM;
             if (intent.amountIn > cap) revert PositionTooLarge(intent.amountIn, _policy.maxPositionBps);
         }

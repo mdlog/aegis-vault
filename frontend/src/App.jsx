@@ -12,6 +12,7 @@ import OperatorProfilePage from './pages/OperatorProfilePage';
 import GovernancePage from './pages/GovernancePage';
 import FaucetPage from './pages/FaucetPage';
 import AppShell from './components/dashboard/AppShell';
+import { useFollowWalletAccount } from './hooks/useFollowWalletAccount';
 
 // Lazy-load the whitepaper page so react-markdown + remark-gfm don't bloat
 // the main bundle. Visitors hitting /whitepaper see a brief loading state
@@ -24,6 +25,9 @@ function AppLayout({ children }) {
 }
 
 function App() {
+  // Auto-follow the account currently selected/connected in MetaMask.
+  useFollowWalletAccount();
+
   return (
     <BrowserRouter>
       <Routes>

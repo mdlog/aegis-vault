@@ -337,7 +337,7 @@ export function logPolicyCheck(decision, result, context = {}) {
  * is set by `submitIntent` only when the sealed branch ran; on public-mode
  * vaults it stays null.
  */
-export function logExecution(intent, result, decision = null, context = {}) {
+export function buildExecutionEntry(intent, result, decision = null, context = {}) {
   const sealed = !!context.sealedMode;
   const attestationReportHash = intent?.attestationReportHash || null;
   // Treat zero-hash as "no attestation present" so the UI doesn't render a
@@ -347,14 +347,12 @@ export function logExecution(intent, result, decision = null, context = {}) {
     && attestationReportHash
     && attestationReportHash.toLowerCase() !== ZERO_HASH;
 
-  // Surface per-call TEE verification metadata from the inference response
-  // so the action feed can distinguish sealed-mode commit from runtime TEE
-  // verifier acknowledgement (broker.processResponse). `teeVerified === true`
-  // means the broker successfully fetched and validated the provider's TEE
-  // quote for this specific chatId; `false` means the verifier returned a
-  // negative; `null` means we couldn't reach the verifier (treated as soft).
+  // Broker-side TEE verifier metadata from the inference response
+  // (broker.processResponse). Provenance only — the authoritative badge
+  // signal is `teeVerified` below (real DCAP TDX verification this cycle).
   const cr = decision?._computeResponse || null;
-  return appendJournal({
+
+  return {
     type: 'execution',
     vault: context.vault || intent?.vault || null,
     intentHash: intent?.intentHash,
@@ -372,11 +370,22 @@ export function logExecution(intent, result, decision = null, context = {}) {
     attestationReportHash: attestationReportHash,
     commitTxHash: result.commitTxHash || null,
     commitBlockNumber: result.commitBlockNumber || null,
-    // Per-call TEE verifier surface (recommendation B). null when the response
-    // came from local-fallback or the verifier was unreachable.
+    // Broker-side TEE verifier acknowledgement (recommendation B): provenance
+    // only, may be null when local-fallback ran or the verifier was unreachable.
     teeVerifiability: cr?.verifiability || null,
-    teeVerified: cr?.teeVerified ?? null,
-  });
+    // Real off-chain DCAP attestation (Task 7). teeVerified is the source of
+    // truth for the UI "TEE ✓" badge — true ONLY when a TDX quote actually
+    // verified this cycle.
+    teeVerified: context.teeVerified === true,
+    attestedEnclaveSigner: context.attestedEnclaveSigner || null,
+    quoteVerified: context.quoteVerified === true,
+    verifierContract: context.verifierContract || null,
+    verifiedAt: context.verifiedAt ?? null,
+  };
+}
+
+export function logExecution(intent, result, decision = null, context = {}) {
+  return appendJournal(buildExecutionEntry(intent, result, decision, context));
 }
 
 /**

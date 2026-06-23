@@ -150,6 +150,51 @@ test('preCheckPolicy — daily loss exceeded fails', async () => {
   assert.match(result.reason, /Daily loss/);
 });
 
+test('preCheckPolicy — daily loss exceeded does NOT block a defensive SELL (exit must survive the loss gate)', async () => {
+  const allowedAssets = await loadAllowedAssetsForBTC();
+  const result = preCheckPolicy(
+    { action: 'sell', asset: 'BTC', confidence: 0.9, risk_score: 0.2, sell_fraction_bps: 5000 },
+    makeVault({ allowedAssets, currentDailyLossPct: 12 }),
+    makePolicy({ maxDailyLossBps: 1000 }), // 10% cap — but a SELL CONTAINS the loss, must be allowed
+  );
+  assert.equal(result.valid, true, `defensive SELL was blocked by the daily-loss gate: ${result.reason}`);
+});
+
+// ORCHESTRATOR_REVIEW.md H3 — journal-independent NAV fail-safe. A wiped/corrupt journal
+// re-seeds the in-memory drawdown baselines to the depressed NAV (currentDailyLossPct→0),
+// so the in-memory daily-loss check passes. The on-chain NAV-vs-principal floor must still
+// block opening new risk so a lost-state restart fails SAFE, not open.
+test('preCheckPolicy — BUY blocked when on-chain NAV is under-water vs principal (even if in-memory daily-loss reads 0)', async () => {
+  const allowedAssets = await loadAllowedAssetsForBTC();
+  const result = preCheckPolicy(
+    makeBuyDecision(),
+    makeVault({ allowedAssets, nav: 90, totalDeposited: 100, currentDailyLossPct: 0 }), // 10% drawdown, baseline wiped
+    makePolicy({ maxDailyLossBps: 500 }), // 5% floor → 10% drawdown must block the BUY
+  );
+  assert.equal(result.valid, false, `under-water BUY was not blocked: ${result.reason}`);
+  assert.match(result.reason, /fail-safe|NAV|principal/i);
+});
+
+test('preCheckPolicy — defensive SELL still allowed when under-water (exit survives the NAV floor)', async () => {
+  const allowedAssets = await loadAllowedAssetsForBTC();
+  const result = preCheckPolicy(
+    { action: 'sell', asset: 'BTC', confidence: 0.9, risk_score: 0.2, sell_fraction_bps: 5000 },
+    makeVault({ allowedAssets, nav: 90, totalDeposited: 100, currentDailyLossPct: 0 }),
+    makePolicy({ maxDailyLossBps: 500 }),
+  );
+  assert.equal(result.valid, true, `under-water SELL was blocked: ${result.reason}`);
+});
+
+test('preCheckPolicy — BUY passes when NAV is above the principal floor', async () => {
+  const allowedAssets = await loadAllowedAssetsForBTC();
+  const result = preCheckPolicy(
+    makeBuyDecision(),
+    makeVault({ allowedAssets, nav: 99, totalDeposited: 100, currentDailyLossPct: 0 }), // floor 95, nav 99
+    makePolicy({ maxDailyLossBps: 500 }),
+  );
+  assert.equal(result.valid, true, `healthy BUY was blocked: ${result.reason}`);
+});
+
 test('preCheckPolicy — risk score too high fails', async () => {
   const allowedAssets = await loadAllowedAssetsForBTC();
   const result = preCheckPolicy(

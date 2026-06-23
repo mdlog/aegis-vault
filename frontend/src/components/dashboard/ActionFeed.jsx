@@ -7,6 +7,7 @@ import GlassPanel from '../ui/GlassPanel';
 import SectionLabel from '../ui/SectionLabel';
 import ExplorerAnchor from '../ui/ExplorerAnchor';
 import { Activity, ArrowUpRight, ArrowDownRight, Pause, ShieldOff, FileText, Cpu, Plus, ShieldCheck } from 'lucide-react';
+import { teeBadgeState } from './teeBadge.js';
 
 const typeIcons = {
   buy: <ArrowUpRight className="w-3.5 h-3.5 text-emerald-soft" />,
@@ -80,14 +81,28 @@ function getIcon(entry) {
 // hover tooltip shows the recovered TEE signer + attestation report hash so
 // a juror can verify the chain-of-trust without cracking open devtools.
 function TeeAttestedBadge({ entry, chainId }) {
-  if (!entry?.teeAttested) return null;
+  const state = teeBadgeState(entry);
+  if (state === 'none') return null;
+
+  // Sealed but NOT hardware-verified: neutral marker, never green.
+  if (state === 'unattested') {
+    return (
+      <span
+        title="Sealed mode — signed intent + commit-reveal. Hardware TEE quote NOT verified for this execution."
+        className="inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border text-steel/50 bg-steel/5 border-steel/15"
+      >
+        unattested
+      </span>
+    );
+  }
+
+  // Verified: a real Intel-TDX quote passed on-chain DCAP this cycle.
   const commitHref = getExplorerTxHref(chainId, entry.commitTxHash);
-  const signer = entry.attestedSigner || '';
-  const report = entry.attestationReportHash || '';
+  const signer = entry.attestedEnclaveSigner || entry.attestedSigner || '';
   const tooltip = [
-    'TEE-attested execution',
-    signer ? `Signer: ${signer}` : null,
-    report ? `Report: ${report.slice(0, 10)}…${report.slice(-6)}` : null,
+    'TEE-verified execution (Intel TDX, DCAP)',
+    signer ? `Enclave signer: ${signer}` : null,
+    entry.verifierContract ? `DCAP verifier: ${entry.verifierContract}` : null,
     entry.commitTxHash ? `Commit tx: ${entry.commitTxHash.slice(0, 10)}…` : null,
   ].filter(Boolean).join('\n');
 
@@ -97,7 +112,7 @@ function TeeAttestedBadge({ entry, chainId }) {
       className="inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border text-emerald-soft/80 bg-emerald-soft/5 border-emerald-soft/20"
     >
       <ShieldCheck className="w-3 h-3" />
-      TEE
+      TEE ✓
     </span>
   );
 

@@ -119,6 +119,13 @@ export function usePythPrices() {
   return useAPI('/api/pyth/prices', { interval: 15000 });
 }
 
+// ── TVL history (platform-wide time-series for the hero sparkline) ──
+// One point per orchestrator cycle, ascending. Empty until the first snapshot
+// lands → the hero renders its honest "awaiting indexer" placeholder.
+export function useTvlHistory(interval = 30000) {
+  return useAPI('/api/tvl/history', { interval });
+}
+
 // ── Platform TVL (sum NAV of all vaults) ──
 export function usePlatformTVL(vaultAddresses) {
   const [tvl, setTvl] = useState(0);

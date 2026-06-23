@@ -195,6 +195,9 @@ export async function readVaultState(vaultAddress) {
       assetBalancesRaw,
       primaryPositionAsset,
       nonBasePositionValueUsd: nonBaseAssets.reduce((sum, asset) => sum + asset.valueUsd, 0),
+      // Placeholder — the orchestrator cycle overrides this with the real value
+      // derived from persisted NAV baselines (updatePnlMetrics, P0-3). Readers
+      // outside the cycle (e.g. dashboard) see 0 until a cycle has run.
       currentDailyLossPct: 0,
     };
 

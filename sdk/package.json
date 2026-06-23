@@ -1,6 +1,6 @@
 {
   "name": "@aegis-vault/sdk",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "JavaScript/TypeScript SDK for the Aegis Vault protocol on 0G Chain — on-chain reads, orchestrator API, and operator tooling.",
   "type": "module",
   "main": "./src/index.js",
