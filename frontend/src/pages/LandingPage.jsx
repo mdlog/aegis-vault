@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import DocsLink from '../components/DocsLink';
 import {
   ArrowRight,
   Shield,
@@ -129,7 +130,7 @@ function LandingNav() {
             { label: 'Mechanism', href: '#mechanism' },
             { label: 'Architecture', href: '#architecture' },
             { label: 'Security', href: '#security' },
-            { label: 'Docs', to: '/docs' },
+            { label: 'Docs', docsPath: '/docs' },
           ].map((item) => {
             const shared = {
               key: item.label,
@@ -138,7 +139,9 @@ function LandingNav() {
               onMouseEnter: (e) => (e.currentTarget.style.color = 'var(--ed-steel-50)'),
               onMouseLeave: (e) => (e.currentTarget.style.color = 'var(--ed-steel-300)'),
             };
-            return item.to ? (
+            return item.docsPath ? (
+              <DocsLink {...shared} path={item.docsPath}>{item.label}</DocsLink>
+            ) : item.to ? (
               <Link {...shared} to={item.to}>{item.label}</Link>
             ) : (
               <a {...shared} href={item.href}>{item.label}</a>
@@ -1053,9 +1056,9 @@ function LandingCTA() {
             <Link to="/create" className="ed-btn ed-btn-gold" style={{ padding: '16px 28px', fontSize: 15 }}>
               Open a vault <ArrowRight size={16} />
             </Link>
-            <Link to="/docs" className="ed-btn ed-btn-ghost" style={{ padding: '16px 28px', fontSize: 15 }}>
+            <DocsLink path="/docs" className="ed-btn ed-btn-ghost" style={{ padding: '16px 28px', fontSize: 15 }}>
               Read the policy primer
-            </Link>
+            </DocsLink>
           </div>
         </div>
 
@@ -1164,9 +1167,9 @@ function LandingFooter() {
           {
             t: 'Developers',
             l: [
-              { label: 'Docs', to: '/docs' },
-              { label: 'Contracts', to: '/docs#contracts' },
-              { label: 'API', to: '/docs#api' },
+              { label: 'Docs', docsPath: '/docs' },
+              { label: 'Contracts', docsPath: '/docs#contracts' },
+              { label: 'API', docsPath: '/docs#api' },
               { label: 'Whitepaper', to: '/whitepaper' },
               { label: 'GitHub', href: 'https://github.com/mdlog/aegis-vault' },
             ],
@@ -1174,8 +1177,8 @@ function LandingFooter() {
           {
             t: 'Security',
             l: [
-              { label: 'Trust model', to: '/docs#trust-model' },
-              { label: 'Architecture', to: '/docs#architecture' },
+              { label: 'Trust model', docsPath: '/docs#trust-model' },
+              { label: 'Architecture', docsPath: '/docs#architecture' },
             ],
           },
         ].map((c, i) => (
@@ -1193,7 +1196,9 @@ function LandingFooter() {
                   className: 'cursor-pointer hover:text-white transition-colors',
                   style: { fontSize: 13, color: 'var(--ed-steel-300)' },
                 };
-                return x.to ? (
+                return x.docsPath ? (
+                  <DocsLink {...base} path={x.docsPath}>{x.label}</DocsLink>
+                ) : x.to ? (
                   <Link {...base} to={x.to}>{x.label}</Link>
                 ) : (
                   <a {...base} href={x.href} target="_blank" rel="noopener noreferrer">{x.label}</a>
