@@ -74,6 +74,7 @@ AEGIS_GOVERNOR_ADDRESS=${deployments.aegisGovernor || ''}
 OG_COMPUTE_RPC=https://evmrpc.0g.ai
 OG_COMPUTE_PRIVATE_KEY=
 OG_COMPUTE_MODEL=zai-org/GLM-5-FP8
+STRICT_TEE_MODE=${isLocal ? 'false' : 'true'}
 
 # 0G Storage
 OG_INDEXER_RPC=https://indexer-storage-testnet-turbo.0g.ai

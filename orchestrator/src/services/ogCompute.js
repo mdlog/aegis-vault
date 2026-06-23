@@ -6,16 +6,30 @@ import logger from '../utils/logger.js';
 
 /**
  * 0G Compute Network Integration
- * Uses @0glabs/0g-serving-broker SDK for decentralized AI inference.
+ * Uses @0glabs/0g-serving-broker SDK for decentralized AI inference (Direct
+ * mode — wallet-signed requests, per-provider ledger sub-accounts). Direct
+ * preserves the per-call attestation chain (provider + chatId via
+ * processResponse) that V3 sealed-mode commits on-chain.
  *
  * Connects to 0G MAINNET for Compute (more models available),
  * even if vault contracts are on testnet.
  *
- * Available mainnet models:
- *   - zai-org/GLM-5-FP8 (chatbot, best for reasoning)
- *   - deepseek/deepseek-chat-v3-0324 (chatbot)
- *   - openai/gpt-oss-120b (chatbot)
- *   - qwen/qwen3-vl-30b-a3b-instruct (chatbot + vision)
+ * Live chatbot roster (last refreshed 2026-05-08 via broker.listService).
+ * All entries return verifiability='TeeML' on-chain with TDX hardware +
+ * dstack verifier (github.com/Dstack-TEE/dstack), and `teeSignerAcknowledged
+ * === true` from the InferenceServing contract:
+ *   - zai-org/GLM-5.1-FP8                (~1.7 s, 131K ctx)
+ *   - zai-org/GLM-5-FP8                  (slower thinking, 202K ctx)
+ *   - deepseek/deepseek-chat-v3-0324     (131K ctx)
+ *   - qwen/qwen3-vl-30b-a3b-instruct     (vision-capable, 262K ctx)
+ *   - qwen3.6-plus                       (1M ctx)
+ *   - openai/gpt-5.4-mini                (still listed via broker; absent
+ *                                         from Router /v1/models)
+ *
+ * Operator picks one at register time; the choice is committed on-chain via
+ * setStrategy() and verified per cycle. Speech (whisper) and image (z-image)
+ * services are exposed by listService but excluded from the operator dropdown
+ * because the inference pipeline is chatbot-only.
  */
 
 let broker = null;
@@ -60,33 +74,46 @@ export async function initOGCompute() {
       logger.info('0G Compute: Ledger created');
     }
 
-    // Discover chatbot services
+    // Discover chatbot services. Drop providers whose TEE signer hasn't been
+    // acknowledged on-chain (recommendation A): teeSignerAcknowledged is set
+    // by the 0G governance contract once the provider's TEE quote has been
+    // verified, so a `false` here means the provider is downgraded or
+    // mid-rotation and shouldn't be trusted for sealed-mode inference.
     const services = await broker.inference.listService();
     const chatbots = services.filter(s => s.serviceType === 'chatbot');
+    const teeChatbots = chatbots.filter(s => s.teeSignerAcknowledged !== false);
+    const dropped = chatbots.length - teeChatbots.length;
+    if (dropped > 0) {
+      logger.warn(`0G Compute: Filtered out ${dropped} chatbot(s) with unacknowledged TEE signer`);
+    }
 
-    if (chatbots.length === 0) {
-      logger.warn('0G Compute: No chatbot service available');
+    if (teeChatbots.length === 0) {
+      logger.warn('0G Compute: No TEE-acknowledged chatbot service available');
       return false;
     }
 
-    logger.info(`0G Compute: Found ${chatbots.length} chatbot services:`);
-    chatbots.forEach(s => logger.info(`  - ${s.model} @ ${s.url}`));
+    logger.info(`0G Compute: Found ${teeChatbots.length} TEE-acknowledged chatbot services:`);
+    teeChatbots.forEach(s => logger.info(`  - ${s.model} (${s.verifiability || 'unknown-tee'}) @ ${s.url}`));
 
     // Pick preferred model or first available
     const preferred = config.ogCompute.preferredModel;
     const selected = preferred
-      ? chatbots.find(s => s.model.includes(preferred)) || chatbots[0]
-      : chatbots[0];
+      ? teeChatbots.find(s => s.model.includes(preferred)) || teeChatbots[0]
+      : teeChatbots[0];
 
     providerInfo = {
       address: selected.provider,
       endpoint: selected.url,
       model: selected.model,
+      verifiability: selected.verifiability || null,
+      teeSignerAddress: selected.teeSignerAddress || null,
+      teeMetadata: parseTeeMetadata(selected.additionalInfo),
     };
 
     logger.info(`0G Compute: Selected → ${providerInfo.model}`);
     logger.info(`0G Compute: Provider → ${providerInfo.address}`);
     logger.info(`0G Compute: Endpoint → ${providerInfo.endpoint}`);
+    logger.info(`0G Compute: Verifiability → ${providerInfo.verifiability ?? 'unknown'} via ${providerInfo.teeMetadata?.TEEVerifier ?? 'unknown verifier'}`);
 
     // Fund provider sub-account
     try {
@@ -177,15 +204,28 @@ export async function chatCompletion(messages, options = {}) {
 
     logger.info(`0G Compute: Response received (${content.length} chars, model: ${providerInfo.model})`);
 
-    // Verify response
+    // Recommendation B — TEE verification gating.
+    // When STRICT_TEE_MODE is enabled, an explicit `false` from processResponse
+    // (i.e. the broker fetched the TEE attestation and rejected it) drops the
+    // entire response. Errors thrown by processResponse don't gate because
+    // they often indicate transient verifier-backend hiccups rather than a
+    // bad attestation; sealed-mode commit-reveal still binds the response
+    // hash on-chain regardless.
+    let teeVerified = null; // null = unknown, true = valid, false = rejected
     const chatId = response.headers.get('ZG-Res-Key') || data.id;
     if (chatId) {
       try {
         const isValid = await broker.inference.processResponse(providerInfo.address, chatId);
-        logger.info(`0G Compute: Verification: ${isValid ? 'VALID' : 'UNVERIFIED'}`);
+        teeVerified = isValid === true;
+        logger.info(`0G Compute: Verification: ${teeVerified ? 'VALID' : 'UNVERIFIED'}`);
       } catch (e) {
         logger.debug(`0G Compute: Verification skipped: ${e.message?.substring(0, 80)}`);
       }
+    }
+
+    if (config.ogCompute.strictTeeMode && teeVerified === false) {
+      logger.error(`0G Compute: STRICT_TEE_MODE rejected response — provider ${providerInfo.address} returned UNVERIFIED for ${chatId}`);
+      return null;
     }
 
     return {
@@ -194,6 +234,8 @@ export async function chatCompletion(messages, options = {}) {
       chatId,
       provider: providerInfo.address,
       model: providerInfo.model,
+      verifiability: providerInfo.verifiability,
+      teeVerified,
     };
 
   } catch (err) {
@@ -218,6 +260,10 @@ export function getOGComputeStatus() {
     provider: providerInfo?.address || null,
     model: providerInfo?.model || null,
     endpoint: providerInfo?.endpoint || null,
+    verifiability: providerInfo?.verifiability || null,
+    teeVerifier: providerInfo?.teeMetadata?.TEEVerifier || null,
+    teeSignerAddress: providerInfo?.teeSignerAddress || null,
+    strictTeeMode: !!config.ogCompute.strictTeeMode,
     network: 'mainnet',
   };
 }
@@ -232,11 +278,27 @@ export function getProviderService() {
 }
 
 /**
- * List all available chatbot services on 0G Compute (for operator registration UI).
+ * List available chatbot services on 0G Compute, filtered to TEE-acknowledged
+ * providers, with TEE metadata surfaced for the operator registration UI.
  *
- * Each entry is { model, provider, url, serviceType, verified } as returned by
- * `broker.inference.listService()`. Frontend uses this to populate the AI model
- * dropdown in `/operator/register` so operators commit to a specific model.
+ * Recommendation A — only providers whose `teeSignerAcknowledged === true` are
+ * exposed. The on-chain governance contract sets this flag once the provider's
+ * TEE quote has been verified, so anything else is a downgrade or
+ * mid-rotation provider that shouldn't be picked for sealed-mode vaults.
+ *
+ * Each returned entry shape (consumed by /operator/register dropdown):
+ *   {
+ *     model:           "zai-org/GLM-5-FP8",
+ *     provider:        "0x…",
+ *     url:             "https://…",
+ *     serviceType:     "chatbot",
+ *     verifiability:   "TeeML" | "TeeTLS",
+ *     teeAcknowledged: true,
+ *     teeSignerAddress:"0x…",
+ *     teeVerifier:     "dstack",
+ *     teeImageDigest:  "" | "sha256:…",
+ *     providerIdentity:"openrouter" | …,
+ *   }
  */
 export async function listAvailableModels() {
   if (!initialized || !broker) {
@@ -248,15 +310,39 @@ export async function listAvailableModels() {
     const services = await broker.inference.listService();
     return services
       .filter((s) => s.serviceType === 'chatbot')
-      .map((s) => ({
-        model: s.model,
-        provider: s.provider,
-        url: s.url,
-        serviceType: s.serviceType,
-        verified: s.verifiable !== false,
-      }));
+      .filter((s) => s.teeSignerAcknowledged !== false)
+      .map((s) => {
+        const meta = parseTeeMetadata(s.additionalInfo);
+        return {
+          model: s.model,
+          provider: s.provider,
+          url: s.url,
+          serviceType: s.serviceType,
+          verifiability: s.verifiability || null,
+          teeAcknowledged: s.teeSignerAcknowledged === true,
+          teeSignerAddress: s.teeSignerAddress || null,
+          teeVerifier: meta?.TEEVerifier || null,
+          teeImageDigest: meta?.ImageDigest || null,
+          providerIdentity: meta?.ProviderIdentity || null,
+        };
+      });
   } catch (err) {
     logger.error(`0G Compute: listAvailableModels failed: ${err.message}`);
     return [];
+  }
+}
+
+/**
+ * Parse the JSON-encoded `additionalInfo` field from a 0G Compute service
+ * struct. The contract stores it as an opaque string so providers can ship
+ * arbitrary metadata; we extract the fields the registration UI cares about.
+ * Returns null on parse failure so callers can fall back gracefully.
+ */
+function parseTeeMetadata(additionalInfo) {
+  if (!additionalInfo || typeof additionalInfo !== 'string') return null;
+  try {
+    return JSON.parse(additionalInfo);
+  } catch {
+    return null;
   }
 }

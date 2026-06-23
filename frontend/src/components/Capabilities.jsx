@@ -4,8 +4,8 @@ const capabilities = [
   {
     tag: 'INTELLIGENCE',
     title: 'AI Risk Engine on 0G Compute',
-    description: 'Real GLM-5-FP8 inference verified via processResponse(). Decision Engine v1: 8 market regimes, 15 veto rules, edge & quality scoring. Operators choose from 6 active 0G Compute models — committed on-chain at register time.',
-    metrics: ['Models: 6 active', 'Engine: v1', 'Verified: VALID'],
+    description: 'TEE-attested 0G Compute inference verified per call via processResponse(). Decision Engine v1: 8 market regimes, 15 veto rules, edge & quality scoring. Operators pick from 6 live chatbot models — GLM-5.1-FP8, GLM-5-FP8, DeepSeek-V3, Qwen3-VL, Qwen3.6-Plus, GPT-5.4-mini — committed on-chain at register time.',
+    metrics: ['Models: 6 live', 'Engine: v1', 'TEE: TDX/dstack'],
     accentColor: 'cyan',
   },
   {

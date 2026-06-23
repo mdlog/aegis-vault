@@ -347,6 +347,11 @@ export function buildExecutionEntry(intent, result, decision = null, context = {
     && attestationReportHash
     && attestationReportHash.toLowerCase() !== ZERO_HASH;
 
+  // Broker-side TEE verifier metadata from the inference response
+  // (broker.processResponse). Provenance only — the authoritative badge
+  // signal is `teeVerified` below (real DCAP TDX verification this cycle).
+  const cr = decision?._computeResponse || null;
+
   return {
     type: 'execution',
     vault: context.vault || intent?.vault || null,
@@ -365,6 +370,9 @@ export function buildExecutionEntry(intent, result, decision = null, context = {
     attestationReportHash: attestationReportHash,
     commitTxHash: result.commitTxHash || null,
     commitBlockNumber: result.commitBlockNumber || null,
+    // Broker-side TEE verifier acknowledgement (recommendation B): provenance
+    // only, may be null when local-fallback ran or the verifier was unreachable.
+    teeVerifiability: cr?.verifiability || null,
     // Real off-chain DCAP attestation (Task 7). teeVerified is the source of
     // truth for the UI "TEE ✓" badge — true ONLY when a TDX quote actually
     // verified this cycle.
