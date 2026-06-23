@@ -66,3 +66,6 @@ coverage/
 *.mp4
 *.dc.html
 /support.js
+
+# 0G meeting materials — kept local only, not for the shared repo
+0G_MEETING_*.md
