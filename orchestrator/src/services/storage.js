@@ -337,7 +337,7 @@ export function logPolicyCheck(decision, result, context = {}) {
  * is set by `submitIntent` only when the sealed branch ran; on public-mode
  * vaults it stays null.
  */
-export function logExecution(intent, result, decision = null, context = {}) {
+export function buildExecutionEntry(intent, result, decision = null, context = {}) {
   const sealed = !!context.sealedMode;
   const attestationReportHash = intent?.attestationReportHash || null;
   // Treat zero-hash as "no attestation present" so the UI doesn't render a
@@ -347,7 +347,7 @@ export function logExecution(intent, result, decision = null, context = {}) {
     && attestationReportHash
     && attestationReportHash.toLowerCase() !== ZERO_HASH;
 
-  return appendJournal({
+  return {
     type: 'execution',
     vault: context.vault || intent?.vault || null,
     intentHash: intent?.intentHash,
@@ -365,7 +365,19 @@ export function logExecution(intent, result, decision = null, context = {}) {
     attestationReportHash: attestationReportHash,
     commitTxHash: result.commitTxHash || null,
     commitBlockNumber: result.commitBlockNumber || null,
-  });
+    // Real off-chain DCAP attestation (Task 7). teeVerified is the source of
+    // truth for the UI "TEE ✓" badge — true ONLY when a TDX quote actually
+    // verified this cycle.
+    teeVerified: context.teeVerified === true,
+    attestedEnclaveSigner: context.attestedEnclaveSigner || null,
+    quoteVerified: context.quoteVerified === true,
+    verifierContract: context.verifierContract || null,
+    verifiedAt: context.verifiedAt ?? null,
+  };
+}
+
+export function logExecution(intent, result, decision = null, context = {}) {
+  return appendJournal(buildExecutionEntry(intent, result, decision, context));
 }
 
 /**

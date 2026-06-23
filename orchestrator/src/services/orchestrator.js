@@ -781,6 +781,11 @@ async function runVaultCycle(vaultAddress, marketSummary) {
       vault: vaultAddress,
       sealedMode: vaultState.policy?.sealedMode === true,
       attestedSigner: vaultState.policy?.attestedSigner,
+      teeVerified: decision._teeAttestation?.ok === true,
+      attestedEnclaveSigner: decision._teeAttestation?.attestedSigner || null,
+      quoteVerified: decision._teeAttestation?.quoteVerified === true,
+      verifierContract: decision._teeAttestation?.verifierContract || null,
+      verifiedAt: decision._teeAttestation?.verifiedAt ?? null,
     });
     syncExecutionToOG(intent, execResult, decision).catch(() => {});
 
