@@ -99,3 +99,57 @@ export async function verifyProviderEnclave(verifier, providerAddress, deps = {}
   logger.info(`TEE: provider ${providerAddress.slice(0, 10)} enclave verified (signer ${embedded.slice(0, 10)})`);
   return entry;
 }
+
+// Layer B — cheap, per cycle: prove THIS response was signed by the attested
+// enclave signer (catches cached/forged responses).
+export async function verifyResponseSignature(VerifierClass, providerUrl, chatId, model, attestedSigner) {
+  if (!chatId) return false;
+  const sig = await VerifierClass.fetchSignatureByChatID(providerUrl, chatId, model);
+  if (!sig || !sig.signature || !sig.text) return false;
+  return VerifierClass.verifySignature(sig.text, sig.signature, attestedSigner) === true;
+}
+
+// Combined attestation for one inference: enclave verification (Layer A,
+// cached) + this response's signature (Layer B). Returns ok:false with a
+// specific reason on any failure — callers fail closed.
+export async function attestInference(broker, providerInfo, chatId, deps = {}) {
+  const verifier = deps.verifier || broker?.inference?.verifier;
+  const VerifierClass = deps.VerifierClass || verifier?.constructor;
+  if (!verifier || !VerifierClass) return { ok: false, reason: 'provider_not_attestable' };
+
+  const enclave = await verifyProviderEnclave(verifier, providerInfo.address, deps);
+  if (!enclave.ok) return enclave;
+
+  let responseSigned = false;
+  try {
+    responseSigned = await verifyResponseSignature(
+      VerifierClass, providerInfo.endpoint, chatId, providerInfo.model, enclave.attestedSigner,
+    );
+  } catch (e) {
+    return { ok: false, reason: 'response_unsigned', detail: e.message };
+  }
+  if (!responseSigned) return { ok: false, reason: 'response_unsigned' };
+
+  return {
+    ok: true,
+    attestedSigner: enclave.attestedSigner,
+    quoteVerified: enclave.quoteVerified,
+    signerMatch: enclave.signerMatch,
+    composeOk: enclave.composeOk,
+    responseSigned: true,
+    verifiedAt: enclave.verifiedAt,
+    verifierContract: config.teeAttestation.automataAddress,
+  };
+}
+
+// Gate decision for the orchestrator cycle. Ungated when the vault doesn't opt
+// in; otherwise proceed only on a passing attestation, else skip the cycle.
+export function evaluateTeeGate(vaultState, attestation) {
+  if (!isTeeAttestationRequired(vaultState)) return { proceed: true, gated: false };
+  if (attestation?.ok === true) return { proceed: true, gated: true, attestation };
+  return {
+    proceed: false, gated: true,
+    status: 'skipped_tee_unattested',
+    reason: attestation?.reason || 'provider_not_attestable',
+  };
+}
