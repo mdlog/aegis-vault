@@ -50,16 +50,10 @@ import {
   EyebrowMono as Eyebrow,
   StatusDot,
   ToneChip as Chip,
-  TokenAvatar,
-  GhostNumeral,
-  RiskGauge,
-  SectionHead,
 } from '../components/editorial/atoms';
-import { cx, ACCENTS } from '../components/editorial/tokens';
+import { ACCENTS } from '../components/editorial/tokens';
 import {
-  Shield, ShieldCheck, AlertTriangle, ArrowLeft, Check, CheckCircle, Copy,
-  Cpu, Download, ExternalLink, Hourglass, Layers, PauseCircle, PlayCircle, Plus,
-  RefreshCw, Settings, Sparkles, TrendingUp, Wallet, X, Zap,
+  Shield, AlertTriangle, ArrowLeft, Cpu, Plus, Wallet, X,
 } from 'lucide-react';
 
 function formatTime(ts) {
@@ -155,16 +149,16 @@ export default function VaultDetailPage() {
   // Contract write hooks
   const { pause, hash: pauseHash, isPending: pausePending } = usePause();
   const { unpause, hash: unpauseHash, isPending: unpausePending } = useUnpause();
-  const { withdraw, hash: withdrawHash, isPending: withdrawPending, isSuccess: withdrawSuccess } = useWithdraw();
+  const { withdraw, hash: withdrawHash, isPending: withdrawPending } = useWithdraw();
   // v2 rescue paths — only wired up in the modal when vault.version === 'v2'
   const { withdrawToken, isPending: withdrawTokenPending } = useWithdrawToken();
   const { withdrawAllNonBase, isPending: withdrawAllPending } = useWithdrawAllNonBase();
   const { approve, hash: approveHash, isPending: approvePending, isSuccess: approveSuccess } = useApprove();
-  const { deposit, hash: depositHash, isPending: depositPending, isSuccess: depositSuccess } = useDeposit();
-  const { transfer: transferToken, hash: transferHash, isPending: transferPending, isSuccess: transferSuccess } = useTransferToken();
+  const { deposit, hash: depositHash, isPending: depositPending } = useDeposit();
+  const { transfer: transferToken, hash: transferHash, isPending: transferPending } = useTransferToken();
   const { wrap: wrapNative, hash: wrapHash, isPending: wrapPending, isSuccess: wrapSuccess, reset: resetWrap } = useWrapNative();
-  const { updatePolicy, hash: policyHash, isPending: policyPending, isSuccess: policySuccess } = useUpdatePolicy();
-  const { setExecutor, hash: executorHash, isPending: executorPending, isSuccess: executorSuccess } = useSetExecutor();
+  const { updatePolicy, hash: policyHash, isPending: policyPending } = useUpdatePolicy();
+  const { setExecutor, hash: executorHash, isPending: executorPending } = useSetExecutor();
 
   // Fees
   const { state: feeState, refetch: refetchFees } = useVaultFeeState(vaultAddr, 6);
@@ -245,7 +239,6 @@ export default function VaultDetailPage() {
   const [ticketWithdrawSymbol, setTicketWithdrawSymbol] = useState(null);
   const [ticketAmount, setTicketAmount] = useState('');
   const [ticketTokenSymbol, setTicketTokenSymbol] = useState('USDC');
-  const [addressCopied, setAddressCopied] = useState(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
 
   const hasLive = !!liveVault;
@@ -261,7 +254,6 @@ export default function VaultDetailPage() {
   const executions = executionData.length;
   const dailyActions = hasLive ? liveVault.dailyActions : showDemoVault ? demoVault.dailyActions : 0;
   const lastExecTs = hasLive ? liveVault.lastExecution : showDemoVault ? Math.floor(new Date(demoVault.lastExecution).getTime() / 1000) : 0;
-  const cycleCount = orchStatus?.cycleCount || 0;
 
   const hasRealReturn = (hasLive || showDemoVault) && totalDeposited > 0;
   const allTimeReturnPct = hasRealReturn ? ((nav - totalDeposited) / totalDeposited) * 100 : 0;
@@ -302,11 +294,6 @@ export default function VaultDetailPage() {
       : pol.maxPositionPct <= 30 ? 'Defensive'
       : pol.maxPositionPct <= 50 ? 'Balanced'
       : 'Tactical';
-  const mandateChipTone =
-    mandateType === 'Defensive' ? 'cyan' :
-    mandateType === 'Tactical'  ? 'rose' :
-    mandateType === 'Balanced'  ? 'emerald' :
-                                  'steel';
 
   // NAV history (journal-derived). `cycle` = scheduled orchestrator snapshot
   // every N minutes. `balance_change` = deposit/withdraw listener snapshot on
@@ -469,8 +456,6 @@ export default function VaultDetailPage() {
   const networkName = showDemoVault
     ? demoVault.network
     : chainId === 16661 ? '0G Aristotle Mainnet' : getNetworkLabel(chainId);
-  const vaultExplorerHref = getExplorerAddressHref(chainId, vaultAddress);
-  const executorExplorerHref = getExplorerAddressHref(chainId, executorAddress);
   const feeRecipientExplorerHref = getExplorerAddressHref(chainId, effectivePolicy?.feeRecipient);
   const showLiveTelemetryGuide = !showDemoVault && !latestSignal && !hasRealTimeline;
 
@@ -479,7 +464,6 @@ export default function VaultDetailPage() {
     : vaultAddress
     ? `${vaultAddress.slice(0, 6)}…${vaultAddress.slice(-4)}`
     : 'No Vault Selected';
-  const vaultAvatarSymbol = vaultAddress ? vaultAddress.slice(2, 4).toUpperCase() : 'VT';
 
   const recentVaultTxs = [
     { label: isPaused ? 'Resume vault' : 'Pause vault', hash: pauseHash || unpauseHash },
@@ -518,12 +502,6 @@ export default function VaultDetailPage() {
   const handlePause = () => {
     if (isPaused) { unpause(vaultAddr); } else { pause(vaultAddr); }
     setTimeout(() => refetch(), 3000);
-  };
-
-  const handleCopy = (key, value) => {
-    navigator.clipboard?.writeText?.(value || '');
-    setAddressCopied(key);
-    setTimeout(() => setAddressCopied(null), 1500);
   };
 
   const openPolicyModal = () => {
@@ -626,17 +604,6 @@ export default function VaultDetailPage() {
   const baseTokenForVault = depositTokens.find((t) => t.isBase);
   const baseAssetSymbolResolved = baseTokenForVault?.symbol || 'USDC';
   const baseAssetDecimalsResolved = baseTokenForVault?.decimals ?? resolvedDecimals;
-  const ticketSharePriceLabel = navSnapshot?.sharePrice
-    ? String(navSnapshot.sharePrice)
-    : nav > 0 && totalDeposited > 0
-      ? (nav / Math.max(1, totalDeposited)).toFixed(4)
-      : '1.0000';
-  // Share accounting only applies to base-asset deposits — non-base tokens are
-  // bare `transfer()` calls that don't mint shares.
-  const estShares = ticketTab === 'deposit' && ticketAmount && ticketToken?.isBase
-    ? (Number(ticketAmount) / Math.max(0.0001, Number(ticketSharePriceLabel))).toFixed(2)
-    : null;
-
   const hasFees = effectivePolicy && (
     effectivePolicy.performanceFeeBps ||
     effectivePolicy.managementFeeBps ||
@@ -645,198 +612,142 @@ export default function VaultDetailPage() {
     (feeState?.accruedTotal > 0)
   );
 
-  return (
-    <div className="relative min-h-screen">
-      {/* Ambient backdrop */}
-      <div aria-hidden className="fixed inset-0 pointer-events-none">
-        <div className="absolute inset-0 ed-dotgrid opacity-25" />
-        <div
-          className="absolute -top-[400px] -left-[200px] h-[800px] w-[800px] rounded-full"
-          style={{ background: `radial-gradient(circle, ${ACCENTS.emerald}14 0%, transparent 55%)`, filter: 'blur(40px)' }}
-        />
-        <div
-          className="absolute -bottom-[400px] -right-[200px] h-[800px] w-[800px] rounded-full"
-          style={{ background: `radial-gradient(circle, ${ACCENTS.cyan}10 0%, transparent 55%)`, filter: 'blur(40px)' }}
-        />
-      </div>
+  // HONESTY: only show a Realized/Unrealized PnL split when executions actually
+  // carry a numeric pnl. Otherwise the comp's "Realized P&L" stat collapses to
+  // a fabricated 0, so we surface the single REAL all-time PnL instead.
+  const hasRealizedPnl = executionData.some((ex) => typeof ex.pnl === 'number' && ex.pnl !== 0);
 
+  return (
+    <div className="relative min-h-screen" style={{ background: '#0a0b0e', color: '#eceef1', fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
       <div className="relative max-w-[1540px] mx-auto px-4 lg:px-6 py-6 lg:py-8">
         {/* Breadcrumb */}
-        <div className="flex items-center gap-2 mb-5 flex-wrap">
-          <Link
-            to="/app"
-            className="ed-mono text-[11px] uppercase tracking-[0.18em] inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
-            style={{ color: 'var(--ed-steel-400)' }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-400)')}
-          >
-            <ArrowLeft className="w-3 h-3" /> Back to Dashboard
+        <div className="flex items-center gap-2 mb-5 flex-wrap" style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: '1px', textTransform: 'uppercase' }}>
+          <Link to="/app" className="inline-flex items-center gap-1.5 transition-colors" style={{ color: M.muted, textDecoration: 'none' }}>
+            <ArrowLeft className="w-3 h-3" /> Dashboard
           </Link>
-          <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-600)' }}>/</span>
-          <span className="ed-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: 'var(--ed-steel-400)' }}>Vaults</span>
-          <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-600)' }}>/</span>
-          <span className="ed-mono text-[11px] uppercase tracking-[0.18em] whitespace-nowrap" style={{ color: 'var(--ed-steel-50)' }}>
-            {vaultTitle}
-          </span>
+          <span style={{ color: '#3a3e46' }}>/</span>
+          <span style={{ color: M.muted }}>Vaults</span>
+          <span style={{ color: '#3a3e46' }}>/</span>
+          <span style={{ color: M.text }} className="whitespace-nowrap">{vaultTitle}</span>
         </div>
 
         {/* Header */}
-        <div className="ed-rise" style={{ '--ed-rise-d': '0ms' }}>
-          <VaultHero
-            vaultAvatarSymbol={vaultAvatarSymbol}
-            vaultTitle={vaultTitle}
-            vaultExplorerHref={vaultExplorerHref}
-            isPaused={isPaused}
-            showDemoVault={showDemoVault}
-            mandateType={mandateType}
-            mandateChipTone={mandateChipTone}
-            executorIsInactive={executorIsInactive}
-            cycleCount={cycleCount}
-            nav={nav}
-            lastExecTs={lastExecTs}
-            baseAssetSymbol={baseAssetSymbolResolved}
-            executions={executions}
-            decisionCounts={decisionCounts}
-            orchStatus={orchStatus}
-            isConnected={isConnected}
-            sealedMode={!!effectivePolicy?.sealedMode}
-            attestedSigner={effectivePolicy?.attestedSigner || ''}
-            onDeposit={openDepositModal}
-            onWithdraw={openWithdrawModal}
-            onEditPolicy={openPolicyModal}
-            onPause={handlePause}
-            pausePending={pausePending}
-            unpausePending={unpausePending}
-          />
-        </div>
+        <VaultHero
+          vaultTitle={vaultTitle}
+          vaultAddress={vaultAddress}
+          networkName={networkName}
+          baseAssetSymbol={baseAssetSymbolResolved}
+          isPaused={isPaused}
+          showDemoVault={showDemoVault}
+          mandateType={mandateType}
+          executorIsInactive={executorIsInactive}
+          sealedMode={!!effectivePolicy?.sealedMode}
+          nav={nav}
+          totalDeposited={totalDeposited}
+          allTimeReturnPct={allTimeReturnPct}
+          allTimeReturnUsd={allTimeReturnUsd}
+          returnIsPositive={returnIsPositive}
+          hasRealReturn={hasRealReturn}
+          hasRealizedPnl={hasRealizedPnl}
+          pnlRealized={pnlRealized}
+          pnlUnrealized={pnlUnrealized}
+          isConnected={isConnected}
+          pausePending={pausePending}
+          unpausePending={unpausePending}
+          onDeposit={openDepositModal}
+          onWithdraw={openWithdrawModal}
+          onPause={handlePause}
+        />
 
         {/* Operator rotation banner */}
         {executorIsInactive && !bannerDismissed && (
-          <div className="mt-6 ed-rise" style={{ '--ed-rise-d': '80ms' }}>
-            <div
-              className="rounded-2xl p-4 flex items-start gap-3 relative overflow-hidden"
-              style={{
-                background: `linear-gradient(90deg, ${ACCENTS.amber}10, rgba(15,15,19,0.8))`,
-                boxShadow: 'var(--ed-ghost-border)',
-              }}
-            >
-              <div
-                className="h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ background: `${ACCENTS.amber}26`, color: ACCENTS.amber }}
-              >
-                <AlertTriangle className="w-3.5 h-3.5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <span className="ed-mono text-[11px] uppercase tracking-[0.2em] whitespace-nowrap" style={{ color: 'var(--ed-steel-50)' }}>
-                    Operator status changed
-                  </span>
-                  <Chip tone="amber" dense>{executorIsInactive.reason}</Chip>
-                </div>
-                <p className="text-[12.5px] leading-[1.55]" style={{ color: 'var(--ed-steel-300)' }}>
-                  {executorIsInactive.label} Rotate to a different executor below without moving funds.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setBannerDismissed(true)}
-                className="ed-mono text-[10.5px] uppercase tracking-[0.2em] transition-colors px-2 py-1 rounded"
-                style={{ color: 'var(--ed-steel-400)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')}
-                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-400)')}
-              >
-                Dismiss
-              </button>
+          <div className="mt-5 rounded-[14px] p-4 flex items-start gap-3" style={{ background: 'linear-gradient(90deg, rgba(245,158,11,0.10), #14161b)', border: '1px solid rgba(245,158,11,0.22)' }}>
+            <div className="h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${G.amber}26`, color: G.amber }}>
+              <AlertTriangle className="w-3.5 h-3.5" />
             </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span className="whitespace-nowrap" style={{ ...monoLabel, color: M.text }}>Operator status changed</span>
+                <span style={{ ...monoTag, color: G.amber, background: `${G.amber}1F` }}>{executorIsInactive.reason}</span>
+              </div>
+              <p className="text-[12.5px] leading-[1.55]" style={{ color: M.muted }}>
+                {executorIsInactive.label} Rotate to a different executor below without moving funds.
+              </p>
+            </div>
+            <button type="button" onClick={() => setBannerDismissed(true)} className="px-2 py-1 rounded" style={{ ...monoLabel, color: M.faint, background: 'transparent', border: 'none', cursor: 'pointer' }}>
+              Dismiss
+            </button>
           </div>
         )}
 
         {showLiveTelemetryGuide && (
-          <div className="mt-6 ed-rise" style={{ '--ed-rise-d': '80ms' }}>
-            <div className="rounded-2xl p-4" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
-              <div className="flex items-center gap-2 mb-2">
-                <Cpu className="w-3.5 h-3.5" style={{ color: ACCENTS.cyan }} />
-                <Eyebrow tone="cyan">Telemetry warming up</Eyebrow>
-              </div>
-              <p className="text-[11.5px] leading-[1.55]" style={{ color: 'var(--ed-steel-400)' }}>
-                The vault exists on-chain, but no fresh AI journal or NAV history has arrived yet. Connect the vault to your
-                orchestrator executor and run a cycle to populate the analytics panels below.
-              </p>
-              <div className="mt-2 ed-mono text-[10px]" style={{ color: 'var(--ed-steel-500)' }}>
-                Endpoint: {ORCHESTRATOR_URL || 'VITE_ORCHESTRATOR_URL not set'}
-              </div>
+          <div className="mt-5 rounded-[14px] p-4" style={card}>
+            <div className="flex items-center gap-2 mb-2">
+              <Cpu className="w-3.5 h-3.5" style={{ color: G.violet }} />
+              <span style={{ ...monoLabel, color: G.violet }}>Telemetry warming up</span>
+            </div>
+            <p className="text-[11.5px] leading-[1.55]" style={{ color: M.muted }}>
+              The vault exists on-chain, but no fresh AI journal or NAV history has arrived yet. Connect the vault to your
+              orchestrator executor and run a cycle to populate the analytics panels below.
+            </p>
+            <div className="mt-2" style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: M.faint }}>
+              Endpoint: {ORCHESTRATOR_URL || 'VITE_ORCHESTRATOR_URL not set'}
             </div>
           </div>
         )}
 
         {/* Main two-col grid */}
-        <div className="mt-8 lg:mt-10 grid grid-cols-1 xl:grid-cols-[1.6fr_1fr] gap-8 lg:gap-10">
-          {/* Main */}
-          <div className="flex flex-col gap-10 min-w-0">
-            <div className="ed-rise" style={{ '--ed-rise-d': '120ms' }}>
-              <PerformancePanel
-                nav={nav}
-                totalDeposited={totalDeposited}
-                allTimeReturnPct={allTimeReturnPct}
-                allTimeReturnUsd={allTimeReturnUsd}
-                returnIsPositive={returnIsPositive}
-                pnlRealized={pnlRealized}
-                pnlUnrealized={pnlUnrealized}
-                navHistoryData={navHistoryData}
-                pnlHistoryData={pnlHistoryData}
-                drawdownHistoryData={drawdownHistoryData}
-                showDemoVault={showDemoVault}
-              />
-            </div>
+        <div className="mt-[22px] grid grid-cols-1 xl:grid-cols-[1fr_350px] gap-[22px] items-start">
+          {/* LEFT */}
+          <div className="flex flex-col gap-[22px] min-w-0">
+            <PerformancePanel
+              nav={nav}
+              totalDeposited={totalDeposited}
+              allTimeReturnPct={allTimeReturnPct}
+              allTimeReturnUsd={allTimeReturnUsd}
+              returnIsPositive={returnIsPositive}
+              navHistoryData={navHistoryData}
+              pnlHistoryData={pnlHistoryData}
+              drawdownHistoryData={drawdownHistoryData}
+              showDemoVault={showDemoVault}
+            />
 
             {allocationData.length > 0 && (
-              <div className="ed-rise" style={{ '--ed-rise-d': '180ms' }}>
-                <AllocationPanel allocations={allocationData} prices={navData?.prices} />
-              </div>
+              <AllocationPanel allocations={allocationData} prices={navData?.prices} />
             )}
 
-            <div className="ed-rise" style={{ '--ed-rise-d': '240ms' }}>
-              <StrategyPanel
-                mandateType={mandateType}
-                mandateChipTone={mandateChipTone}
-                pol={pol}
-                isPaused={isPaused}
-                operator={executorOpData}
-                executorAddress={executorAddress}
-                executorRegistered={executorRegistered}
-                executorSyncLabel={executorSyncLabel}
-                executorSyncTone={executorSyncTone}
-                isConnected={isConnected}
-                onEditPolicy={openPolicyModal}
-                onSetExecutor={openExecutorModal}
-              />
-            </div>
+            <AiActionsPanel
+              entries={journalEntries}
+              counts={decisionCounts}
+              chainId={chainId}
+              executions={executions}
+              onExport={handleExportJournal}
+            />
 
-            <div className="ed-rise" style={{ '--ed-rise-d': '300ms' }}>
-              <DecisionsPanel
-                entries={journalEntries}
-                counts={decisionCounts}
-                chainId={chainId}
-                onExport={handleExportJournal}
-              />
-            </div>
-
-            <div className="ed-rise" style={{ '--ed-rise-d': '360ms' }}>
-              <RecentActionsPanel actions={recentActions} chainId={chainId} />
-            </div>
+            <RecentActionsPanel actions={recentActions} chainId={chainId} />
           </div>
 
-          {/* Rail */}
-          <aside className="flex flex-col gap-8">
-            <div className="ed-rise" style={{ '--ed-rise-d': '120ms' }}>
-              <RiskPanel
-                riskScore={riskScore}
-                riskLevel={riskLevel}
-                riskTone={riskTone}
-                pol={pol}
-                dailyActions={dailyActions}
-              />
-            </div>
+          {/* RIGHT RAIL */}
+          <aside className="flex flex-col gap-[22px] min-w-0">
+            <ManageCapitalPanel
+              tab={ticketTab}
+              setTab={setTicketTab}
+              amount={ticketAmount}
+              setAmount={setTicketAmount}
+              walletBalance={ticketWalletBalance}
+              tokens={depositTokens}
+              selectedSymbol={ticketTokenSymbol}
+              onSelectSymbol={(sym) => { setTicketTokenSymbol(sym); setTicketAmount(''); }}
+              selectedWithdrawSymbol={ticketWithdrawSymbol}
+              onSelectWithdrawSymbol={(sym) => { setTicketWithdrawSymbol(sym); setTicketAmount(''); }}
+              vaultVersion={vaultVersion}
+              vaultAssetRows={vaultAssetRows}
+              liveVault={liveVault}
+              isConnected={isConnected}
+              onSubmit={handleTicketSubmit}
+            />
+
+            <CrossChainDepositCard vaultAddress={vaultAddr} baseAssetAddress={liveVault?.baseAsset} baseAssetSymbol={baseAssetSymbolResolved} baseAssetDecimals={baseAssetDecimalsResolved} />
 
             {/* V4 strategy manifest binding — drift detection + 24h-timelocked
                 upgrade flow. Renders a no-op for V3/V2/V1 vaults. */}
@@ -852,103 +763,59 @@ export default function VaultDetailPage() {
               }
             />
 
-            <div className="ed-rise" style={{ '--ed-rise-d': '180ms' }}>
-              <CapitalTicket
-                tab={ticketTab}
-                setTab={setTicketTab}
-                amount={ticketAmount}
-                setAmount={setTicketAmount}
-                walletBalance={ticketWalletBalance}
-                tokens={depositTokens}
-                selectedSymbol={ticketTokenSymbol}
-                onSelectSymbol={(sym) => {
-                  setTicketTokenSymbol(sym);
-                  setTicketAmount('');
-                }}
-                sharePrice={ticketSharePriceLabel}
-                estShares={estShares}
-                entryFeeBps={effectivePolicy?.entryFeeBps || 0}
-                exitFeeBps={effectivePolicy?.exitFeeBps || 0}
-                isConnected={isConnected}
-                onSubmit={handleTicketSubmit}
-                vaultVersion={vaultVersion}
-                vaultAssetRows={vaultAssetRows}
-                liveVault={liveVault}
-                selectedWithdrawSymbol={ticketWithdrawSymbol}
-                onSelectWithdrawSymbol={(sym) => {
-                  setTicketWithdrawSymbol(sym);
-                  setTicketAmount('');
-                }}
-              />
-              <CrossChainDepositCard vaultAddress={vaultAddr} baseAssetAddress={liveVault?.baseAsset} baseAssetSymbol={baseAssetSymbolResolved} baseAssetDecimals={baseAssetDecimalsResolved} />
-            </div>
+            <RiskQualityPanel
+              riskScore={riskScore}
+              riskLevel={riskLevel}
+              riskTone={riskTone}
+              pol={pol}
+              dailyActions={dailyActions}
+              hasRealReturn={hasRealReturn}
+              allTimeReturnPct={allTimeReturnPct}
+              returnIsPositive={returnIsPositive}
+            />
+
+            <PolicyPanel pol={pol} mandateType={mandateType} isConnected={isConnected} onEdit={openPolicyModal} />
+
+            <ExecutorPanel
+              operator={executorOpData}
+              executorAddress={executorAddress}
+              executorRegistered={executorRegistered}
+              executorSyncLabel={executorSyncLabel}
+              executorSyncTone={executorSyncTone}
+              executorMatches={executorMatchesActiveOrchestrator}
+              isConnected={isConnected}
+              onSwitch={openExecutorModal}
+              networkName={networkName}
+              lastExecTs={lastExecTs}
+            />
 
             {hasFees && (
-              <div className="ed-rise" style={{ '--ed-rise-d': '240ms' }}>
-                <FeesPanel
-                  policy={effectivePolicy}
-                  feeState={feeState}
-                  liveNavUsd={liveNavUsd}
-                  feeRecipientExplorerHref={feeRecipientExplorerHref}
-                  walletAddress={walletAddress}
-                  isConnected={isConnected}
-                  feesUnsupported={feesUnsupported}
-                  accruePending={accruePending}
-                  claimPending={claimPending}
-                  claimSuccess={claimSuccess}
-                  accrueSuccess={accrueSuccess}
-                  onAccrue={() => {
-                    accrueFees(vaultAddr);
-                    setTimeout(() => { refetchFees(); refetchNav(); }, 4000);
-                  }}
-                  onClaim={() => {
-                    claimFees(vaultAddr);
-                    setTimeout(() => { refetchFees(); refetch(); }, 4000);
-                  }}
-                />
-              </div>
+              <FeesPanel
+                policy={effectivePolicy}
+                feeState={feeState}
+                liveNavUsd={liveNavUsd}
+                feeRecipientExplorerHref={feeRecipientExplorerHref}
+                walletAddress={walletAddress}
+                isConnected={isConnected}
+                feesUnsupported={feesUnsupported}
+                accruePending={accruePending}
+                claimPending={claimPending}
+                claimSuccess={claimSuccess}
+                accrueSuccess={accrueSuccess}
+                onAccrue={() => {
+                  accrueFees(vaultAddr);
+                  setTimeout(() => { refetchFees(); refetchNav(); }, 4000);
+                }}
+                onClaim={() => {
+                  claimFees(vaultAddr);
+                  setTimeout(() => { refetchFees(); refetch(); }, 4000);
+                }}
+              />
             )}
 
-            <div className="ed-rise" style={{ '--ed-rise-d': '300ms' }}>
-              <BriefingPanel
-                vaultAddress={vaultAddress}
-                executorAddress={executorAddress}
-                operator={executorOpData}
-                executorRegistered={executorRegistered}
-                networkName={networkName}
-                mandateType={mandateType}
-                baseAssetSymbol={baseAssetSymbolResolved}
-                resolvedDecimals={resolvedDecimals}
-                lastExecTs={lastExecTs}
-                dailyActions={dailyActions}
-                maxActionsPerDay={pol.maxActionsPerDay}
-                executorSyncLabel={executorSyncLabel}
-                executorSyncTone={executorSyncTone}
-                onCopy={handleCopy}
-                addressCopied={addressCopied}
-                vaultExplorerHref={vaultExplorerHref}
-                executorExplorerHref={executorExplorerHref}
-              />
-            </div>
-
-            <div className="ed-rise" style={{ '--ed-rise-d': '360ms' }}>
-              <SystemControlsPanel
-                isConnected={isConnected}
-                isPaused={isPaused}
-                pausePending={pausePending}
-                unpausePending={unpausePending}
-                onPause={handlePause}
-                onExecutor={openExecutorModal}
-                onEditPolicy={openPolicyModal}
-                onExport={handleExportJournal}
-                executorMatches={executorMatchesActiveOrchestrator}
-                recentTxs={recentVaultTxs}
-                withdrawSuccess={withdrawSuccess}
-                depositSuccess={depositSuccess || transferSuccess}
-                policySuccess={policySuccess}
-                executorSuccess={executorSuccess}
-              />
-            </div>
+            {recentVaultTxs.length > 0 && (
+              <SessionTxPanel recentTxs={recentVaultTxs} />
+            )}
           </aside>
         </div>
 
@@ -1045,271 +912,152 @@ export default function VaultDetailPage() {
   );
 }
 
-/* ─────────────────── Hero ─────────────────── */
+/* ─────────────────── Comp palette + shared style tokens ─────────────────── */
+// Palette from the reference comp ("Aegis Vault Detail.dc.html"). GOLD is the
+// primary accent. Kept local to this file so the redesign is self-contained.
+const G = {
+  gold: '#e3b34e',
+  goldHi: '#edc05f',
+  emerald: '#5cb88a',
+  violet: '#6f7bdb',
+  rose: '#df7373',
+  amber: '#f59e0b',
+  btc: '#f7931a',
+  eth: '#627eea',
+  usdc: '#2775ca',
+  zerog: '#4cc9f0',
+};
+const M = {
+  bg: '#0a0b0e',
+  card: '#14161b',
+  tile: '#1a1d23',
+  inset: '#0e1014',
+  text: '#eceef1',
+  muted: '#9499a2',
+  faint: '#6b7078',
+  hair: 'rgba(255,255,255,0.07)',
+  hairSoft: 'rgba(255,255,255,0.05)',
+};
+const card = { background: M.card, border: `1px solid ${M.hair}`, borderRadius: 14 };
+const monoLabel = { fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: '1.2px', textTransform: 'uppercase' };
+const monoTag = { fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, fontWeight: 600, padding: '4px 10px', borderRadius: 6 };
+const mono = { fontFamily: "'IBM Plex Mono', monospace" };
 
-function VaultHero({
-  vaultAvatarSymbol, vaultTitle, vaultExplorerHref,
-  isPaused, showDemoVault, mandateType, mandateChipTone, executorIsInactive,
-  cycleCount, nav, lastExecTs, baseAssetSymbol, executions, decisionCounts,
-  orchStatus, isConnected, sealedMode = false, attestedSigner = '',
-  onDeposit, onWithdraw, onEditPolicy, onPause, pausePending, unpausePending,
-}) {
-  const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
-  const hasAttestedSigner = sealedMode
-    && attestedSigner
-    && attestedSigner.toLowerCase() !== ZERO_ADDR;
-  const kpis = [
-    {
-      icon: Layers, label: 'NAV · TVL',
-      value: `$${nav.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
-      sub: nav > 0 ? `${nav.toFixed(4)} ${baseAssetSymbol}` : 'Awaiting deposits',
-      tone: 'cyan',
-    },
-    {
-      icon: Zap, label: 'Actions',
-      value: String(executions),
-      sub: 'All cycles',
-      tone: 'emerald',
-    },
-    {
-      icon: CheckCircle, label: 'Filled',
-      value: String(decisionCounts.buy + decisionCounts.sell),
-      sub: `${decisionCounts.hold} hold · ${decisionCounts.buy + decisionCounts.sell} filled`,
-      tone: 'cyan',
-    },
-    {
-      icon: Sparkles, label: 'Signals',
-      value: String(decisionCounts.hold + decisionCounts.buy + decisionCounts.sell + decisionCounts.other),
-      sub: decisionCounts.hold > 0 ? `${decisionCounts.hold} vetoed` : 'Zero veto',
-      tone: 'amber',
-    },
-    {
-      icon: RefreshCw, label: 'Cycle',
-      value: cycleCount > 0 ? `#${cycleCount}` : '—',
-      sub: orchStatus?.running ? 'Orchestrator streaming' : 'Orchestrator idle',
-      tone: 'steel',
-    },
-  ];
+const ASSET_GLYPH_COLOR = { BTC: G.btc, WBTC: G.btc, ETH: G.eth, WETH: G.eth, USDC: G.usdc, '0G': G.zerog, W0G: G.zerog };
 
-  return (
-    <section
-      className="relative overflow-hidden"
-      style={{
-        borderRadius: 28,
-        background: 'linear-gradient(180deg,#0F0F13 0%,#0A0A0C 100%)',
-        boxShadow: 'var(--ed-ghost-border)',
-      }}
-    >
-      <div aria-hidden className="absolute inset-0 ed-dotgrid opacity-40" />
-      <div aria-hidden className="absolute inset-0 pointer-events-none ed-grain-light" />
-      <div
-        aria-hidden
-        className="absolute -right-24 -top-24 h-[380px] w-[380px] rounded-full"
-        style={{
-          background: `radial-gradient(circle, ${ACCENTS.emerald} 0%, transparent 60%)`,
-          opacity: 0.14,
-          filter: 'blur(10px)',
-        }}
-      />
-      <div aria-hidden className="absolute right-10 top-4 pointer-events-none select-none">
-        <GhostNumeral n="01" style={{ fontSize: 160 }} />
-      </div>
-
-      <div className="relative flex flex-col xl:flex-row items-start justify-between gap-8 p-8 lg:p-10">
-        {/* Identity */}
-        <div className="flex flex-col gap-4 min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Chip tone="steel" leading={<Shield className="w-3 h-3" />}>Vault file</Chip>
-            <Chip
-              tone={isPaused ? 'amber' : 'emerald'}
-              dense
-              leading={<StatusDot tone={isPaused ? 'amber' : 'emerald'} size={5} />}
-            >
-              {isPaused ? 'Paused' : 'Active'}
-            </Chip>
-            {mandateType !== 'Unknown' && <Chip tone={mandateChipTone} dense>{mandateType}</Chip>}
-            {sealedMode && (
-              <Chip
-                tone="emerald"
-                dense
-                leading={<ShieldCheck className="w-3 h-3" />}
-                title={hasAttestedSigner
-                  ? `Sealed strategy mode\nIntent hashes signed by TEE-attested key:\n${attestedSigner}\nVerified on-chain by SealedLib.ecrecover()`
-                  : 'Sealed strategy mode — commit-reveal with TEE attestation'}
-              >
-                Sealed · TEE
-              </Chip>
-            )}
-            {executorIsInactive && <Chip tone="rose" dense leading={<AlertTriangle className="w-3 h-3" />}>Operator {executorIsInactive.reason}</Chip>}
-            {showDemoVault && <Chip tone="gold" dense>Demo</Chip>}
-          </div>
-
-          <div className="flex items-center gap-4">
-            <Eyebrow tone="gold">§ V.01 · Vault File</Eyebrow>
-            <div className="flex-1 ed-hairline" />
-          </div>
-
-          <div className="flex items-start gap-5">
-            <TokenAvatar symbol={vaultAvatarSymbol} size={72} />
-            <div className="flex flex-col gap-1 min-w-0">
-              <Eyebrow tone="muted" className="!text-[10.5px] !tracking-[0.24em]">Vault</Eyebrow>
-              <h1
-                className="ed-italic m-0 whitespace-nowrap"
-                style={{ fontSize: 42, fontWeight: 400, letterSpacing: '-0.01em', lineHeight: 1, color: 'var(--ed-steel-50)' }}
-              >
-                {vaultTitle}
-              </h1>
-              <span className="ed-mono text-[12px] mt-2" style={{ color: 'var(--ed-steel-500)' }}>
-                {cycleCount > 0 ? `cycle ${cycleCount}` : 'cycle pending'} · base asset {baseAssetSymbol}
-              </span>
-            </div>
-          </div>
-
-          <p className="max-w-[640px] text-[14px] leading-[1.65] m-0" style={{ color: 'var(--ed-steel-300)' }}>
-            {executorIsInactive ? (
-              <>
-                Operator status <span className="ed-italic" style={{ color: 'var(--ed-steel-50)' }}>changed.</span>{' '}
-                Signatures rotated automatically — vault is safe and continuing to stream policy-checked actions.
-              </>
-            ) : orchStatus?.running ? (
-              <>
-                Operator streaming policy-checked actions —{' '}
-                <span className="ed-italic" style={{ color: 'var(--ed-steel-50)' }}>custody stays in the vault,</span>{' '}
-                receipts anchored on-chain per cycle.
-              </>
-            ) : (
-              <>
-                Deposits only · withdrawals gated by a short cooldown.{' '}
-                <span className="ed-italic" style={{ color: 'var(--ed-steel-50)' }}>Policy caps every trade</span>{' '}
-                before settlement.
-              </>
-            )}
-          </p>
-
-          <div
-            className="flex items-center gap-5 pt-4 mt-2 flex-wrap"
-            style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
-          >
-            <FootStat label="Asset" value={baseAssetSymbol} />
-            <FootStat label="NAV" value={`$${nav.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} mono />
-            <FootStat label="Last action" value={lastExecTs ? formatTime(lastExecTs) : 'Never'} mono />
-            <FootStat label="Policy" value={`${mandateType} · v1`} />
-            {vaultExplorerHref && (
-              <FootStat
-                label="Explorer"
-                value="view ↗"
-                leading={<ExternalLink className="w-3 h-3" style={{ color: ACCENTS.cyan }} />}
-                href={vaultExplorerHref}
-              />
-            )}
-          </div>
-        </div>
-
-        {/* CTA cluster */}
-        <div className="flex flex-col gap-3 w-full xl:w-[320px] flex-shrink-0">
-          <div className="flex gap-2">
-            <ControlButton variant="primary" className="flex-1" disabled={!isConnected} onClick={onDeposit}>
-              <Plus className="w-3.5 h-3.5" /> Deposit
-            </ControlButton>
-            <ControlButton variant="secondary" className="flex-1" disabled={!isConnected} onClick={onWithdraw}>
-              <RefreshCw className="w-3.5 h-3.5" /> Withdraw
-            </ControlButton>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <ControlButton variant="secondary" size="sm" disabled={!isConnected} onClick={onEditPolicy}>
-              <Shield className="w-3 h-3" /> Set policy
-            </ControlButton>
-            {vaultExplorerHref ? (
-              <a href={vaultExplorerHref} target="_blank" rel="noreferrer">
-                <ControlButton variant="ghost" size="sm" className="w-full">
-                  <ExternalLink className="w-3 h-3" /> Explorer
-                </ControlButton>
-              </a>
-            ) : (
-              <ControlButton variant="ghost" size="sm" disabled>
-                <ExternalLink className="w-3 h-3" /> Explorer
-              </ControlButton>
-            )}
-          </div>
-          <ControlButton
-            variant={isPaused ? 'gold' : 'danger'}
-            size="sm"
-            disabled={!isConnected || pausePending || unpausePending}
-            onClick={onPause}
-          >
-            {isPaused ? (
-              <><PlayCircle className="w-3.5 h-3.5" /> {unpausePending ? 'Resuming…' : 'Resume vault'}</>
-            ) : (
-              <><PauseCircle className="w-3.5 h-3.5" /> {pausePending ? 'Pausing…' : 'Emergency pause'}</>
-            )}
-          </ControlButton>
-        </div>
-      </div>
-
-      {/* KPI strip */}
-      <div
-        className="relative grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 px-8 lg:px-10 pb-8 lg:pb-10 pt-8"
-        style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
-      >
-        {kpis.map((k) => {
-          const color = ACCENTS[k.tone] || ACCENTS.steel;
-          const Icon = k.icon;
-          return (
-            <div
-              key={k.label}
-              className="rounded-xl p-4"
-              style={{ background: 'rgba(255,255,255,0.03)', boxShadow: 'var(--ed-ghost-border)' }}
-            >
-              <div className="flex items-center gap-2 mb-3">
-                <span
-                  className="h-6 w-6 rounded-md flex items-center justify-center"
-                  style={{ background: `${color}1F`, color }}
-                >
-                  <Icon className="w-3 h-3" />
-                </span>
-                <Eyebrow tone="muted" className="!text-[9px]">{k.label}</Eyebrow>
-              </div>
-              <div className="ed-italic text-[30px] sm:text-[34px] leading-none" style={{ color: 'var(--ed-steel-50)' }}>
-                {k.value}
-              </div>
-              <div className="ed-mono text-[10.5px] mt-2" style={{ color: 'var(--ed-steel-500)' }}>{k.sub}</div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
+function usd0(n) {
+  return `$${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
-function FootStat({ label, value, mono, leading, href }) {
-  const valueNode = href ? (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className={cx(mono ? 'ed-mono' : 'ed-italic', 'text-[13px] inline-flex items-center gap-1 transition-colors')}
-      style={{ color: ACCENTS.cyan }}
-    >
-      {value}
-    </a>
-  ) : (
-    <span
-      className={cx(mono ? 'ed-mono' : 'ed-italic', 'text-[13px] whitespace-nowrap')}
-      style={{ color: 'var(--ed-steel-50)' }}
-    >
-      {value}
-    </span>
-  );
+/* ─────────────────── Header ─────────────────── */
+
+function VaultHero({
+  vaultTitle, vaultAddress, networkName, baseAssetSymbol,
+  isPaused, showDemoVault, mandateType, executorIsInactive, sealedMode,
+  nav, totalDeposited, allTimeReturnPct, allTimeReturnUsd, returnIsPositive, hasRealReturn,
+  hasRealizedPnl, pnlRealized, pnlUnrealized,
+  isConnected, pausePending, unpausePending,
+  onDeposit, onWithdraw, onPause,
+}) {
+  const addrShort = vaultAddress ? `${vaultAddress.slice(0, 6)}…${vaultAddress.slice(-4)}` : 'No vault';
+  const returnTone = returnIsPositive ? G.emerald : G.rose;
   return (
-    <div className="flex items-center gap-2 min-w-0">
-      {leading}
-      <div className="flex flex-col leading-tight min-w-0">
-        <span className="ed-mono text-[9.5px] uppercase tracking-[0.22em] whitespace-nowrap" style={{ color: 'var(--ed-steel-500)' }}>
-          {label}
-        </span>
-        {valueNode}
+    <section className="relative overflow-hidden" style={{ ...card, padding: 30 }}>
+      <div aria-hidden style={{ position: 'absolute', top: -120, right: -60, width: 400, height: 400, background: 'radial-gradient(circle, rgba(227,179,78,0.09), transparent 65%)', pointerEvents: 'none' }} />
+
+      <div className="relative flex items-start justify-between gap-6 flex-wrap">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-3.5">
+            <span className="inline-flex items-center gap-1.5" style={{ ...monoTag, color: isPaused ? G.amber : G.emerald, background: isPaused ? `${G.amber}1F` : 'rgba(92,184,138,0.12)' }}>
+              <span style={{ width: 5, height: 5, borderRadius: 999, background: isPaused ? G.amber : G.emerald }} />
+              {isPaused ? 'PAUSED' : 'ACTIVE'}
+            </span>
+            {mandateType !== 'Unknown' && (
+              <span style={{ ...monoTag, color: G.gold, background: 'rgba(227,179,78,0.12)' }}>{mandateType.toUpperCase()}</span>
+            )}
+            {sealedMode && (
+              <span style={{ ...monoTag, color: G.violet, background: 'rgba(111,123,219,0.12)' }} title="Sealed mode — intent hashes signed by an attested key (ECDSA) + commit-reveal. Not a hardware enclave.">
+                ⛉ SEALED MODE
+              </span>
+            )}
+            {executorIsInactive && (
+              <span className="inline-flex items-center gap-1.5" style={{ ...monoTag, color: G.rose, background: 'rgba(223,115,115,0.12)' }}>
+                <AlertTriangle className="w-3 h-3" /> OPERATOR {executorIsInactive.reason.toUpperCase()}
+              </span>
+            )}
+            {showDemoVault && (
+              <span style={{ ...monoTag, color: G.gold, background: 'rgba(227,179,78,0.12)' }}>DEMO</span>
+            )}
+          </div>
+          <h1 className="m-0 whitespace-nowrap" style={{ fontSize: 36, fontWeight: 600, letterSpacing: '-1px' }}>{vaultTitle}</h1>
+          <div className="mt-2" style={{ ...mono, fontSize: 11.5, color: M.faint }}>
+            {addrShort} · {networkName} · base {baseAssetSymbol}
+          </div>
+        </div>
+        <div className="flex gap-2.5 flex-wrap">
+          <button type="button" onClick={onDeposit} disabled={!isConnected} style={{ ...mono, fontSize: 12, fontWeight: 600, color: M.bg, background: G.gold, border: 'none', borderRadius: 9, padding: '10px 18px', cursor: isConnected ? 'pointer' : 'not-allowed', opacity: isConnected ? 1 : 0.5 }}>
+            Deposit
+          </button>
+          <button type="button" onClick={onWithdraw} disabled={!isConnected} style={{ ...mono, fontSize: 12, fontWeight: 500, color: M.text, background: 'transparent', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 9, padding: '10px 18px', cursor: isConnected ? 'pointer' : 'not-allowed', opacity: isConnected ? 1 : 0.5 }}>
+            Withdraw
+          </button>
+          <button type="button" onClick={onPause} disabled={!isConnected || pausePending || unpausePending} style={{ ...mono, fontSize: 12, fontWeight: 500, color: isPaused ? G.emerald : G.rose, background: 'transparent', border: `1px solid ${isPaused ? 'rgba(92,184,138,0.3)' : 'rgba(223,115,115,0.25)'}`, borderRadius: 9, padding: '10px 18px', cursor: (!isConnected || pausePending || unpausePending) ? 'not-allowed' : 'pointer', opacity: (!isConnected || pausePending || unpausePending) ? 0.6 : 1 }}>
+            {isPaused ? `▶ ${unpausePending ? 'Resuming…' : 'Resume'}` : `⏸ ${pausePending ? 'Pausing…' : 'Pause'}`}
+          </button>
+        </div>
       </div>
-    </div>
+
+      {/* headline stats */}
+      <div className="relative mt-[26px] grid grid-cols-2 lg:grid-cols-4" style={{ gap: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 13, overflow: 'hidden' }}>
+        <div style={{ background: M.card, padding: 20 }}>
+          <div style={{ ...monoLabel, letterSpacing: '1.4px', color: M.faint }}>Net Asset Value</div>
+          <div className="flex items-baseline gap-2 mt-3">
+            <span style={{ fontSize: 32, fontWeight: 600, letterSpacing: '-1px' }}>{usd0(nav)}</span>
+            {hasRealReturn && (
+              <span style={{ ...mono, fontSize: 12, color: returnTone }}>
+                {returnIsPositive ? '▲' : '▼'} {Math.abs(allTimeReturnPct).toFixed(2)}%
+              </span>
+            )}
+          </div>
+          <div className="mt-1" style={{ ...mono, fontSize: 11, color: nav > 0 ? M.faint : M.faint }}>
+            {nav > 0 ? `${nav.toFixed(4)} ${baseAssetSymbol}` : 'Awaiting deposits'}
+          </div>
+        </div>
+        <div style={{ background: M.card, padding: 20 }}>
+          <div style={{ ...monoLabel, letterSpacing: '1.4px', color: M.faint }}>Deposited</div>
+          <div className="mt-3" style={{ fontSize: 32, fontWeight: 600, letterSpacing: '-1px' }}>{usd0(totalDeposited)}</div>
+          <div className="mt-1" style={{ ...mono, fontSize: 11, color: M.faint }}>principal in · cost basis</div>
+        </div>
+        {hasRealizedPnl ? (
+          <div style={{ background: M.card, padding: 20 }}>
+            <div style={{ ...monoLabel, letterSpacing: '1.4px', color: M.faint }}>Realized P&amp;L</div>
+            <div className="mt-3" style={{ fontSize: 32, fontWeight: 600, letterSpacing: '-1px', color: pnlRealized >= 0 ? G.emerald : G.rose }}>
+              {pnlRealized >= 0 ? '+' : '−'}{usd0(Math.abs(pnlRealized))}
+            </div>
+            <div className="mt-1" style={{ ...mono, fontSize: 11, color: M.faint }}>
+              unrealized {pnlUnrealized >= 0 ? '+' : '−'}{usd0(Math.abs(pnlUnrealized))}
+            </div>
+          </div>
+        ) : (
+          <div style={{ background: M.card, padding: 20 }}>
+            <div style={{ ...monoLabel, letterSpacing: '1.4px', color: M.faint }}>Net P&amp;L</div>
+            <div className="mt-3" style={{ fontSize: 32, fontWeight: 600, letterSpacing: '-1px', color: hasRealReturn ? returnTone : M.text }}>
+              {hasRealReturn ? `${returnIsPositive ? '+' : '−'}${usd0(Math.abs(allTimeReturnUsd)).slice(1)}` : '—'}
+            </div>
+            <div className="mt-1" style={{ ...mono, fontSize: 11, color: M.faint }}>NAV − deposited</div>
+          </div>
+        )}
+        <div style={{ background: M.card, padding: 20 }}>
+          <div style={{ ...monoLabel, letterSpacing: '1.4px', color: M.faint }}>All-time Return</div>
+          <div className="mt-3" style={{ fontSize: 32, fontWeight: 600, letterSpacing: '-1px', color: hasRealReturn ? returnTone : M.text }}>
+            {hasRealReturn ? `${returnIsPositive ? '+' : '−'}${Math.abs(allTimeReturnPct).toFixed(1)}%` : '—'}
+          </div>
+          <div className="mt-1" style={{ ...mono, fontSize: 11, color: M.faint }}>
+            {hasRealReturn ? `${returnIsPositive ? '+' : '−'}${usd0(Math.abs(allTimeReturnUsd)).slice(1)}` : 'awaiting deposits'}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1317,1124 +1065,589 @@ function FootStat({ label, value, mono, leading, href }) {
 
 function PerformancePanel({
   nav, totalDeposited, allTimeReturnPct, allTimeReturnUsd, returnIsPositive,
-  pnlRealized, pnlUnrealized, navHistoryData, pnlHistoryData, drawdownHistoryData,
-  showDemoVault,
+  navHistoryData, pnlHistoryData, drawdownHistoryData, showDemoVault,
 }) {
+  const tone = returnIsPositive ? G.emerald : G.rose;
   return (
-    <SectionHead
-      marker="V.02 · Performance"
-      title={<span className="ed-italic text-[22px]">NAV <span className="ed-sans text-[14px] not-italic" style={{ color: 'var(--ed-steel-400)' }}>— policy-checked cycles</span></span>}
-    >
-      <div className="rounded-2xl p-6" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
-        {!showDemoVault && navHistoryData.length === 0 && (
-          <div
-            className="rounded-lg px-4 py-3 mb-4"
-            style={{ background: 'rgba(255,255,255,0.02)', boxShadow: 'var(--ed-ghost-border)' }}
-          >
-            <p className="text-[11.5px] leading-[1.55]" style={{ color: 'var(--ed-steel-400)' }}>
-              Historical snapshots populate as the orchestrator emits cycle updates. Switch between NAV, PnL, and drawdown
-              once data lands.
-            </p>
-          </div>
-        )}
-
-        <div className="flex items-end justify-between mb-5 flex-wrap gap-4">
-          <div>
-            <Eyebrow tone="muted" className="!text-[9px]">NAV · vault share price</Eyebrow>
-            <div className="flex items-baseline gap-3 mt-1.5 flex-wrap">
-              <span className="ed-italic leading-none" style={{ fontSize: 52, color: 'var(--ed-steel-50)' }}>
-                ${nav.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-              </span>
-              <Chip
-                tone={returnIsPositive ? 'emerald' : 'rose'}
-                dense
-                leading={<TrendingUp className={cx('w-3 h-3', !returnIsPositive && '-scale-y-100')} />}
-              >
-                {returnIsPositive ? '+' : ''}{allTimeReturnPct.toFixed(2)}%
-              </Chip>
-              <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>
-                vs. ${totalDeposited.toLocaleString(undefined, { maximumFractionDigits: 0 })} cost basis
-              </span>
-            </div>
-          </div>
-          <div className="text-right">
-            <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>
-              {navHistoryData.length} snapshots
+    <section style={{ ...card, padding: 24 }}>
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+        <div>
+          <h2 className="m-0" style={{ fontSize: 16, fontWeight: 600 }}>Performance</h2>
+          <div className="flex items-baseline gap-2.5 mt-2 flex-wrap">
+            <span style={{ fontSize: 28, fontWeight: 600, letterSpacing: '-0.5px', color: tone }}>{usd0(nav)}</span>
+            <span style={{ ...mono, fontSize: 13, color: tone }}>
+              {returnIsPositive ? '+' : '−'}{Math.abs(allTimeReturnPct).toFixed(2)}%
             </span>
-            <div className="ed-mono text-[11px] mt-1" style={{ color: ACCENTS.emerald }}>
-              PnL {returnIsPositive ? '+' : ''}${Math.abs(allTimeReturnUsd).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            </div>
+            <span style={{ ...mono, fontSize: 11, color: M.faint }}>
+              vs {usd0(totalDeposited)} cost basis · PnL {returnIsPositive ? '+' : '−'}{usd0(Math.abs(allTimeReturnUsd)).slice(1)}
+            </span>
           </div>
         </div>
-
-        <PerformanceChart
-          height={240}
-          navData={navHistoryData}
-          pnlData={pnlHistoryData}
-          drawdownData={drawdownHistoryData}
-          defaultMetric="nav"
-        />
-
-        <div
-          className="mt-5 pt-5 grid grid-cols-2 sm:grid-cols-4 gap-6"
-          style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
-        >
-          <MiniStat label="Realized PnL" value={`${pnlRealized >= 0 ? '+' : ''}$${Math.abs(pnlRealized).toLocaleString(undefined, { maximumFractionDigits: 0 })}`} tone={pnlRealized >= 0 ? 'emerald' : 'rose'} />
-          <MiniStat label="Unrealized PnL" value={`${pnlUnrealized >= 0 ? '+' : ''}$${Math.abs(pnlUnrealized).toLocaleString(undefined, { maximumFractionDigits: 0 })}`} tone={pnlUnrealized >= 0 ? 'cyan' : 'rose'} />
-          <MiniStat label="Cumulative" value={`${(pnlRealized + pnlUnrealized) >= 0 ? '+' : ''}$${Math.abs(pnlRealized + pnlUnrealized).toLocaleString(undefined, { maximumFractionDigits: 0 })}`} tone={(pnlRealized + pnlUnrealized) >= 0 ? 'emerald' : 'rose'} />
-          <MiniStat label="Cost basis" value={`$${totalDeposited.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
-        </div>
+        <span style={{ ...mono, fontSize: 11, color: M.faint }}>{navHistoryData.length} snapshots</span>
       </div>
-    </SectionHead>
-  );
-}
 
-function MiniStat({ label, value, tone = 'default' }) {
-  const color =
-    tone === 'emerald' ? ACCENTS.emerald :
-    tone === 'cyan'    ? ACCENTS.cyan    :
-    tone === 'rose'    ? ACCENTS.rose    :
-                         'var(--ed-steel-50)';
-  return (
-    <div>
-      <Eyebrow tone="muted" className="!text-[9px]">{label}</Eyebrow>
-      <div className="ed-mono text-[14px] mt-1.5" style={{ color }}>{value}</div>
-    </div>
-  );
-}
-
-/* ─────────────────── Strategy (Socket alert) ─────────────────── */
-
-function StrategyPanel({
-  mandateType, mandateChipTone, pol, isPaused, operator, executorAddress, executorRegistered,
-  executorSyncLabel, executorSyncTone, isConnected, onEditPolicy, onSetExecutor,
-}) {
-  const operatorName = operator?.name || (executorRegistered === false ? 'Unregistered wallet' : 'Operator loading…');
-  return (
-    <div
-      className="rounded-2xl p-5 relative overflow-hidden"
-      style={{
-        background: `linear-gradient(135deg, ${ACCENTS.gold}0D 0%, #0F0F13 55%)`,
-        boxShadow: 'var(--ed-ghost-border)',
-      }}
-    >
-      <div aria-hidden className="absolute inset-0 ed-dotgrid opacity-20" />
-      <div className="relative flex items-start gap-4 flex-wrap">
-        <div
-          className="h-11 w-11 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: `${ACCENTS.gold}26`, boxShadow: `inset 0 0 0 1px ${ACCENTS.gold}4A` }}
-        >
-          <Shield className="w-4 h-4" style={{ color: ACCENTS.gold }} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-            <span className="ed-mono text-[11px] uppercase tracking-[0.2em]" style={{ color: 'var(--ed-steel-50)' }}>
-              Socket strategy rule
-            </span>
-            <Chip tone={isPaused ? 'amber' : 'emerald'} dense leading={<StatusDot tone={isPaused ? 'amber' : 'emerald'} size={5} />}>
-              {isPaused ? 'Paused' : 'Active'}
-            </Chip>
-            <Chip tone={mandateChipTone} dense>{mandateType} · v1</Chip>
-            {pol.autoExecution && <Chip tone="cyan" dense>Auto-execute</Chip>}
-            <Chip tone={executorSyncTone} dense leading={<StatusDot tone={executorSyncTone} size={5} pulse={executorSyncTone === 'emerald'} />}>
-              Executor · {executorSyncLabel}
-            </Chip>
-          </div>
-          <p className="text-[13.5px] leading-[1.6] max-w-[680px]" style={{ color: 'var(--ed-steel-300)' }}>
-            <span className="ed-italic" style={{ color: 'var(--ed-steel-50)' }}>
-              {mandateType} mandate trading rule
-            </span>{' '}
-            — requires min {(pol.confidenceThresholdPct || 0).toFixed(0)}% AI confidence, capped at{' '}
-            <span className="ed-mono" style={{ color: 'var(--ed-steel-50)' }}>
-              {(pol.maxPositionPct || 0).toFixed(0)}%
-            </span>{' '}
-            single-position exposure. Stop-loss enforced off-chain by the orchestrator at{' '}
-            <span className="ed-mono" style={{ color: 'var(--ed-steel-50)' }}>
-              {(pol.stopLossPct || 0).toFixed(1)}%
-            </span>
-            {' '}(min-confidence and position-size caps are enforced on-chain).
+      {!showDemoVault && navHistoryData.length === 0 && (
+        <div className="rounded-lg px-4 py-3 mb-4" style={{ background: M.tile, border: `1px solid ${M.hairSoft}` }}>
+          <p className="text-[11.5px] leading-[1.55] m-0" style={{ color: M.muted }}>
+            Historical snapshots populate as the orchestrator emits cycle updates. Switch between NAV, PnL, and drawdown once data lands.
           </p>
-          <div className="mt-2 flex items-center gap-3 flex-wrap">
-            <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
-              Operator <span style={{ color: 'var(--ed-steel-50)' }}>{operatorName}</span>
-            </span>
-            {executorAddress && (
-              <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
-                {shortHexLabel(executorAddress, 8, 6)}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="flex gap-2 flex-shrink-0">
-          <ControlButton variant="secondary" size="sm" disabled={!isConnected} onClick={onSetExecutor}>
-            <Cpu className="w-3 h-3" /> Rotate
-          </ControlButton>
-          <ControlButton variant="gold" size="sm" disabled={!isConnected} onClick={onEditPolicy}>
-            <Settings className="w-3 h-3" /> Tune
-          </ControlButton>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ─────────────────── Decisions feed ─────────────────── */
-
-function DecisionsPanel({ entries, counts, chainId, onExport }) {
-  return (
-    <SectionHead
-      marker="V.03 · AI Decisions"
-      title={
-        <span className="ed-italic text-[22px]">
-          Decision feed{' '}
-          <span className="ed-sans text-[14px] not-italic" style={{ color: 'var(--ed-steel-400)' }}>— policy-checked</span>
-        </span>
-      }
-      trailing={
-        <>
-          <Chip tone="steel" dense>All · {entries.length}</Chip>
-          <Chip tone="amber" dense>Hold · {counts.hold}</Chip>
-          <Chip tone="emerald" dense>Filled · {counts.buy + counts.sell}</Chip>
-          <button
-            type="button"
-            onClick={onExport}
-            className="ed-mono text-[10.5px] uppercase tracking-[0.18em] transition-colors ml-1"
-            style={{ color: 'var(--ed-steel-400)' }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--ed-steel-50)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ed-steel-400)')}
-          >
-            Export →
-          </button>
-        </>
-      }
-    >
-      <div className="rounded-2xl overflow-hidden" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
-        {entries.length === 0 ? (
-          <div className="text-center py-8 px-5">
-            <div className="ed-italic mb-2" style={{ fontSize: 18, color: 'var(--ed-steel-300)' }}>
-              No AI decisions yet.
-            </div>
-            <p className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>
-              Set the executor, start the orchestrator, and run a cycle to populate the decision feed.
-            </p>
-          </div>
-        ) : (
-          entries.map((e) => <DecisionRow key={e.id} e={e} chainId={chainId} />)
-        )}
-      </div>
-    </SectionHead>
-  );
-}
-
-function DecisionRow({ e, chainId }) {
-  const isBuy = e.rawAction === 'buy';
-  const isSell = e.rawAction === 'sell';
-  const isHold = e.rawAction === 'hold';
-  const accentColor = isBuy ? ACCENTS.emerald : isSell ? ACCENTS.rose : ACCENTS.amber;
-  const chipTone = isBuy ? 'emerald' : isSell ? 'rose' : 'amber';
-  const kind = isHold ? 'Hold' : isBuy ? 'Filled' : 'Exit';
-  const actionLabel = isHold ? 'HOLD' : isBuy ? 'BUY' : isSell ? 'SELL' : (e.rawAction || '').toUpperCase();
-  const confPct = Math.round((e.confidence || 0) * 100);
-  const txHref = e.txHash ? getExplorerTxHref(chainId, e.txHash) : null;
-
-  return (
-    <div
-      className="ed-row-hover grid items-start gap-4 py-4 px-5"
-      style={{
-        gridTemplateColumns: 'minmax(88px,88px) 1fr minmax(180px,200px)',
-        borderBottom: '1px solid rgba(255,255,255,0.04)',
-      }}
-    >
-      <div className="flex flex-col gap-1.5">
-        <span className="ed-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: 'var(--ed-steel-500)' }}>
-          {shortHexLabel(e.id, 5, 3)}
-        </span>
-        <div className="flex items-center gap-1.5">
-          <span className="h-1.5 w-1.5 rounded-full" style={{ background: accentColor }} />
-          <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>{kind}</span>
-        </div>
-      </div>
-
-      <div className="min-w-0">
-        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-          <span className="ed-mono text-[12.5px] whitespace-nowrap" style={{ color: 'var(--ed-steel-50)' }}>
-            {actionLabel} {e.asset || ''}
-          </span>
-          <Chip tone={chipTone} dense>{kind}</Chip>
-          <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
-            Conf <span style={{ color: 'var(--ed-steel-50)' }}>{confPct}%</span>
-          </span>
-          {e.fill && (
-            <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
-              Fill <span style={{ color: 'var(--ed-steel-50)' }}>${e.fill}</span>
-            </span>
-          )}
-          {e.pnl !== null && e.pnl !== undefined && (
-            <span className="ed-mono text-[10.5px]" style={{ color: e.pnl >= 0 ? ACCENTS.emerald : ACCENTS.rose }}>
-              {e.pnl >= 0 ? '+' : ''}${Math.abs(e.pnl).toFixed(2)}
-            </span>
-          )}
-          {e.regime && (
-            <span className="ed-mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.03)', color: 'var(--ed-steel-300)' }}>
-              {e.regime.replace(/_/g, ' ')}
-            </span>
-          )}
-          {e.source?.includes('0g-compute') && (
-            <span className="ed-mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: `${ACCENTS.cyan}12`, color: ACCENTS.cyan }}>
-              0G Compute
-            </span>
-          )}
-        </div>
-        {e.reason && (
-          <p className="text-[12.5px] leading-[1.55]" style={{ color: 'var(--ed-steel-300)' }}>
-            {e.reason}
-          </p>
-        )}
-        {e.hardVeto && e.hardVetoReasons?.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-2">
-            {e.hardVetoReasons.map((r) => (
-              <span
-                key={r}
-                className="ed-mono text-[10px] px-1.5 py-0.5 rounded"
-                style={{ background: `${ACCENTS.amber}14`, color: ACCENTS.amber, boxShadow: 'var(--ed-ghost-border)' }}
-              >
-                {r.replace(/_/g, ' ')}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="text-right flex flex-col items-end justify-between gap-1.5">
-        <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-300)' }}>
-          {formatLocalTime(e.timestamp)}
-        </span>
-        {isHold ? (
-          <span className="ed-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--ed-steel-500)' }}>
-            No execution
-          </span>
-        ) : txHref ? (
-          <a
-            href={txHref}
-            target="_blank"
-            rel="noreferrer"
-            className="ed-mono text-[10px] uppercase tracking-[0.18em] whitespace-nowrap transition-colors"
-            style={{ color: ACCENTS.cyan }}
-          >
-            Details ↗
-          </a>
-        ) : (
-          <span className="ed-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: '#F5C97E' }}>
-            On-chain pending
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ─────────────────── Recent actions ─────────────────── */
-
-function RecentActionsPanel({ actions, chainId }) {
-  return (
-    <SectionHead
-      marker="V.04 · Recent Actions"
-      title={
-        <span className="ed-italic text-[22px]">
-          Recent actions{' '}
-          <span className="ed-sans text-[14px] not-italic" style={{ color: 'var(--ed-steel-400)' }}>— vault journal</span>
-        </span>
-      }
-    >
-      {actions.length === 0 ? (
-        <div className="rounded-2xl p-5 text-center" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
-          <p className="text-[13px]" style={{ color: 'var(--ed-steel-300)' }}>No actions recorded yet.</p>
-          <p className="ed-mono text-[11px] mt-1" style={{ color: 'var(--ed-steel-500)' }}>
-            Signed intents, rotations, and policy checks appear here once the orchestrator emits them.
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-2xl p-1 divide-y" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)', borderColor: 'rgba(255,255,255,0.04)' }}>
-          {actions.map((a) => {
-            const txHref = a.txHash ? getExplorerTxHref(chainId, a.txHash) : null;
-            const kindTone = a.kind === 'SIGNED' ? 'emerald' : a.kind === 'ROTATED' ? 'amber' : 'steel';
-            return (
-              <div
-                key={a.id}
-                className="grid items-center gap-3 px-4 py-2.5"
-                style={{ gridTemplateColumns: 'auto 1fr auto auto', borderTop: '1px solid rgba(255,255,255,0.04)' }}
-              >
-                <span className="ed-mono text-[9.5px] uppercase tracking-[0.22em]" style={{ color: 'var(--ed-steel-500)' }}>
-                  {shortHexLabel(a.id, 5, 3)}
-                </span>
-                <div className="flex items-center gap-2 min-w-0">
-                  <Chip tone={kindTone} dense>{a.kind}</Chip>
-                  {a.txHash ? (
-                    <span className="ed-mono text-[11px] truncate" style={{ color: 'var(--ed-steel-500)' }}>
-                      tx <span style={{ color: 'var(--ed-steel-50)' }}>{shortHexLabel(a.txHash, 8, 4)}</span>
-                    </span>
-                  ) : (
-                    <span className="ed-mono text-[11px]" style={{ color: 'var(--ed-steel-500)' }}>off-chain event</span>
-                  )}
-                </div>
-                <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-300)' }}>
-                  {formatLocalTime(a.timestamp)}
-                </span>
-                {txHref ? (
-                  <a
-                    href={txHref}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="ed-mono text-[10px] uppercase tracking-[0.18em] transition-colors"
-                    style={{ color: ACCENTS.cyan }}
-                  >
-                    View ↗
-                  </a>
-                ) : (
-                  <span className="ed-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--ed-steel-600)' }}>
-                    —
-                  </span>
-                )}
-              </div>
-            );
-          })}
         </div>
       )}
-    </SectionHead>
+
+      <PerformanceChart
+        height={200}
+        navData={navHistoryData}
+        pnlData={pnlHistoryData}
+        drawdownData={drawdownHistoryData}
+        defaultMetric="nav"
+      />
+    </section>
   );
 }
 
 /* ─────────────────── Allocation ─────────────────── */
 
 function AllocationPanel({ allocations, prices }) {
+  const rows = allocations.filter((a) => a.value > 0 || a.pct > 0);
+  const deployed = rows.filter((a) => a.symbol !== 'USDC').reduce((s, a) => s + (a.pct || 0), 0);
+  const idle = Math.max(0, 100 - deployed);
   return (
-    <SectionHead
-      marker="V.06 · Allocation"
-      title={<span className="ed-italic text-[22px]">Allocation <span className="ed-sans text-[14px] not-italic" style={{ color: 'var(--ed-steel-400)' }}>— Pyth priced</span></span>}
-    >
-      <div className="rounded-2xl p-5" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
-        <div className="space-y-3">
-          {allocations.filter((a) => a.value > 0 || a.pct > 0).map((a) => (
-            <div key={a.symbol} className="flex items-center gap-3 py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-              <TokenIcon symbol={a.symbol} size={22} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium" style={{ color: 'var(--ed-steel-50)' }}>{a.asset}</span>
-                  <span className="ed-mono text-[12.5px]" style={{ color: 'var(--ed-steel-50)' }}>
-                    ${a.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between mt-0.5">
-                  <span className="ed-mono text-[10px]" style={{ color: 'var(--ed-steel-500)' }}>
-                    {typeof a.amount === 'number' ? a.amount.toFixed(a.symbol === 'USDC' ? 0 : 6) : a.amount} {a.symbol}
-                  </span>
-                  <span className="ed-mono text-[10px]" style={{ color: 'var(--ed-steel-400)' }}>{a.pct.toFixed(1)}%</span>
-                </div>
-                <div className="mt-1 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
-                  <div className="h-full rounded-full" style={{ width: `${a.pct}%`, backgroundColor: a.color, opacity: 0.7 }} />
-                </div>
+    <section style={{ ...card, padding: 24 }}>
+      <div className="flex items-center justify-between mb-[18px]">
+        <h2 className="m-0" style={{ fontSize: 16, fontWeight: 600 }}>Allocation</h2>
+        <span style={{ ...mono, fontSize: 10.5, color: M.faint }}>{deployed.toFixed(1)}% deployed · {idle.toFixed(1)}% idle</span>
+      </div>
+      <div className="flex mb-5" style={{ height: 12, borderRadius: 99, overflow: 'hidden', gap: 2 }}>
+        {rows.map((a) => (
+          <div key={a.symbol} style={{ width: `${a.pct}%`, background: ASSET_GLYPH_COLOR[a.symbol] || a.color || '#8a8a9a' }} />
+        ))}
+      </div>
+      <div className="flex flex-col">
+        {rows.map((a) => {
+          const c = ASSET_GLYPH_COLOR[a.symbol] || a.color || '#8a8a9a';
+          const amt = typeof a.amount === 'number' ? a.amount.toFixed(a.symbol === 'USDC' ? 0 : 6) : a.amount;
+          return (
+            <div key={a.symbol} className="grid items-center" style={{ gridTemplateColumns: '150px 1fr 90px 60px', gap: 14, padding: '11px 0', borderTop: `1px solid ${M.hairSoft}` }}>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: c, flex: 'none' }} />
+                <span className="text-[13px] font-medium">{a.asset || a.symbol}</span>
+                <span className="truncate" style={{ ...mono, fontSize: 10.5, color: M.faint }}>{amt}</span>
               </div>
+              <div style={{ height: 5, borderRadius: 99, background: '#2a2e36', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${a.pct}%`, background: c, borderRadius: 99 }} />
+              </div>
+              <span className="text-right" style={{ ...mono, fontSize: 12.5, color: M.text }}>{usd0(a.value)}</span>
+              <span className="text-right" style={{ ...mono, fontSize: 12.5, color: M.muted }}>{(a.pct || 0).toFixed(1)}%</span>
             </div>
+          );
+        })}
+      </div>
+      {prices && (
+        <div className="mt-3 pt-3 flex gap-4" style={{ ...mono, fontSize: 9.5, color: M.faint, borderTop: `1px solid ${M.hairSoft}` }}>
+          {prices.BTC != null && <span>BTC ${prices.BTC.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+          {prices.ETH != null && <span>ETH ${prices.ETH.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+          <span>Source: Pyth Hermes</span>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ─────────────────── AI Actions ─────────────────── */
+
+const ACTION_CFG = {
+  buy: { glyph: '↥', fg: G.emerald, bg: 'rgba(92,184,138,0.1)', ring: 'rgba(92,184,138,0.3)' },
+  sell: { glyph: '↧', fg: G.rose, bg: 'rgba(223,115,115,0.1)', ring: 'rgba(223,115,115,0.3)' },
+  hold: { glyph: '◆', fg: G.violet, bg: 'rgba(111,123,219,0.1)', ring: 'rgba(111,123,219,0.3)' },
+  blocked: { glyph: '▣', fg: G.gold, bg: 'rgba(227,179,78,0.1)', ring: 'rgba(227,179,78,0.3)' },
+};
+
+function AiActionsPanel({ entries, counts, chainId, executions, onExport }) {
+  return (
+    <section style={{ ...card, padding: 24 }}>
+      <div className="flex items-center justify-between mb-[18px] gap-3 flex-wrap">
+        <div>
+          <h2 className="m-0" style={{ fontSize: 16, fontWeight: 600 }}>AI Actions</h2>
+          <div className="mt-1" style={{ ...mono, fontSize: 11, color: M.faint }}>
+            {executions} on-chain · {counts.hold} hold · {counts.buy + counts.sell} filled
+          </div>
+        </div>
+        <button type="button" onClick={onExport} style={{ ...mono, fontSize: 11, color: G.gold, background: 'transparent', border: 'none', cursor: 'pointer' }}>
+          Full journal →
+        </button>
+      </div>
+
+      {entries.length === 0 ? (
+        <div className="text-center py-8 px-4" style={{ background: M.tile, borderRadius: 11 }}>
+          <div className="mb-1.5" style={{ fontSize: 14, fontWeight: 600 }}>No AI decisions yet.</div>
+          <p className="m-0" style={{ ...mono, fontSize: 11, color: M.faint }}>
+            Set the executor, start the orchestrator, and run a cycle to populate the decision feed.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          {entries.map((e) => (
+            <AiActionRow key={e.id} e={e} chainId={chainId} />
           ))}
         </div>
-        {prices && (
-          <div className="mt-3 pt-2 flex gap-4 ed-mono text-[9.5px]" style={{ borderTop: '1px solid rgba(255,255,255,0.04)', color: 'var(--ed-steel-500)' }}>
-            <span>BTC ${prices.BTC?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-            <span>ETH ${prices.ETH?.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-            <span>Source: Pyth Hermes</span>
+      )}
+    </section>
+  );
+}
+
+function AiActionRow({ e, chainId }) {
+  const kind = e.hardVeto ? 'blocked' : (e.rawAction === 'buy' ? 'buy' : e.rawAction === 'sell' ? 'sell' : 'hold');
+  const c = ACTION_CFG[kind];
+  const outcome = e.hardVeto ? 'BLOCKED' : (e.outcome || '').toUpperCase() || 'PENDING';
+  const confPct = (e.confidence || 0).toFixed(2);
+  const txHref = e.txHash ? getExplorerTxHref(chainId, e.txHash) : null;
+  const actionLabel = e.action || `${(e.rawAction || '').toUpperCase()} ${e.asset || ''}`.trim();
+  return (
+    <div className="grid items-start" style={{ background: M.tile, borderRadius: 11, padding: 16, gridTemplateColumns: '36px 1fr auto', gap: 14 }}>
+      <div style={{ width: 32, height: 32, borderRadius: 9, background: c.bg, border: `1px solid ${c.ring}`, color: c.fg, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+        {c.glyph}
+      </div>
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 flex-wrap mb-1.5">
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{actionLabel}</span>
+          <span style={{ ...mono, fontSize: 9.5, fontWeight: 600, color: c.fg, background: c.bg, padding: '2px 8px', borderRadius: 5 }}>{outcome}</span>
+          <span style={{ ...mono, fontSize: 10.5, color: G.violet }}>conf {confPct}</span>
+          {e.fill && <span style={{ ...mono, fontSize: 10.5, color: M.muted }}>${e.fill}</span>}
+          {e.pnl !== null && e.pnl !== undefined && (
+            <span style={{ ...mono, fontSize: 10.5, color: e.pnl >= 0 ? G.emerald : G.rose }}>
+              {e.pnl >= 0 ? '+' : '−'}${Math.abs(e.pnl).toFixed(2)}
+            </span>
+          )}
+          {e.regime && (
+            <span style={{ ...mono, fontSize: 10, color: M.muted, background: 'rgba(255,255,255,0.04)', padding: '2px 6px', borderRadius: 5 }}>
+              {e.regime.replace(/_/g, ' ')}
+            </span>
+          )}
+        </div>
+        {e.reason && (
+          <p className="m-0" style={{ fontSize: 12, color: M.muted, lineHeight: 1.5, maxWidth: 560 }}>{e.reason}</p>
+        )}
+        {e.hardVeto && e.hardVetoReasons?.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-2">
+            {e.hardVetoReasons.map((r) => (
+              <span key={r} style={{ ...mono, fontSize: 10, color: G.gold, background: 'rgba(227,179,78,0.12)', padding: '2px 6px', borderRadius: 5 }}>
+                {r.replace(/_/g, ' ')}
+              </span>
+            ))}
           </div>
         )}
       </div>
-    </SectionHead>
-  );
-}
-
-/* ─────────────────── Risk (rail) ─────────────────── */
-
-function RiskPanel({ riskScore, riskLevel, riskTone, pol, dailyActions }) {
-  const gaugeTone = riskTone === 'rose' ? 'rose' : riskTone === 'amber' ? 'amber' : riskTone === 'cyan' ? 'cyan' : 'emerald';
-  const rows = [
-    { l: 'Max position',   v: `${(pol.maxPositionPct || 0).toFixed(0)} / 100%`, bar: Math.min(100, pol.maxPositionPct || 0), tone: 'amber' },
-    { l: 'Min confidence', v: `${(pol.confidenceThresholdPct || 0).toFixed(0)}%`, bar: Math.min(100, pol.confidenceThresholdPct || 0), tone: 'cyan' },
-    { l: 'Stop-loss',      v: `${(pol.stopLossPct || 0).toFixed(1)}%`, bar: Math.min(100, (pol.stopLossPct || 0) * 3), tone: 'emerald' },
-    { l: 'Cooldown',       v: `${Math.round((pol.cooldownSeconds || 0) / 60)} min`, bar: Math.min(100, ((pol.cooldownSeconds || 0) / 3600) * 100), tone: 'cyan' },
-    { l: 'Daily trades',   v: `${dailyActions} / ${pol.maxActionsPerDay || 0}`, bar: pol.maxActionsPerDay > 0 ? Math.min(100, (dailyActions / pol.maxActionsPerDay) * 100) : 0, tone: 'emerald' },
-  ];
-  return (
-    <SectionHead marker="Risk · policy breach">
-      <div className="rounded-2xl p-5" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
-        <div className="flex items-center justify-center py-2">
-          <RiskGauge value={riskScore} label={(riskLevel || 'LOW').toUpperCase()} tone={gaugeTone} />
-        </div>
-        <div className="mt-2 divide-y" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
-          {rows.map((r) => (
-            <div key={r.l} className="flex items-center gap-3 py-2.5" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-              <span className="text-[12.5px] w-[120px]" style={{ color: 'var(--ed-steel-300)' }}>{r.l}</span>
-              <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
-                <div
-                  className="h-full rounded-full"
-                  style={{
-                    width: `${r.bar}%`,
-                    background: r.tone === 'amber' ? ACCENTS.amber : r.tone === 'emerald' ? ACCENTS.emerald : ACCENTS.cyan,
-                  }}
-                />
-              </div>
-              <span className="ed-mono text-[11.5px] w-[72px] text-right" style={{ color: 'var(--ed-steel-50)' }}>{r.v}</span>
-            </div>
-          ))}
-        </div>
+      <div className="flex flex-col items-end gap-1.5" style={{ flex: 'none' }}>
+        <span className="whitespace-nowrap" style={{ ...mono, fontSize: 10, color: M.faint }}>{formatLocalTime(e.timestamp)}</span>
+        {txHref ? (
+          <a href={txHref} target="_blank" rel="noreferrer" style={{ ...mono, fontSize: 9.5, letterSpacing: '1px', textTransform: 'uppercase', color: G.violet, textDecoration: 'none' }}>
+            Receipt →
+          </a>
+        ) : e.rawAction === 'hold' ? (
+          <span style={{ ...mono, fontSize: 9.5, letterSpacing: '1px', textTransform: 'uppercase', color: M.faint }}>No execution</span>
+        ) : (
+          <span style={{ ...mono, fontSize: 9.5, letterSpacing: '1px', textTransform: 'uppercase', color: G.gold }}>Pending</span>
+        )}
       </div>
-    </SectionHead>
+    </div>
   );
 }
 
-/* ─────────────────── Capital ticket ─────────────────── */
+/* ─────────────────── Recent actions (vault journal) ─────────────────── */
 
-function CapitalTicket({
-  tab, setTab, amount, setAmount, walletBalance,
-  tokens = [], selectedSymbol, onSelectSymbol,
-  sharePrice, estShares, entryFeeBps, exitFeeBps, isConnected, onSubmit,
-  // v2 withdraw additions
-  vaultVersion = 'v1', vaultAssetRows = [], liveVault,
-  selectedWithdrawSymbol, onSelectWithdrawSymbol,
+function RecentActionsPanel({ actions, chainId }) {
+  return (
+    <section style={{ ...card, padding: 24 }}>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="m-0" style={{ fontSize: 16, fontWeight: 600 }}>Vault journal</h2>
+        <span style={{ ...mono, fontSize: 10.5, color: M.faint }}>signed intents · rotations · policy checks</span>
+      </div>
+      {actions.length === 0 ? (
+        <div className="text-center py-6 px-4" style={{ background: M.tile, borderRadius: 11 }}>
+          <p className="m-0 text-[13px]">No actions recorded yet.</p>
+          <p className="mt-1 m-0" style={{ ...mono, fontSize: 11, color: M.faint }}>
+            Signed intents, rotations, and policy checks appear here once the orchestrator emits them.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col">
+          {actions.map((a) => {
+            const txHref = a.txHash ? getExplorerTxHref(chainId, a.txHash) : null;
+            const tone = a.kind === 'SIGNED' ? G.emerald : a.kind === 'ROTATED' ? G.amber : M.muted;
+            return (
+              <div key={a.id} className="grid items-center" style={{ gridTemplateColumns: 'auto 1fr auto auto', gap: 12, padding: '10px 0', borderTop: `1px solid ${M.hairSoft}` }}>
+                <span style={{ ...mono, fontSize: 9.5, fontWeight: 600, color: tone, background: `${tone}1F`, padding: '2px 7px', borderRadius: 5 }}>{a.kind}</span>
+                {a.txHash ? (
+                  <span className="truncate" style={{ ...mono, fontSize: 11, color: M.muted }}>
+                    tx <span style={{ color: M.text }}>{shortHexLabel(a.txHash, 8, 4)}</span>
+                  </span>
+                ) : (
+                  <span style={{ ...mono, fontSize: 11, color: M.faint }}>off-chain event</span>
+                )}
+                <span style={{ ...mono, fontSize: 10.5, color: M.muted }}>{formatLocalTime(a.timestamp)}</span>
+                {txHref ? (
+                  <a href={txHref} target="_blank" rel="noreferrer" style={{ ...mono, fontSize: 9.5, letterSpacing: '1px', textTransform: 'uppercase', color: G.violet, textDecoration: 'none' }}>View →</a>
+                ) : (
+                  <span style={{ ...mono, fontSize: 9.5, color: M.faint }}>—</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ─────────────────── Manage capital (rail) ─────────────────── */
+
+function ManageCapitalPanel({
+  tab, setTab, amount, setAmount, walletBalance, tokens = [], selectedSymbol, onSelectSymbol,
+  selectedWithdrawSymbol, onSelectWithdrawSymbol, vaultVersion = 'v1', vaultAssetRows = [], liveVault,
+  isConnected, onSubmit,
 }) {
-  const presets = [25, 100, 500];
-  const displayBalance = Number.isFinite(walletBalance) ? walletBalance : 0;
-  const feeBps = tab === 'deposit' ? entryFeeBps : exitFeeBps;
-  // Withdraw settles in the vault's actual base asset (the token whose
-  // `isBase` flag is true — set dynamically from liveVault.baseAsset).
-  // Falling back to tokens[0] keeps the UI responsive while the on-chain
-  // baseAsset lookup is still loading.
+  const isDep = tab === 'deposit';
   const baseToken = tokens.find((t) => t.isBase) || tokens[0];
-
-  // V2 + V3 withdraw: show EVERY allowed asset the vault can hold. Tokens
-  // with zero current balance are still visible so the user sees the full
-  // menu — only the on-chain balance distinguishes "has funds" from "empty".
-  // V1 vaults don't support non-base withdraw so the selector collapses to
-  // base.
   const supportsMultiAsset = vaultSupportsMultiAssetWithdraw(vaultVersion);
+
   const withdrawableTokens = (() => {
     if (!supportsMultiAsset) return baseToken ? [baseToken] : [];
     const rows = vaultAssetRows
       .map((row) => {
         const meta = tokens.find((t) => t.address?.toLowerCase() === row.address?.toLowerCase());
         if (!meta) return null;
-        const dec = meta.decimals ?? 18;
         let vaultBal = 0;
-        try {
-          vaultBal = parseFloat(formatUnits(row.balance ?? 0n, dec));
-        } catch { vaultBal = 0; }
-        const isBaseRow = !!meta.isBase
-          || row.address?.toLowerCase() === liveVault?.baseAsset?.toLowerCase();
+        try { vaultBal = parseFloat(formatUnits(row.balance ?? 0n, meta.decimals ?? 18)); } catch { vaultBal = 0; }
+        const isBaseRow = !!meta.isBase || row.address?.toLowerCase() === liveVault?.baseAsset?.toLowerCase();
         return { ...meta, isBase: isBaseRow, vaultBalance: vaultBal };
       })
       .filter(Boolean);
-    // Ensure base is present even if the factory pre-populated allowedAssets
-    // without an explicit base entry.
     if (!rows.some((r) => r.isBase) && baseToken) {
       rows.unshift({ ...baseToken, isBase: true, vaultBalance: parseFloat(liveVault?.balance || '0') });
     }
     return rows;
   })();
 
-  const withdrawSelectedSymbol = selectedWithdrawSymbol
-    || withdrawableTokens.find((t) => t.isBase)?.symbol
-    || baseToken?.symbol;
-  const withdrawActiveToken = withdrawableTokens.find((t) => t.symbol === withdrawSelectedSymbol)
-    || withdrawableTokens[0]
-    || baseToken;
-
-  const activeToken = tab === 'deposit'
-    ? tokens.find((t) => t.symbol === selectedSymbol) || baseToken
-    : withdrawActiveToken;
+  const withdrawSelectedSymbol = selectedWithdrawSymbol || withdrawableTokens.find((t) => t.isBase)?.symbol || baseToken?.symbol;
+  const withdrawActiveToken = withdrawableTokens.find((t) => t.symbol === withdrawSelectedSymbol) || withdrawableTokens[0] || baseToken;
+  const activeToken = isDep ? (tokens.find((t) => t.symbol === selectedSymbol) || baseToken) : withdrawActiveToken;
   const activeSymbol = activeToken?.symbol || 'USDC';
-  const balanceDecimals = activeToken?.symbol === 'USDC' ? 2 : 6;
-  const withdrawIsRescue = tab === 'withdraw' && !activeToken?.isBase;
-  // For 0G we surface the W0G / native split in the balance line so the user
-  // can see that native balance is spendable too (auto-wrap covers the gap).
-  const is0GActive = activeSymbol === '0G';
-  const wrappedBalNum = is0GActive ? parseFloat(activeToken?.wrappedBalance || '0') : 0;
-  const nativeBalNum = is0GActive ? parseFloat(activeToken?.nativeBalance || '0') : 0;
+  const displayBalance = Number.isFinite(walletBalance) ? walletBalance : 0;
+  const balanceDecimals = activeSymbol === 'USDC' ? 2 : 6;
+  const nonBaseDeposit = isDep && !activeToken?.isBase;
+
+  const showDepositPicker = isDep && tokens.length > 1;
+  const showWithdrawPicker = !isDep && supportsMultiAsset && withdrawableTokens.length > 0;
+
+  const tokenPill = (t, active, onClick, sub) => (
+    <button
+      key={t.symbol}
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5"
+      style={{ ...mono, fontSize: 10.5, padding: '6px 10px', borderRadius: 7, cursor: 'pointer', border: 'none',
+        background: active ? 'rgba(227,179,78,0.14)' : 'rgba(255,255,255,0.03)', color: active ? G.gold : M.muted,
+        boxShadow: active ? `inset 0 0 0 1px rgba(227,179,78,0.4)` : 'none' }}
+    >
+      <TokenIcon symbol={t.symbol} size={13} />
+      {t.symbol}
+      {sub && <span style={{ fontSize: 8.5, color: M.faint }}>· {sub}</span>}
+    </button>
+  );
 
   return (
-    <SectionHead marker="Capital · ticket">
-      <div className="rounded-2xl p-1" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
-        <div className="grid grid-cols-2 rounded-xl p-0.5 mb-3" style={{ background: 'rgba(255,255,255,0.03)' }}>
-          {['deposit', 'withdraw'].map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className="ed-mono text-[11px] uppercase tracking-[0.18em] py-2.5 rounded-lg transition-colors"
-              style={{
-                background: tab === t ? 'rgba(255,255,255,0.06)' : 'transparent',
-                color: tab === t ? 'var(--ed-steel-50)' : 'var(--ed-steel-400)',
-              }}
-            >
+    <section style={{ background: M.card, border: '1px solid rgba(227,179,78,0.2)', borderRadius: 14, padding: 22 }}>
+      <h3 className="m-0 mb-4" style={{ fontSize: 14, fontWeight: 600 }}>Manage capital</h3>
+
+      <div className="flex gap-1 mb-3.5" style={{ background: M.inset, borderRadius: 9, padding: 4 }}>
+        {['deposit', 'withdraw'].map((t) => {
+          const active = tab === t;
+          return (
+            <button key={t} type="button" onClick={() => setTab(t)} style={{ flex: 1, ...mono, fontSize: 11.5, fontWeight: 600, letterSpacing: '0.5px', padding: '9px 0', borderRadius: 7, border: 'none', cursor: 'pointer', textTransform: 'capitalize', background: active ? '#22262e' : 'transparent', color: active ? M.text : M.faint }}>
               {t}
             </button>
-          ))}
+          );
+        })}
+      </div>
+
+      {showDepositPicker && (
+        <div className="mb-3">
+          <div className="mb-1.5" style={{ ...monoLabel, fontSize: 9.5, color: M.faint }}>Token</div>
+          <div className="flex gap-1.5 flex-wrap">
+            {tokens.map((t) => tokenPill(t, t.symbol === activeSymbol, () => onSelectSymbol?.(t.symbol)))}
+          </div>
         </div>
+      )}
 
-        {tab === 'deposit' && tokens.length > 1 && (
-          <div className="px-3 pt-1 pb-2">
-            <Eyebrow tone="muted" className="!block mb-1.5">Token</Eyebrow>
-            <div className="flex gap-1.5 flex-wrap">
-              {tokens.map((t) => {
-                const active = t.symbol === activeSymbol;
-                return (
-                  <button
-                    key={t.symbol}
-                    type="button"
-                    onClick={() => onSelectSymbol?.(t.symbol)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md ed-mono text-[10.5px] transition-colors"
-                    style={{
-                      background: active ? `${ACCENTS.gold}22` : 'rgba(255,255,255,0.02)',
-                      color: active ? ACCENTS.gold : 'var(--ed-steel-400)',
-                      boxShadow: active
-                        ? `inset 0 0 0 1px ${ACCENTS.gold}4A`
-                        : 'var(--ed-ghost-border)',
-                    }}
-                  >
-                    <TokenIcon symbol={t.symbol} size={13} />
-                    {t.symbol}
-                  </button>
-                );
-              })}
-            </div>
+      {showWithdrawPicker && (
+        <div className="mb-3">
+          <div className="mb-1.5" style={{ ...monoLabel, fontSize: 9.5, color: M.faint }}>Withdraw token</div>
+          <div className="flex gap-1.5 flex-wrap">
+            {withdrawableTokens.map((t) => tokenPill(t, t.symbol === withdrawSelectedSymbol, () => onSelectWithdrawSymbol?.(t.symbol), t.isBase ? 'base' : ((t.vaultBalance ?? 0) > 0 ? null : 'empty')))}
           </div>
-        )}
+        </div>
+      )}
 
-        {/* V1 vault — single base asset, no rescue path */}
-        {tab === 'withdraw' && !supportsMultiAsset && tokens.length > 1 && (
-          <div className="px-3 pt-1 pb-2">
-            <Eyebrow tone="muted" className="!block mb-1.5">Settlement token</Eyebrow>
-            <div className="flex items-center gap-1.5">
-              <span
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md ed-mono text-[10.5px]"
-                style={{
-                  background: `${ACCENTS.gold}22`,
-                  color: ACCENTS.gold,
-                  boxShadow: `inset 0 0 0 1px ${ACCENTS.gold}4A`,
-                }}
-              >
-                <TokenIcon symbol={baseToken?.symbol || 'USDC'} size={13} />
-                {baseToken?.symbol || 'USDC'}
-              </span>
-              <span className="ed-mono text-[9.5px]" style={{ color: 'var(--ed-steel-500)' }}>
-                base asset · locked by contract
-              </span>
-            </div>
-            <p className="ed-mono text-[9.5px] mt-2 leading-[1.5]" style={{ color: 'var(--ed-steel-500)' }}>
-              V1 vault settles withdrawals in {baseToken?.symbol || 'base asset'} only. Non-base holdings
-              auto-convert back when the AI closes positions.
-            </p>
+      {!isDep && !supportsMultiAsset && (
+        <p className="mb-3" style={{ ...mono, fontSize: 9.5, color: M.faint, lineHeight: 1.5 }}>
+          V1 vault settles withdrawals in {baseToken?.symbol || 'base asset'} only. Non-base holdings auto-convert back when the AI closes positions.
+        </p>
+      )}
+
+      <div className="flex items-center gap-2 mb-2" style={{ background: M.inset, border: `1px solid ${M.hair}`, borderRadius: 9, padding: '0 13px', height: 44 }}>
+        <TokenIcon symbol={activeSymbol} size={15} />
+        <input
+          className="av-in"
+          type="number"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="0.00"
+          style={{ flex: 1, background: 'transparent', border: 'none', color: M.text, ...mono, fontSize: 16, outline: 'none' }}
+        />
+        <button type="button" onClick={() => setAmount(String(displayBalance))} style={{ ...mono, fontSize: 10, letterSpacing: '1px', textTransform: 'uppercase', color: G.gold, background: 'transparent', border: 'none', cursor: 'pointer' }}>Max</button>
+      </div>
+
+      <div className="mb-3.5" style={{ ...mono, fontSize: 10.5, color: M.faint }}>
+        {isDep ? 'Wallet balance' : 'Available to withdraw'} · {displayBalance.toLocaleString(undefined, { maximumFractionDigits: balanceDecimals })} {isDep ? activeSymbol : (activeToken?.symbol || 'USDC')}
+      </div>
+
+      {nonBaseDeposit && (
+        <div className="mb-3.5 rounded-lg px-2.5 py-1.5" style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.22)', ...mono, fontSize: 10, lineHeight: 1.5, color: '#f5c97e' }}>
+          {activeSymbol} goes via plain transfer() — it does not update totalDeposited or mint shares.
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={!isConnected || !amount || Number(amount) <= 0}
+        style={{ width: '100%', ...mono, fontSize: 12, fontWeight: 600, color: M.bg, background: G.gold, border: 'none', borderRadius: 9, padding: 11, cursor: (!isConnected || !amount || Number(amount) <= 0) ? 'not-allowed' : 'pointer', opacity: (!isConnected || !amount || Number(amount) <= 0) ? 0.5 : 1 }}
+      >
+        {isDep ? `Deposit ${activeSymbol}` : 'Request withdrawal'}
+      </button>
+
+      <div className="flex items-center justify-center gap-1.5 mt-3">
+        <Shield className="w-2.5 h-2.5" style={{ color: M.faint }} />
+        <span style={{ ...mono, fontSize: 10, color: M.faint }}>On-chain settlement · signed intent · 24h unstake cooldown</span>
+      </div>
+    </section>
+  );
+}
+
+/* ─────────────────── Risk & quality (rail) ─────────────────── */
+
+function RiskQualityPanel({ riskScore, riskLevel, riskTone, pol, dailyActions, hasRealReturn, allTimeReturnPct, returnIsPositive }) {
+  const levelColor = riskTone === 'rose' ? G.rose : riskTone === 'amber' ? G.amber : riskTone === 'cyan' ? G.zerog : G.emerald;
+  return (
+    <section style={{ ...card, padding: 22 }}>
+      <h3 className="m-0 mb-4" style={{ fontSize: 14, fontWeight: 600 }}>Risk &amp; quality</h3>
+      <div className="grid grid-cols-2 gap-3.5">
+        <div>
+          <div style={{ ...monoLabel, fontSize: 10, color: M.faint }}>Risk score</div>
+          <div className="flex items-baseline gap-1.5 mt-1.5">
+            <span style={{ fontSize: 22, fontWeight: 600 }}>{riskScore || '—'}</span>
+            <span style={{ ...mono, fontSize: 11, color: levelColor }}>{riskScore ? riskLevel : 'n/a'}</span>
           </div>
-        )}
-
-        {/* V2 + V3 vault — full multi-asset withdraw via withdrawToken / withdraw */}
-        {tab === 'withdraw' && supportsMultiAsset && withdrawableTokens.length > 0 && (
-          <div className="px-3 pt-1 pb-2">
-            <Eyebrow tone="muted" className="!block mb-1.5">Withdraw token</Eyebrow>
-            <div className="flex gap-1.5 flex-wrap">
-              {withdrawableTokens.map((t) => {
-                const active = t.symbol === withdrawSelectedSymbol;
-                const hasBalance = (t.vaultBalance ?? 0) > 0;
-                return (
-                  <button
-                    key={t.symbol}
-                    type="button"
-                    onClick={() => onSelectWithdrawSymbol?.(t.symbol)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md ed-mono text-[10.5px] transition-colors"
-                    style={{
-                      background: active ? `${ACCENTS.gold}22` : 'rgba(255,255,255,0.02)',
-                      color: active ? ACCENTS.gold : 'var(--ed-steel-400)',
-                      boxShadow: active
-                        ? `inset 0 0 0 1px ${ACCENTS.gold}4A`
-                        : 'var(--ed-ghost-border)',
-                      // Dim non-selected tokens that currently hold zero NAV
-                      // balance. Still clickable — user can verify emptiness.
-                      opacity: active || hasBalance ? 1 : 0.45,
-                    }}
-                  >
-                    <TokenIcon symbol={t.symbol} size={13} />
-                    {t.symbol}
-                    {t.isBase && (
-                      <span className="ml-0.5 text-[8.5px]" style={{ color: 'var(--ed-steel-500)' }}>
-                        · base
-                      </span>
-                    )}
-                    {!hasBalance && !t.isBase && (
-                      <span className="ml-0.5 text-[8.5px]" style={{ color: 'var(--ed-steel-600)' }}>
-                        · empty
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            {withdrawIsRescue && (
-              <p className="ed-mono text-[9.5px] mt-2 leading-[1.5]" style={{ color: 'var(--ed-steel-500)' }}>
-                Non-base assets withdraw with no exit fee. Base asset withdrawals still carry
-                the standard exit fee set by the vault policy.
-              </p>
-            )}
+          <div className="mt-0.5" style={{ ...mono, fontSize: 9, color: M.faint }}>heuristic</div>
+        </div>
+        <div>
+          <div style={{ ...monoLabel, fontSize: 10, color: M.faint }}>All-time return</div>
+          <div className="mt-1.5" style={{ fontSize: 22, fontWeight: 600, color: hasRealReturn ? (returnIsPositive ? G.emerald : G.rose) : M.text }}>
+            {hasRealReturn ? `${returnIsPositive ? '+' : '−'}${Math.abs(allTimeReturnPct).toFixed(1)}%` : '—'}
           </div>
-        )}
+        </div>
+        <div>
+          <div style={{ ...monoLabel, fontSize: 10, color: M.faint }}>Max position</div>
+          <div className="mt-1.5" style={{ fontSize: 22, fontWeight: 600 }}>{(pol.maxPositionPct || 0).toFixed(0)}%</div>
+        </div>
+        <div>
+          <div style={{ ...monoLabel, fontSize: 10, color: M.faint }}>Daily trades</div>
+          <div className="mt-1.5" style={{ fontSize: 22, fontWeight: 600 }}>{dailyActions} / {pol.maxActionsPerDay || 0}</div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
-        <div className="p-4 pt-1">
-          <div className="flex items-center justify-between mb-2">
-            <Eyebrow tone="muted">
-              Amount · {activeSymbol}
-              {!activeToken?.isBase && tab === 'deposit' && (
-                <span className="ml-1.5 ed-mono text-[9px] uppercase tracking-[0.14em]" style={{ color: ACCENTS.amber }}>
-                  · transfer
+/* ─────────────────── Policy & guardrails (rail) ─────────────────── */
+
+function PolicyPanel({ pol, mandateType, isConnected, onEdit }) {
+  // On-chain hard gates: max position / confidence floor / cooldown / max actions per day.
+  // Off-chain risk-vetos: daily loss limit, stop-loss (orchestrator-enforced, NOT on-chain).
+  const rows = [
+    { k: 'Mandate', v: mandateType },
+    { k: 'Max position', v: `${(pol.maxPositionPct || 0).toFixed(0)}%`, gate: 'on-chain' },
+    { k: 'Confidence floor', v: `${(pol.confidenceThresholdPct || 0).toFixed(0)}%`, gate: 'on-chain' },
+    { k: 'Cooldown', v: `${Math.round((pol.cooldownSeconds || 0) / 60)} min`, gate: 'on-chain' },
+    { k: 'Max actions / day', v: `${pol.maxActionsPerDay || 0}`, gate: 'on-chain' },
+    { k: 'Daily loss limit', v: `${(pol.maxDailyLossPct || 0).toFixed(1)}%`, gate: 'off-chain' },
+    { k: 'Stop-loss', v: `${(pol.stopLossPct || 0).toFixed(1)}%`, gate: 'off-chain' },
+  ];
+  return (
+    <section style={{ ...card, padding: 22 }}>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="m-0" style={{ fontSize: 14, fontWeight: 600 }}>Policy &amp; guardrails</h3>
+        <button type="button" onClick={onEdit} disabled={!isConnected} style={{ ...mono, fontSize: 10.5, color: G.gold, background: 'transparent', border: 'none', cursor: isConnected ? 'pointer' : 'not-allowed', opacity: isConnected ? 1 : 0.5 }}>
+          Edit →
+        </button>
+      </div>
+      <div className="flex flex-col">
+        {rows.map((p) => (
+          <div key={p.k} className="flex items-center justify-between" style={{ padding: '9px 0', borderTop: `1px solid ${M.hairSoft}` }}>
+            <span className="inline-flex items-center gap-1.5" style={{ ...mono, fontSize: 10.5, letterSpacing: '0.5px', textTransform: 'uppercase', color: M.faint }}>
+              {p.k}
+              {p.gate && (
+                <span style={{ fontSize: 8, padding: '1px 4px', borderRadius: 4, color: p.gate === 'on-chain' ? G.emerald : M.faint, background: p.gate === 'on-chain' ? 'rgba(92,184,138,0.12)' : 'rgba(255,255,255,0.04)' }}>
+                  {p.gate}
                 </span>
               )}
-            </Eyebrow>
-            <span className="ed-mono text-[10.5px]" style={{ color: 'var(--ed-steel-500)' }}>
-              {tab === 'deposit' && is0GActive ? (
-                <>
-                  W0G{' '}
-                  <span style={{ color: 'var(--ed-steel-50)' }}>
-                    {wrappedBalNum.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                  </span>
-                  {' · '}
-                  Native{' '}
-                  <span style={{ color: 'var(--ed-steel-50)' }}>
-                    {nativeBalNum.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                  </span>
-                </>
-              ) : (
-                <>
-                  {tab === 'deposit' ? 'Wallet' : 'NAV'}{' '}
-                  <span style={{ color: 'var(--ed-steel-50)' }}>
-                    {displayBalance.toLocaleString(undefined, { maximumFractionDigits: balanceDecimals })}{' '}
-                    {tab === 'deposit' ? activeSymbol : 'USDC'}
-                  </span>
-                </>
-              )}
             </span>
+            <span style={{ ...mono, fontSize: 12, color: M.text }}>{p.v}</span>
           </div>
-          <div
-            className="flex items-center gap-2 rounded-xl px-3 h-12 mb-2"
-            style={{ background: 'rgba(0,0,0,0.3)', boxShadow: 'var(--ed-ghost-border)' }}
-          >
-            <TokenIcon symbol={activeSymbol} size={16} />
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-              className="flex-1 bg-transparent outline-none ed-mono text-[18px]"
-              style={{ color: 'var(--ed-steel-50)' }}
-            />
-            <button
-              type="button"
-              onClick={() => setAmount(String(displayBalance))}
-              className="ed-mono text-[10px] uppercase tracking-[0.2em] transition-colors"
-              style={{ color: ACCENTS.cyan }}
-            >
-              Max
-            </button>
+        ))}
+      </div>
+      <p className="mt-3 m-0" style={{ ...mono, fontSize: 9, color: M.faint, lineHeight: 1.5 }}>
+        On-chain gates are enforced by the vault contract. Daily-loss and stop-loss are off-chain risk vetos applied by the orchestrator.
+      </p>
+    </section>
+  );
+}
+
+/* ─────────────────── Executor (rail) ─────────────────── */
+
+function ExecutorPanel({ operator, executorAddress, executorRegistered, executorSyncLabel, executorSyncTone, executorMatches, isConnected, onSwitch, networkName, lastExecTs }) {
+  const name = operator?.name || (executorRegistered === false ? 'Unregistered wallet' : 'Operator loading…');
+  const avatarChar = (operator?.name || 'A').slice(0, 1).toUpperCase();
+  const syncColor = executorSyncTone === 'emerald' ? G.emerald : executorSyncTone === 'amber' ? G.amber : M.muted;
+  return (
+    <section style={{ ...card, padding: 22 }}>
+      <h3 className="m-0 mb-3.5" style={{ fontSize: 14, fontWeight: 600 }}>Executor</h3>
+      <div className="flex items-center gap-3">
+        <div style={{ width: 42, height: 42, borderRadius: 11, background: 'rgba(227,179,78,0.1)', border: '1px solid rgba(227,179,78,0.25)', color: G.gold, fontSize: 18, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+          {avatarChar}
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span style={{ fontSize: 13.5, fontWeight: 600 }}>{name}</span>
+            {executorMatches && (
+              <span style={{ ...mono, fontSize: 9, fontWeight: 600, color: G.violet, background: 'rgba(111,123,219,0.12)', padding: '2px 6px', borderRadius: 5 }}>✓</span>
+            )}
           </div>
-          {tab === 'deposit' && !activeToken?.isBase && (
-            <div
-              className="rounded-lg px-2.5 py-1.5 mb-3 ed-mono text-[10px] leading-[1.5]"
-              style={{ background: `${ACCENTS.amber}0D`, boxShadow: `inset 0 0 0 1px ${ACCENTS.amber}22`, color: '#F5C97E' }}
-            >
-              {activeSymbol} goes via plain transfer() — it does not update totalDeposited or mint shares.
-            </div>
-          )}
-          <div className="grid grid-cols-3 gap-1.5 mb-4">
-            {presets.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setAmount(String(p))}
-                className="rounded-lg py-2 ed-mono text-[11px] transition-colors"
-                style={{
-                  background: Number(amount) === p ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)',
-                  color: Number(amount) === p ? 'var(--ed-steel-50)' : 'var(--ed-steel-400)',
-                  boxShadow: 'var(--ed-ghost-border)',
-                }}
-              >
-                {p} {activeSymbol}
-              </button>
-            ))}
-          </div>
-          <div
-            className="space-y-2 rounded-xl p-3 mb-3"
-            style={{ background: 'rgba(0,0,0,0.2)', boxShadow: 'var(--ed-ghost-border)' }}
-          >
-            <TicketRow label={tab === 'deposit' ? 'Entry NAV' : 'Exit NAV'} value={`${sharePrice} / share`} />
-            {tab === 'deposit' && estShares && <TicketRow label="Est. shares" value={estShares} />}
-            <TicketRow
-              label={tab === 'deposit' ? 'Entry fee' : 'Exit fee'}
-              value={
-                tab === 'deposit'
-                  ? (activeToken?.isBase ? `${(feeBps / 100).toFixed(2)}%` : '—')
-                  : withdrawIsRescue
-                    ? '0% · non-base'
-                    : `${(feeBps / 100).toFixed(2)}%`
-              }
-            />
-            <TicketRow label="Cooldown" value="24 h · unstake" tone="amber" />
-          </div>
-          <ControlButton
-            variant="primary"
-            className="w-full"
-            disabled={!isConnected || !amount || Number(amount) <= 0}
-            onClick={onSubmit}
-          >
-            {tab === 'deposit' ? <Plus className="w-3 h-3" /> : <RefreshCw className="w-3 h-3" />}
-            {tab === 'deposit'
-              ? `Deposit ${Number(amount || 0).toLocaleString(undefined, { maximumFractionDigits: balanceDecimals })} ${activeSymbol}`
-              : 'Request withdrawal'}
-          </ControlButton>
-          <div className="flex items-center justify-center mt-3 gap-1.5">
-            <Shield className="w-2.5 h-2.5" style={{ color: 'var(--ed-steel-500)' }} />
-            <span className="ed-mono text-[10px]" style={{ color: 'var(--ed-steel-500)' }}>
-              On-chain settlement · signed intent
-            </span>
+          <div className="mt-0.5 truncate" style={{ ...mono, fontSize: 10.5, color: M.faint }}>
+            {executorAddress ? shortHexLabel(executorAddress, 8, 6) : 'Unset'} · <span style={{ color: syncColor }}>{executorSyncLabel}</span>
           </div>
         </div>
       </div>
-    </SectionHead>
+      <div className="mt-3.5 flex flex-col gap-2">
+        <div className="flex items-center justify-between" style={{ padding: '7px 0', borderTop: `1px solid ${M.hairSoft}` }}>
+          <span style={{ ...monoLabel, fontSize: 9.5, color: M.faint }}>Network</span>
+          <span style={{ ...mono, fontSize: 11, color: M.text }}>{networkName}</span>
+        </div>
+        <div className="flex items-center justify-between" style={{ padding: '7px 0', borderTop: `1px solid ${M.hairSoft}` }}>
+          <span style={{ ...monoLabel, fontSize: 9.5, color: M.faint }}>Last action</span>
+          <span style={{ ...mono, fontSize: 11, color: M.text }}>{lastExecTs ? formatTime(lastExecTs) : 'Never'}</span>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onSwitch}
+        disabled={!isConnected}
+        style={{ width: '100%', marginTop: 16, ...mono, fontSize: 11.5, fontWeight: 500, color: M.text, background: 'transparent', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 9, padding: 10, cursor: isConnected ? 'pointer' : 'not-allowed', opacity: isConnected ? 1 : 0.5 }}
+      >
+        Switch operator →
+      </button>
+    </section>
   );
 }
 
-function TicketRow({ label, value, tone = 'default' }) {
-  const color = tone === 'amber' ? ACCENTS.amber : 'var(--ed-steel-50)';
+/* ─────────────────── Session transactions (rail) ─────────────────── */
+
+function SessionTxPanel({ recentTxs }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-[11.5px]" style={{ color: 'var(--ed-steel-500)' }}>{label}</span>
-      <span className="ed-mono text-[12px]" style={{ color }}>{value}</span>
-    </div>
+    <section style={{ ...card, padding: 22 }}>
+      <h3 className="m-0 mb-3.5" style={{ fontSize: 14, fontWeight: 600 }}>This session</h3>
+      <div className="flex flex-col gap-2">
+        {recentTxs.slice(0, 6).map((tx) => (
+          <a key={tx.href} href={tx.href} target="_blank" rel="noreferrer" style={{ ...mono, fontSize: 10.5, color: G.violet, textDecoration: 'none' }}>
+            {tx.label} · {shortHexLabel(tx.hash, 8, 4)} →
+          </a>
+        ))}
+      </div>
+    </section>
   );
 }
 
-/* ─────────────────── Fees panel ─────────────────── */
+/* ─────────────────── Fees panel (rail) ─────────────────── */
 
 function FeesPanel({
   policy, feeState, liveNavUsd, feeRecipientExplorerHref, walletAddress, isConnected,
   feesUnsupported, accruePending, claimPending, claimSuccess, accrueSuccess, onAccrue, onClaim,
 }) {
   const canClaim = walletAddress && walletAddress.toLowerCase() === (policy?.feeRecipient || '').toLowerCase();
-  return (
-    <SectionHead marker="Operator · fees">
-      <div className="rounded-2xl p-5" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
-        <div className="grid grid-cols-4 gap-1.5 mb-4">
-          <FeeChip label="Perf" value={formatBps(policy.performanceFeeBps)} tone="gold" />
-          <FeeChip label="Mgmt" value={formatBps(policy.managementFeeBps)} tone="cyan" />
-          <FeeChip label="Entry" value={formatBps(policy.entryFeeBps)} tone="steel" />
-          <FeeChip label="Exit" value={formatBps(policy.exitFeeBps)} tone="steel" />
-        </div>
-
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          <div className="rounded-md px-3 py-2" style={{ background: 'rgba(255,255,255,0.02)', boxShadow: 'var(--ed-ghost-border)' }}>
-            <Eyebrow tone="muted" className="!text-[9px]">Live NAV</Eyebrow>
-            <div className="ed-italic text-[18px] mt-1" style={{ color: 'var(--ed-steel-50)' }}>
-              ${liveNavUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </div>
-          </div>
-          <div className="rounded-md px-3 py-2" style={{ background: 'rgba(255,255,255,0.02)', boxShadow: 'var(--ed-ghost-border)' }}>
-            <Eyebrow tone="muted" className="!text-[9px]">High water</Eyebrow>
-            <div className="ed-italic text-[18px] mt-1" style={{ color: ACCENTS.emerald }}>
-              ${(feeState?.highWaterMark || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </div>
-          </div>
-        </div>
-
-        <div
-          className="rounded-lg p-3 mb-3"
-          style={{
-            background: `linear-gradient(135deg, ${ACCENTS.gold}12, ${ACCENTS.gold}03)`,
-            boxShadow: `inset 0 0 0 1px ${ACCENTS.gold}28`,
-          }}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <Eyebrow tone="gold">Accrued fees</Eyebrow>
-            {feeState?.lastFeeAccrual && (
-              <span className="ed-mono text-[9.5px]" style={{ color: 'var(--ed-steel-500)' }}>
-                Last: {new Date(feeState.lastFeeAccrual * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-              </span>
-            )}
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <FeeStatTile label="Mgmt" value={`$${(feeState?.accruedManagement || 0).toFixed(2)}`} color={ACCENTS.cyan} />
-            <FeeStatTile label="Perf" value={`$${(feeState?.accruedPerformance || 0).toFixed(2)}`} color={ACCENTS.gold} />
-            <FeeStatTile label="Total" value={`$${(feeState?.accruedTotal || 0).toFixed(2)}`} color="var(--ed-steel-50)" />
-          </div>
-        </div>
-
-        {policy.feeRecipient && policy.feeRecipient !== '0x0000000000000000000000000000000000000000' && (
-          <div
-            className="flex items-center justify-between ed-mono text-[10px] px-3 py-1.5 rounded mb-3"
-            style={{ background: 'rgba(255,255,255,0.02)', boxShadow: 'var(--ed-ghost-border)' }}
-          >
-            <span style={{ color: 'var(--ed-steel-500)' }}>Fee recipient</span>
-            {feeRecipientExplorerHref ? (
-              <a
-                href={feeRecipientExplorerHref}
-                target="_blank"
-                rel="noreferrer"
-                className="transition-colors"
-                style={{ color: ACCENTS.cyan }}
-              >
-                {shortHexLabel(policy.feeRecipient)}
-              </a>
-            ) : (
-              <span style={{ color: 'var(--ed-steel-50)' }}>{shortHexLabel(policy.feeRecipient)}</span>
-            )}
-          </div>
-        )}
-
-        {feesUnsupported ? (
-          <div
-            className="rounded-md px-3 py-2 text-center"
-            style={{ background: '#15151A', boxShadow: 'inset 0 0 0 1px #ffffff14' }}
-          >
-            <p className="ed-mono text-[10px]" style={{ color: 'var(--ed-steel-50)' }}>
-              Accrue / claim not available on this build — the slim 0G mainnet vault
-              charges entry/exit fees inline (80% operator · 20% treasury). There is no
-              performance/management-fee accrual to claim here.
-            </p>
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-2">
-              <ControlButton variant="secondary" size="sm" disabled={!isConnected || accruePending} onClick={onAccrue}>
-                <Hourglass className="w-3 h-3" />
-                {accruePending ? 'Accruing…' : 'Accrue'}
-              </ControlButton>
-              <ControlButton
-                variant="gold"
-                size="sm"
-                disabled={!isConnected || claimPending || !(feeState?.accruedTotal > 0) || !canClaim}
-                onClick={onClaim}
-              >
-                <Wallet className="w-3 h-3" />
-                {claimPending ? 'Claiming…' : 'Claim'}
-              </ControlButton>
-            </div>
-
-            {claimSuccess && (
-              <p className="ed-mono text-[10px] text-center mt-2" style={{ color: '#8AE6C2' }}>
-                Fees claimed · 80% to operator · 20% to treasury
-              </p>
-            )}
-            {accrueSuccess && (
-              <p className="ed-mono text-[10px] text-center mt-2" style={{ color: ACCENTS.cyan }}>Fees accrued on-chain</p>
-            )}
-          </>
-        )}
-
-        {feeState?.pendingFeeChange?.pending && (
-          <div
-            className="mt-3 rounded-md px-3 py-2"
-            style={{ background: `${ACCENTS.amber}0D`, boxShadow: `inset 0 0 0 1px ${ACCENTS.amber}26` }}
-          >
-            <div className="flex items-center gap-1.5 mb-1">
-              <AlertTriangle className="w-3 h-3" style={{ color: ACCENTS.amber }} />
-              <Eyebrow tone="amber">Pending fee change</Eyebrow>
-            </div>
-            <div className="text-[10.5px] leading-[1.55]" style={{ color: 'var(--ed-steel-400)' }}>
-              New: Perf {formatBps(feeState.pendingFeeChange.newPerformanceFeeBps)} · Mgmt {formatBps(feeState.pendingFeeChange.newManagementFeeBps)} · Entry {formatBps(feeState.pendingFeeChange.newEntryFeeBps)} · Exit {formatBps(feeState.pendingFeeChange.newExitFeeBps)}
-            </div>
-            <div className="ed-mono text-[9.5px] mt-1" style={{ color: 'var(--ed-steel-500)' }}>
-              Effective {new Date(feeState.pendingFeeChange.effectiveAt * 1000).toLocaleString()}
-            </div>
-          </div>
-        )}
-      </div>
-    </SectionHead>
-  );
-}
-
-function FeeChip({ label, value, tone }) {
-  const color = ACCENTS[tone] || ACCENTS.steel;
-  return (
-    <div
-      className="rounded-md px-2 py-1.5"
-      style={{ background: `${color}0A`, boxShadow: `inset 0 0 0 1px ${color}26` }}
-    >
-      <div className="flex items-center gap-1 mb-0.5">
-        <Eyebrow tone="muted" className="!text-[8px]">{label}</Eyebrow>
-      </div>
-      <div className="ed-mono text-[11px]" style={{ color }}>{value}</div>
-    </div>
-  );
-}
-
-function FeeStatTile({ label, value, color }) {
-  return (
-    <div>
-      <Eyebrow tone="muted" className="!text-[9px]">{label}</Eyebrow>
-      <div className="ed-italic text-[14px] mt-0.5" style={{ color }}>{value}</div>
-    </div>
-  );
-}
-
-/* ─────────────────── Briefing ─────────────────── */
-
-function BriefingPanel({
-  vaultAddress, executorAddress, operator, executorRegistered, networkName,
-  mandateType, baseAssetSymbol, resolvedDecimals, lastExecTs, dailyActions,
-  maxActionsPerDay, executorSyncLabel, executorSyncTone, onCopy, addressCopied,
-  vaultExplorerHref, executorExplorerHref,
-}) {
-  const rows = [
-    {
-      label: 'Address',
-      value: (
-        <a
-          href={vaultExplorerHref || '#'}
-          target={vaultExplorerHref ? '_blank' : undefined}
-          rel={vaultExplorerHref ? 'noreferrer' : undefined}
-          className="ed-mono text-[12px] transition-colors"
-          style={{ color: vaultExplorerHref ? ACCENTS.cyan : 'var(--ed-steel-50)' }}
-          onClick={(e) => { if (!vaultExplorerHref) e.preventDefault(); }}
-        >
-          {shortHexLabel(vaultAddress, 8, 6)}
-        </a>
-      ),
-      copyValue: vaultAddress,
-      copyKey: 'vault',
-    },
-    {
-      label: 'Executor',
-      value: (
-        <a
-          href={executorExplorerHref || '#'}
-          target={executorExplorerHref ? '_blank' : undefined}
-          rel={executorExplorerHref ? 'noreferrer' : undefined}
-          className="ed-mono text-[12px] transition-colors"
-          style={{ color: executorExplorerHref ? ACCENTS.cyan : 'var(--ed-steel-50)' }}
-          onClick={(e) => { if (!executorExplorerHref) e.preventDefault(); }}
-        >
-          {executorAddress ? shortHexLabel(executorAddress, 8, 6) : 'Unset'}
-        </a>
-      ),
-      copyValue: executorAddress,
-      copyKey: 'executor',
-    },
-    {
-      label: 'Operator',
-      value: operator?.name ? (
-        <span className="ed-mono text-[12px]" style={{ color: ACCENTS.cyan }}>{operator.name}</span>
-      ) : (
-        <span className="ed-mono text-[12px] italic" style={{ color: 'var(--ed-steel-500)' }}>
-          {executorRegistered === false ? 'Unregistered' : 'Loading…'}
-        </span>
-      ),
-    },
-    {
-      label: 'Sync',
-      value: (
-        <Chip tone={executorSyncTone} dense leading={<StatusDot tone={executorSyncTone} size={5} pulse={executorSyncTone === 'emerald'} />}>
-          {executorSyncLabel}
-        </Chip>
-      ),
-    },
-    { label: 'Network', value: <span className="ed-mono text-[12px]" style={{ color: 'var(--ed-steel-50)' }}>{networkName}</span> },
-    { label: 'Asset', value: <span className="ed-mono text-[12px]" style={{ color: 'var(--ed-steel-50)' }}>{baseAssetSymbol} · {resolvedDecimals} decimals</span> },
-    { label: 'Policy', value: <span className="ed-mono text-[12px]" style={{ color: 'var(--ed-steel-50)' }}>{mandateType} · v1</span> },
-    { label: 'Last action', value: <span className="ed-mono text-[12px]" style={{ color: 'var(--ed-steel-50)' }}>{lastExecTs ? formatTime(lastExecTs) : 'Never'}</span> },
-    { label: 'Actions today', value: <span className="ed-mono text-[12px]" style={{ color: 'var(--ed-steel-50)' }}>{dailyActions} / {maxActionsPerDay || 0}</span> },
+  const feeRows = [
+    { k: 'Performance', v: formatBps(policy.performanceFeeBps) },
+    { k: 'Management', v: formatBps(policy.managementFeeBps) },
+    { k: 'Entry', v: formatBps(policy.entryFeeBps) },
+    { k: 'Exit', v: formatBps(policy.exitFeeBps) },
   ];
-
   return (
-    <SectionHead marker="Vault · briefing">
-      <div className="rounded-2xl p-5 space-y-2.5" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
-        {rows.map((row, i) => (
-          <div key={i} className="flex items-center justify-between gap-4 py-1">
-            <Eyebrow tone="muted">{row.label}</Eyebrow>
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="truncate">{row.value}</div>
-              {row.copyKey && row.copyValue && (
-                <button
-                  type="button"
-                  onClick={() => onCopy(row.copyKey, row.copyValue)}
-                  className="transition-colors"
-                  style={{ color: addressCopied === row.copyKey ? ACCENTS.emerald : 'var(--ed-steel-500)' }}
-                  title={addressCopied === row.copyKey ? 'Copied' : 'Copy'}
-                >
-                  {addressCopied === row.copyKey ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                </button>
-              )}
-            </div>
+    <section style={{ ...card, padding: 22 }}>
+      <h3 className="m-0 mb-4" style={{ fontSize: 14, fontWeight: 600 }}>Operator fees</h3>
+      <div className="flex flex-col mb-3">
+        {feeRows.map((r) => (
+          <div key={r.k} className="flex items-center justify-between" style={{ padding: '8px 0', borderTop: `1px solid ${M.hairSoft}` }}>
+            <span style={{ ...mono, fontSize: 10.5, letterSpacing: '0.5px', textTransform: 'uppercase', color: M.faint }}>{r.k}</span>
+            <span style={{ ...mono, fontSize: 12, color: M.text }}>{r.v}</span>
           </div>
         ))}
       </div>
-    </SectionHead>
-  );
-}
 
-/* ─────────────────── System controls ─────────────────── */
-
-function SystemControlsPanel({
-  isConnected, isPaused, pausePending, unpausePending, onPause, onExecutor, onEditPolicy, onExport,
-  executorMatches, recentTxs, withdrawSuccess, depositSuccess, policySuccess, executorSuccess,
-}) {
-  return (
-    <SectionHead marker="System · controls">
-      <div className="rounded-2xl p-4 space-y-2" style={{ background: '#0F0F13', boxShadow: 'var(--ed-ghost-border)' }}>
-        <ControlButton
-          variant={isPaused ? 'gold' : 'danger'}
-          className="w-full"
-          disabled={!isConnected || pausePending || unpausePending}
-          onClick={onPause}
-        >
-          {isPaused ? (
-            <><PlayCircle className="w-3.5 h-3.5" /> {unpausePending ? 'Resuming…' : 'Resume vault'}</>
-          ) : (
-            <><PauseCircle className="w-3.5 h-3.5" /> {pausePending ? 'Pausing…' : 'Emergency pause'}</>
-          )}
-        </ControlButton>
-        <ControlButton
-          variant={executorMatches ? 'secondary' : 'gold'}
-          className="w-full"
-          disabled={!isConnected}
-          onClick={onExecutor}
-        >
-          <Cpu className="w-3 h-3" /> {executorMatches ? 'Executor linked' : 'Set executor'}
-        </ControlButton>
-        <ControlButton variant="secondary" className="w-full" disabled={!isConnected} onClick={onEditPolicy}>
-          <Settings className="w-3 h-3" /> Edit policy
-        </ControlButton>
-        <ControlButton variant="secondary" className="w-full" onClick={onExport}>
-          <Download className="w-3 h-3" /> Export journal
-        </ControlButton>
-
-        {withdrawSuccess && <p className="ed-mono text-[10px] text-center mt-1" style={{ color: '#8AE6C2' }}>Withdrawal submitted</p>}
-        {depositSuccess && <p className="ed-mono text-[10px] text-center mt-1" style={{ color: '#8AE6C2' }}>Deposit submitted</p>}
-        {policySuccess && <p className="ed-mono text-[10px] text-center mt-1" style={{ color: '#8AE6C2' }}>Policy updated on-chain</p>}
-        {executorSuccess && <p className="ed-mono text-[10px] text-center mt-1" style={{ color: '#8AE6C2' }}>Executor updated on-chain</p>}
-
-        {recentTxs.length > 0 && (
-          <div className="mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-            <Eyebrow tone="cyan" className="!text-[10px] mb-2 block">Latest wallet transactions</Eyebrow>
-            <div className="flex flex-col gap-1.5">
-              {recentTxs.slice(0, 6).map((tx) => (
-                <a
-                  key={tx.href}
-                  href={tx.href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="ed-mono text-[10px] transition-colors"
-                  style={{ color: ACCENTS.cyan }}
-                >
-                  {tx.label} · {shortHexLabel(tx.hash, 8, 4)} ↗
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div style={{ background: M.tile, borderRadius: 9, padding: '10px 12px' }}>
+          <div style={{ ...monoLabel, fontSize: 9, color: M.faint }}>Live NAV</div>
+          <div className="mt-1" style={{ fontSize: 16, fontWeight: 600 }}>${(liveNavUsd || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+        </div>
+        <div style={{ background: M.tile, borderRadius: 9, padding: '10px 12px' }}>
+          <div style={{ ...monoLabel, fontSize: 9, color: M.faint }}>Accrued total</div>
+          <div className="mt-1" style={{ fontSize: 16, fontWeight: 600, color: G.gold }}>${(feeState?.accruedTotal || 0).toFixed(2)}</div>
+        </div>
       </div>
-    </SectionHead>
+
+      {policy.feeRecipient && policy.feeRecipient !== '0x0000000000000000000000000000000000000000' && (
+        <div className="flex items-center justify-between mb-3" style={{ ...mono, fontSize: 10, background: M.tile, borderRadius: 7, padding: '6px 12px' }}>
+          <span style={{ color: M.faint }}>Fee recipient</span>
+          {feeRecipientExplorerHref ? (
+            <a href={feeRecipientExplorerHref} target="_blank" rel="noreferrer" style={{ color: G.violet, textDecoration: 'none' }}>{shortHexLabel(policy.feeRecipient)}</a>
+          ) : (
+            <span style={{ color: M.text }}>{shortHexLabel(policy.feeRecipient)}</span>
+          )}
+        </div>
+      )}
+
+      {feesUnsupported ? (
+        <div className="rounded-md px-3 py-2 text-center" style={{ background: M.tile }}>
+          <p className="m-0" style={{ ...mono, fontSize: 10, color: M.text, lineHeight: 1.5 }}>
+            Accrue / claim not available on this build — the slim 0G mainnet vault charges entry/exit fees inline (80% operator · 20% treasury). No performance/management-fee accrual to claim here.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={onAccrue} disabled={!isConnected || accruePending} style={{ ...mono, fontSize: 11.5, fontWeight: 500, color: M.text, background: 'transparent', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 9, padding: 10, cursor: (!isConnected || accruePending) ? 'not-allowed' : 'pointer', opacity: (!isConnected || accruePending) ? 0.6 : 1 }}>
+              {accruePending ? 'Accruing…' : 'Accrue'}
+            </button>
+            <button type="button" onClick={onClaim} disabled={!isConnected || claimPending || !(feeState?.accruedTotal > 0) || !canClaim} style={{ ...mono, fontSize: 11.5, fontWeight: 600, color: M.bg, background: G.gold, border: 'none', borderRadius: 9, padding: 10, cursor: (!isConnected || claimPending || !(feeState?.accruedTotal > 0) || !canClaim) ? 'not-allowed' : 'pointer', opacity: (!isConnected || claimPending || !(feeState?.accruedTotal > 0) || !canClaim) ? 0.5 : 1 }}>
+              {claimPending ? 'Claiming…' : 'Claim'}
+            </button>
+          </div>
+          {claimSuccess && <p className="text-center mt-2 m-0" style={{ ...mono, fontSize: 10, color: G.emerald }}>Fees claimed · 80% operator · 20% treasury</p>}
+          {accrueSuccess && <p className="text-center mt-2 m-0" style={{ ...mono, fontSize: 10, color: G.violet }}>Fees accrued on-chain</p>}
+        </>
+      )}
+    </section>
   );
 }
+
 
 /* ─────────────────── Modal shell ─────────────────── */
 

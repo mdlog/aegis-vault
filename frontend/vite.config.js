@@ -31,7 +31,8 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    allowedHosts: ['nectiq.xyz', 'aegisvaults.xyz'],
+    // Leading dot allows the apex domain plus every subdomain (docs.*, etc.)
+    allowedHosts: ['nectiq.xyz', '.aegisvaults.xyz'],
   },
   build: {
     // Raise the warning threshold — wagmi + viem + recharts are heavy by nature.

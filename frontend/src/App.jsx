@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import DashboardPage from './pages/DashboardPage';
 import CreateVaultPage from './pages/CreateVaultPage';
@@ -24,9 +24,54 @@ function AppLayout({ children }) {
   return <AppShell>{children}</AppShell>;
 }
 
+// Shared loading state for the lazily-loaded document pages.
+const docsFallback = (
+  <div className="min-h-screen bg-obsidian flex items-center justify-center text-steel-400 text-sm">
+    Loading docs…
+  </div>
+);
+
+// The marketing site + app live on the apex domain.
+const APEX_ORIGIN = 'https://aegisvaults.xyz';
+
+// On the docs subdomain, any app route (e.g. /marketplace, /app) is bounced to
+// the apex domain — preserving path + query + hash — so the app's relative
+// <Link>s never trap the visitor on docs.aegisvaults.xyz.
+function ApexRedirect() {
+  const location = useLocation();
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.location.replace(
+      APEX_ORIGIN + location.pathname + location.search + location.hash
+    );
+  }, [location]);
+  return docsFallback;
+}
+
 function App() {
   // Auto-follow the account currently selected/connected in MetaMask.
   useFollowWalletAccount();
+
+  // The docs subdomain (docs.aegisvaults.xyz) is documentation-only: it serves
+  // the docs + whitepaper pages and redirects every other route to the apex
+  // domain. The marketing site + app stay on aegisvaults.xyz.
+  const onDocsSubdomain =
+    typeof window !== 'undefined' &&
+    window.location.hostname.startsWith('docs.');
+
+  if (onDocsSubdomain) {
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Suspense fallback={docsFallback}><DocsPage /></Suspense>} />
+          <Route path="/docs" element={<Suspense fallback={docsFallback}><DocsPage /></Suspense>} />
+          <Route path="/whitepaper" element={<Suspense fallback={docsFallback}><WhitepaperPage /></Suspense>} />
+          {/* Everything else belongs to the app → send it to the apex domain. */}
+          <Route path="*" element={<ApexRedirect />} />
+        </Routes>
+      </BrowserRouter>
+    );
+  }
 
   return (
     <BrowserRouter>

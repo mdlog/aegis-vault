@@ -535,7 +535,7 @@ function OperatorLeaderboard({ operators, tiersByAddress, reputationByAddress })
     return (operators || [])
       .map((op) => {
         const tier = tiersByAddress?.[op.wallet?.toLowerCase()] || {};
-        const stake = Number(tier.stakedAmount || 0);
+        const stake = Number(tier.stakeAmount || 0);
         const tierVal = Number(tier.tier || 0);
         // Real on-chain reputation (0..100 composite). reputationScore() returns
         // 0 when an operator has no recorded executions — we keep `hasRep` so the
@@ -553,7 +553,11 @@ function OperatorLeaderboard({ operators, tiersByAddress, reputationByAddress })
 
   if (!ranked.length) return null;
 
-  const stakeLabel = (s) => (s > 0 ? `${(s / 1000).toFixed(1)}K` : '—');
+  const stakeLabel = (s) => {
+    if (!s || s <= 0) return '—';
+    if (s >= 1000) return `${(s / 1000).toFixed(1)}K`;
+    return s >= 1 ? String(Math.round(s)) : s.toFixed(2);
+  };
 
   return (
     <Card style={{ padding: 24 }}>
@@ -1126,39 +1130,14 @@ export default function DashboardPage() {
           </div>
 
           {/* Right rail */}
-          <aside className="flex flex-col gap-6 xl:sticky xl:top-[88px] self-start">
+          <aside className="flex flex-col gap-6 xl:sticky xl:top-[140px] self-start">
             <YourVaultCard vault={primaryVault} isConnected={isConnected || showDemoExperience} />
             <RiskRailCard score={risk.score} level={risk.level} confidence={displaySignal?.confidence} />
             <MarketPricesCard prices={displayPrices} isLive={!!pythPrices} />
             <ExecutionTapeCard events={protocolEvents} />
           </aside>
         </div>
-
-        {/* Footer ribbon */}
-        <footer
-          className="flex items-center justify-center gap-x-6 gap-y-2 flex-wrap"
-          style={{ marginTop: 28, paddingTop: 22, borderTop: `1px solid ${P.lineMid}`, fontFamily: MONO, fontSize: 11, color: P.faint }}
-        >
-          <RibbonItem k="CHAIN" v={`${networkLabel} · ${chainId}`} />
-          <RibbonSep />
-          <RibbonItem k="CONSENSUS" v="HotStuff-2" />
-          <RibbonSep />
-          <RibbonItem k="ORACLE" v="Pyth" />
-          <RibbonSep />
-          <RibbonItem k="INTENT" v="EIP-712 Sealed" />
-          <RibbonSep />
-          <RibbonItem k="ENGINE" v="GLM-5-FP8 · TEE-Signed" />
-        </footer>
       </div>
     </div>
   );
-}
-
-function RibbonItem({ k, v }) {
-  return (
-    <span>{k} <span style={{ color: P.sub }}>{v}</span></span>
-  );
-}
-function RibbonSep() {
-  return <span style={{ color: P.track }}>·</span>;
 }

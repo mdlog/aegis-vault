@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import DocsLink from '../DocsLink';
 import { useAccount, useChainId } from 'wagmi';
 import Logo from '../ui/Logo';
 import StatusPill from '../ui/StatusPill';
@@ -104,11 +105,11 @@ export default function AppShell({ children }) {
         className="sticky top-0 z-50 backdrop-blur-xl"
         style={{ background: 'rgba(10,11,14,0.85)', borderBottom: '1px solid rgba(255,255,255,0.07)', fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}
       >
-        <div className="max-w-[1540px] mx-auto px-4 lg:px-6 h-[72px] flex items-center justify-between gap-4">
+        <div className="max-w-[1540px] mx-auto px-4 lg:px-6 h-[124px] flex items-center justify-between gap-4">
           {/* Left: Logo + vault switcher */}
           <div className="flex items-center gap-4">
             <Link to="/" className="flex items-center group">
-              <Logo height={56} />
+              <Logo height={112} />
             </Link>
 
             <div className="h-6 w-px hidden sm:block" style={{ background: 'rgba(255,255,255,0.08)' }} />
@@ -217,7 +218,7 @@ export default function AppShell({ children }) {
                 <Link
                   key={item.label}
                   to={item.path}
-                  className={`flex items-center px-3.5 py-[7px] rounded-lg text-[13px] font-medium transition-all duration-200
+                  className={`flex items-center px-4 py-2 rounded-lg text-[15px] font-medium transition-all duration-200
                     ${active
                       ? 'text-[#eceef1] bg-[rgba(227,179,78,0.1)]'
                       : 'text-[#8a8f98] hover:text-[#eceef1] hover:bg-white/[0.04]'
@@ -343,7 +344,7 @@ export default function AppShell({ children }) {
         <div className="max-w-[1540px] mx-auto px-4 lg:px-6 flex items-center justify-between flex-wrap gap-5">
           {/* Real Aegis Vault logo */}
           <Link to="/" className="flex items-center">
-            <Logo height={24} />
+            <Logo height={112} />
           </Link>
           <div
             className="flex items-center gap-6"
@@ -352,9 +353,9 @@ export default function AppShell({ children }) {
             <Link to="/whitepaper" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = '#eceef1')} onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7078')}>
               Whitepaper
             </Link>
-            <Link to="/docs" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = '#eceef1')} onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7078')}>
+            <DocsLink path="/docs" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = '#eceef1')} onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7078')}>
               Docs
-            </Link>
+            </DocsLink>
             <Link to="/marketplace" className="transition-colors" onMouseEnter={(e) => (e.currentTarget.style.color = '#eceef1')} onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7078')}>
               Marketplace
             </Link>
