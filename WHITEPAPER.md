@@ -2,13 +2,13 @@
 
 **AI-managed, risk-controlled trading vaults with contract-enforced guardrails and dual-chain real execution.**
 
-*Version 1.3 · 2026-04-27 (V3 stack: post-audit hardening, Khalani cross-chain adapter, fresh operator marketplace; V4 multi-strategy architecture subsection added)*
+*Version 1.4 · 2026-05-14 (V4 multi-strategy stack live on 0G mainnet: on-chain manifest binding, depositor-timelocked strategy upgrade, fresh operator marketplace redeployed alongside V4 for a clean t=0 cutover. V3 stack frozen on-chain for audit trail and historical reads only.)*
 
 ---
 
 ## Abstract
 
-Aegis Vault is a non-custodial smart-contract trading vault protocol in which an AI agent proposes trades and the vault contract enforces every policy rule on-chain. Users deposit capital, select an operator from an on-chain marketplace, and set per-vault risk parameters at creation. The AI agent has no authority to move funds outside the policy envelope — its role is reduced to producing a signed intent whose every field, including a cryptographic hash of the AI response itself, is bound into an EIP-712 typed structure and verified by the vault.
+Aegis Vault is a non-custodial smart-contract trading vault protocol in which an AI agent proposes trades and the vault contract enforces its **trade-shape** policy on-chain — position size, asset whitelist, slippage floor, cooldown, confidence threshold, and daily action count — before any funds move. Users deposit capital, select an operator from an on-chain marketplace, and set per-vault risk parameters at creation. The AI agent has no authority to move funds outside the policy envelope — its role is reduced to producing an EIP-712 signed intent. A cryptographic hash of the AI response (`attestationReportHash`) is bound into the EIP-712 typehash and is therefore covered by the operator's signature; the vault verifies that signature against the approved `attestedSigner`. The drawdown-based limits (`maxDailyLossBps`, `stopLossBps`) are enforced **off-chain** by the orchestrator risk veto, with the owner's `pause()` as the on-chain backstop — see the policy enforcement table (§4) for the exact on-chain/off-chain split.
 
 Aegis runs on two chains. 0G Aristotle Mainnet (chain 16661) serves as both the intelligence layer — with AI inference via 0G Compute, decision journaling via 0G Storage, and the full operator identity + staking + governance stack — and as a real execution venue through the Jaine DEX (a Uniswap V3 fork with approximately $1 million in pool TVL). Arbitrum One (chain 42161) provides a sibling execution layer with canonical USDC / WETH / WBTC via Uniswap V3. The two chains are not bridged. Cross-chain replay protection is secured entirely by the EIP-712 domain separator, which binds each intent to a specific `block.chainid`.
 
@@ -28,7 +28,9 @@ Users who want AI-managed on-chain trading today face a binary choice.
 
 Aegis Vault takes a third path: **retain the non-custodial, contract-enforced trust model of DeFi, while letting AI inference drive execution — with every AI output cryptographically bound to an on-chain policy check.**
 
-The critical insight is that an AI vault protocol cannot be verifiable unless the AI's output itself becomes a constraint on what the vault will execute. It is insufficient for a contract to only check "did an authorized signer approve this trade?" — the contract must also check "does this trade match the AI output that produced this intent?" Aegis encodes the answer to that second question as a field in the EIP-712 `ExecutionIntent` typehash, so the vault rejects any intent whose attestation hash does not correspond to the AI response the operator claims to have received.
+The design goal is that the AI's output becomes part of what the operator signs, so it cannot be swapped after the fact. Aegis encodes a hash of the AI response — `attestationReportHash` — as a field in the EIP-712 `ExecutionIntent` typehash. Because that field sits inside the signed structure, the operator cannot alter the claimed AI output without producing a different intent hash and therefore a different signature.
+
+**What the vault verifies on-chain is the signature, not the inference.** It recovers the signer from the intent hash and requires it to equal the vault's approved `attestedSigner` (and, in sealed mode, that a matching commit was posted one block earlier). The vault does **not** parse a TEE/SGX/TDX quote, and there is **no enclave-measurement (`MRENCLAVE`) check in the contract** — so on-chain it cannot prove that the hash corresponds to a genuine 0G Compute inference. That correspondence is established **off-chain**: the orchestrator must verify the 0G Compute attestation (and, in a hardened deployment, the enclave measurement) *before* the `attestedSigner` key ever signs. On-chain trust therefore reduces to **custody of the `attestedSigner` key** — anyone holding it can mint valid intents within the policy caps — which is why that key must live in an HSM/enclave and is revocable via `setAttestedSigner`. The cryptographic binding guarantees the *signed* response hash is immutable and non-replayable across chains; it does not, by itself, prove that an enclave produced it.
 
 ### 1.2 Actors and contracts
 
@@ -45,7 +47,7 @@ The critical insight is that an AI vault protocol cannot be verifiable unless th
 
 ### 2.1 Contract topology
 
-The 0G mainnet deployment comprises sixteen live contracts — the V3 vault stack (AegisVault V3, AegisVaultFactory V3, ExecutionRegistry V3) plus the freshly redeployed operator marketplace (OperatorRegistry, OperatorStaking, OperatorReputation, InsurancePool — all rebased on 2026-04-27 to give the post-audit baseline a clean operator history) plus shared infrastructure (governor, treasury, NAV calculator) plus venue adapters (JaineVenueAdapter V2 for in-chain swaps and KhalaniVenueAdapter for cross-chain routing) plus the V3 supporting libraries (ExecLib / IOLib / CrossChainLib / SealedLib). The retired V2/V1 vault stack and the original operator marketplace are no longer surfaced in the SDK address book; their addresses remain queryable on-chain for historical reads only. The Arbitrum mainnet deployment comprises eight contracts (V3 not yet ported). All live addresses are enumerated in Section 9.
+The 0G mainnet deployment comprises sixteen live contracts — the V4 vault stack (AegisVault V4, AegisVaultFactory V4, ExecutionRegistry shared with V3) plus the freshly redeployed operator marketplace (OperatorRegistry, OperatorStaking_v2, OperatorReputation, InsurancePool_v2 — all rebased on 2026-05-14 alongside V4 for a clean t=0 cutover with all admin/arbitrator slots bound to AegisGovernor from genesis) plus shared infrastructure (governor, treasury, NAV calculator) plus venue adapters (JaineVenueAdapterV2 for in-chain swaps and KhalaniVenueAdapter for cross-chain routing) plus the V4 supporting libraries (ExecLibV4 / CrossChainLibV4) and the reused V3 libraries (IOLib / SealedLib). The retired V3, V2, and V1 vault stacks and the pre-fresh operator marketplace are no longer surfaced in the SDK address book; their addresses remain queryable on-chain for historical reads only. The Arbitrum mainnet deployment comprises eight contracts (V3/V4 not yet ported). All live addresses are enumerated in Section 9.
 
 ```
                     User
@@ -142,7 +144,7 @@ The orchestrator builds an `ExecutionIntent` struct containing the target vault 
 
 ### Step 5 — Decision journaling
 
-The orchestrator appends a journal entry to local storage (with optional 0G Storage propagation) recording the market snapshot, AI output, intent hash, and signature. This entry is auditable post-hoc even if the transaction fails.
+The orchestrator appends a journal entry to local storage (with optional 0G Storage propagation) recording the market snapshot, AI output, intent hash, and signature. The **authoritative** audit trail is on-chain — the EIP-712 intent hash, the `attestationReportHash`, and (in sealed mode) the commit-reveal record are emitted by the vault and can be replayed from chain events. The local journal is a non-authoritative convenience mirror (lossy by design — recent entries only); it is not required to verify what executed.
 
 ### Step 6 — Commit (sealed mode only)
 
@@ -318,7 +320,7 @@ All caps are enforced at `AegisVault.initialize` — a vault cannot be created w
 
 ### 7.2 Protocol split
 
-Of every fee dollar an operator earns, **80% goes to the operator** and **20% goes to `ProtocolTreasury`**. The protocol cut funds audits, bug bounties, insurance pool top-ups, and grants. The split is hard-coded (`PROTOCOL_FEE_CUT_BPS = 2000`).
+Of every fee dollar an operator earns, **80% goes to the operator** and **20% goes to `ProtocolTreasury`**. The protocol cut is intended to fund audits, bug bounties, grants, and — at governance discretion — insurance-pool seeding. There is **no enforced, automatic routing** from the treasury to the insurance pool today: `ProtocolTreasury.spend()` is discretionary. The split is hard-coded (`PROTOCOL_FEE_CUT_BPS = 2000`). Note: this 20% cut is currently collected on **entry/exit fees only** — performance/management-fee accrual is not yet shipped on the live vaults.
 
 ### 7.3 High-water mark
 
@@ -366,9 +368,9 @@ The user does not need to trust the operator beyond "will run the strategy their
 
 ## 9. Deployed Instances
 
-### 9.1 0G Aristotle Mainnet (chain 16661) — V3 + Khalani stack deployed 2026-04-27 (canonical for new vaults)
+### 9.1 0G Aristotle Mainnet (chain 16661) — V4 stack live since 2026-05-14 (canonical for new vaults)
 
-V4 ships **2026-05-14** post pre-V4 line-by-line audit (127 findings surfaced, 11 Highs landed) + final regression review catch (Critical CrossChainLibV4 link fix). 285 contract tests passing post-patch. V4 adds operator strategy-manifest binding — every clone commits an `acceptedManifestHash` at create time, and `executeIntent` requires `intent.strategyHash` to match. The four marketplace contracts (`OperatorRegistry`, `OperatorStaking_v2`, `OperatorReputation`, `InsurancePool_v2`) were redeployed fresh in the same window for a clean cutover (0 vaults, 0 operators at t=0) and all four arbitrator/admin slots are bound to `AegisGovernor` from t=0 — closing audit H-6 / H-7 / H-9.
+V4 went live on **2026-05-14** following a pre-V4 line-by-line audit (127 findings surfaced, 11 Highs landed) + final regression review catch (Critical CrossChainLibV4 link fix); 285 contract tests pass post-patch. V4 adds operator strategy-manifest binding — every clone commits an `acceptedManifestHash` at create time, and `executeIntent` reverts unless `intent.strategyHash` matches. The four marketplace contracts (`OperatorRegistry`, `OperatorStaking_v2`, `OperatorReputation`, `InsurancePool_v2`) were redeployed fresh in the same window for a clean cutover (0 vaults, 0 operators at t=0) with all four arbitrator/admin slots bound to `AegisGovernor` from t=0 — closing audit H-6 / H-7 / H-9.
 
 | Contract | Address |
 |---|---|
@@ -477,7 +479,7 @@ V4 does **not** verify that the orchestrator's *implementation* of a given manif
 
 **Non-coupling with V3.** V3 contracts are not upgraded. V4 ships as a fresh implementation + factory; the only shared state is the `ExecutionRegistry` replay guard. This was a deliberate constraint — EIP-1167 clones cannot grow their storage layout retroactively without breaking the existing slot map. The trade-off is that depositors who want V4's guarantees must opt in by withdrawing from V3 and creating a new V4 vault.
 
-**Phase status (2026-04-27):** Phase 0–2 (RFC, V4 contracts, orchestrator strategy loader + decision engine integration) and Phase 1 V4 contracts are complete. Phase 3 covers tests, migration tooling, SDK / frontend wiring, and the documents listed above. Mainnet deployment of V4 follows once the deployment plan checklist is fully signed off.
+**Phase status (2026-05-15):** Phase 0–3 complete. V4 contracts went live on 0G Aristotle Mainnet on 2026-05-14 (factory + implementation + ExecLibV4 + CrossChainLibV4 addresses listed in Section 9.1). 285 contract tests pass post-patch (including the Critical CrossChainLibV4 link fix caught in the final regression review). The SDK address book defaults new vaults to V4; V3 vaults remain operational and are not force-migrated. Arbitrum V4 port is the next on the roadmap and is unblocked once gas-budget benchmarking is finalized.
 
 ---
 

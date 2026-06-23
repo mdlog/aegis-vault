@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 1,
+  "name": "Demo Quant Alpha — Conservative Defensive",
+  "version": "1.0.0",
+  "operator": "0xbEa8A3562473F11de7AB1510759412F0A0153b58",
+  "publishedAt": "2026-05-17T00:00:00Z",
+  "network": {
+    "chain": "0G Aristotle Mainnet",
+    "chainId": 16661,
+    "explorer": "https://chainscan.0g.ai"
+  },
+  "mandate": "Conservative Defensive",
+
+  "strategy": {
+    "id": "demo-quant-alpha-conservative-defensive",
+    "name": "Demo Quant Alpha — Conservative Defensive",
+    "type": "mean_reversion",
+    "timeframe": "1h",
+    "basedOn": null,
+    "basedOnHash": null,
+    "summary": "Stablecoin-anchored defensive rotation across USDC.e / WETH / W0G on Jaine V3. Maximum 40% single-asset exposure, 60% confidence floor, sealed mode mandatory. Built as the canonical demo operator for the V4 marketplace cutover.",
+    "thesis": "Defensive-first sizing — never more than 40% in any non-base asset, never trade below 60% AI confidence, and never trade through the mempool. Every intent is EIP-712 bound to a TEE-attested GLM-5-FP8 inference response via ExecutionIntent.attestationReportHash, and committed before reveal via sealed mode to defeat MEV.",
+    "venues": [
+      {
+        "name": "Jaine V3 (multi-hop)",
+        "chainId": 16661,
+        "adapter": "0xA4E2aeB9e1a5297DE38d7Ad8e11b1714ca481F2f",
+        "router": "0x8b598a7c136215a95ba0282b4d832b9f9801f2e2"
+      }
+    ],
+    "executionMode": ["sealed"]
+  },
+
+  "indicators": {
+    "rsi": {
+      "period": 14,
+      "buyMin": 30,
+      "buyMax": 50,
+      "overbought": 70,
+      "oversold": 30
+    },
+    "macd": {
+      "fast": 12,
+      "slow": 26,
+      "signal": 9,
+      "requireHistogramPositive": false
+    },
+    "ema": {
+      "periods": [20, 50, 200]
+    },
+    "atr": {
+      "period": 14
+    },
+    "bollinger": {
+      "period": 20,
+      "stdDev": 2.0
+    }
+  },
+
+  "scoring": {
+    "weights": {
+      "trend": 0.15,
+      "momentum": 0.10,
+      "volatility": 0.20,
+      "liquidity": 0.20,
+      "riskState": 0.25,
+      "aiContext": 0.10
+    }
+  },
+
+  "rules": {
+    "entry_long": {
+      "expression": "rsi_14 < 50 && price < bb_lower && regime in ['RANGE_STABLE', 'RANGE_NOISY', 'TREND_UP_WEAK']"
+    },
+    "exit_long": {
+      "expression": "rsi_14 > 65 || price > bb_upper || position.pnl_pct < -10.0"
+    },
+    "size_bps": {
+      "expression": "min(4000, ai.confidence * 4000, vault.maxPositionBps)"
+    }
+  },
+
+  "gates": {
+    "minEdgeBuy": 60,
+    "minQualityBuy": 60,
+    "minConfidenceBuy": 0.60,
+    "maxRiskBuy": 0.50,
+    "minEdgeSell": 50,
+    "minQualitySell": 50,
+    "allowedBuyRegimes": ["RANGE_STABLE", "RANGE_NOISY", "TREND_UP_WEAK"],
+    "allowedSellRegimes": ["TREND_UP_STRONG", "TREND_UP_WEAK", "RANGE_STABLE", "RANGE_NOISY", "TREND_DOWN_WEAK", "TREND_DOWN_STRONG", "PANIC_VOLATILE"]
+  },
+
+  "veto": {
+    "maxAtrPct": 2.5,
+    "rsiOverbought": 75,
+    "rsiOversold": 25,
+    "maxSpreadBps": 50,
+    "maxSlippageBps": 100,
+    "maxConsecutiveLosses": 3
+  },
+
+  "allowedAssets": [
+    { "symbol": "USDC.e", "address": "0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E", "decimals": 6,  "role": "base" },
+    { "symbol": "WETH",   "address": "0x564770837Ef8bbF077cFe54E5f6106538c815B22", "decimals": 18, "role": "asset" },
+    { "symbol": "W0G",    "address": "0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c", "decimals": 18, "role": "asset" }
+  ],
+
+  "policy": {
+    "maxPositionBps": 4000,
+    "confidenceThresholdBps": 6000,
+    "stopLossBps": 1000,
+    "cooldownSeconds": 1200,
+    "maxActionsPerDay": 4,
+    "maxDailyLossBps": 300,
+    "sealedMode": true
+  },
+
+  "fees": {
+    "performanceBps": 1000,
+    "managementBps": 100,
+    "entryBps": 25,
+    "exitBps": 25,
+    "note": "Fees in basis points (1 bps = 0.01%). Demo-tier fees, well under the on-chain caps (perf 3000, mgmt 500, entry 200, exit 200)."
+  },
+
+  "ai": {
+    "mode": "scoring_input",
+    "model": "zai-org/GLM-5-FP8",
+    "providerAddress": "0xd9966e13a6026Fcca4b13E7ff95c94DE268C471C",
+    "temperature": 0.3,
+    "scoringWeight": 0.10,
+    "provider": "0G Compute",
+    "rpc": "https://evmrpc.0g.ai",
+    "inputs": [
+      "15m / 1h / 4h OHLCV for USDC.e/WETH and USDC.e/W0G on Jaine V3",
+      "Current vault NAV + allocation breakdown",
+      "7-day drawdown trajectory",
+      "Pending approvals + cooldown state",
+      "Operator tier + stake amount (contract reads)"
+    ],
+    "outputs": [
+      "regime: UP | RANGE | DOWN | PANIC",
+      "action: BUY | SELL | HOLD per asset pair",
+      "confidenceBps: 0-10000",
+      "riskScoreBps: 0-10000",
+      "reasonSummary: short natural-language rationale"
+    ],
+    "attestation": {
+      "mechanism": "TEE-signed ECDSA over keccak256(provider, chatId, model, contentDigest)",
+      "boundInto": "ExecutionIntent.attestationReportHash (bytes32 field in EIP-712 struct)",
+      "verifiedBy": "AegisVault.executeIntent -> SealedLib.verifyAttestation -> ecrecover against policy.attestedSigner"
+    }
+  },
+
+  "guardrails": {
+    "contractEnforced": [
+      "confidenceThresholdBps floor (6000) — vault rejects intents below 60% confidence",
+      "maxPositionBps ceiling (4000) — vault rejects sizing above 40% of NAV",
+      "stopLossBps trigger (1000) — position auto-exit on 10% drawdown",
+      "cooldownSeconds (1200) — vault rejects intents within 20 minutes of last trade",
+      "maxActionsPerDay (4) — vault rejects after 4 executed trades in 24h",
+      "both-sides asset whitelist — assetIn AND assetOut must be USDC.e, WETH, or W0G",
+      "commit-reveal block gap — sealed mode requires >= 1 block between commit and reveal",
+      "attestedSigner signature match — ecrecover must match policy.attestedSigner",
+      "V4 manifest binding — intent.strategyHash must equal vault.acceptedManifestHash"
+    ],
+    "operatorSide": [
+      "STRICT_MODE=1 refuses trade on stale market data or 0G Compute failure",
+      "Orchestrator re-fetches Pyth prices every cycle (oracle freshness gate)",
+      "CoinGecko fallback disabled under strict mode",
+      "TEE signer key stored separately from hot executor key (config invariant)"
+    ]
+  },
+
+  "slashConditions": [
+    "Trading any asset outside the declared allowedAssets list",
+    "Signing inferences not actually produced by zai-org/GLM-5-FP8",
+    "Bypassing stop-loss, cooldown, or maxActionsPerDay via post-publish policy override",
+    "Collusion with MEV infrastructure outside the committed commit-reveal scheme",
+    "Failure to publish a new bonded manifest when strategy materially changes"
+  ],
+
+  "disclosures": [
+    "Operator hot wallet key is separate from TEE signer key (enforced in orchestrator config).",
+    "No off-chain inputs beyond those listed in ai.inputs.",
+    "Orchestrator source: https://github.com/mdlog/aegis-vault (MIT).",
+    "Stake bonded in OperatorStaking at 0xF46b6b76c5021a21dc0029FDEAEba6713472CBE6 (V4 marketplace).",
+    "Registered in OperatorRegistry at 0x8A12238E20e9CE5D8Ea350E58B7d03D0551CA22b (V4 marketplace).",
+    "Arbitrator: AegisGovernor multisig at 0x023EC4a54435f94E9395460e4835e75E429D5A2e — can slash up to 50% of stake per 7-day rolling window."
+  ],
+
+  "contact": {
+    "project": "Aegis Vault",
+    "repo": "https://github.com/mdlog/aegis-vault",
+    "docs": "https://github.com/mdlog/aegis-vault/blob/main/CONTRACTS.md"
+  }
+}

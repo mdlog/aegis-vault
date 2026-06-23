@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 import { existsSync, readFileSync } from 'fs';
+import { Wallet } from 'ethers';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // `override: true` makes .env win over already-exported shell env vars. Without
@@ -231,6 +232,25 @@ export function validateConfig(targetConfig = config) {
       if (!targetConfig.contracts[key]) {
         errors.push(`${label} missing in STRICT_MODE`);
       }
+    }
+  }
+
+  // Security invariant (Post-TEE remediation P0-10): the TEE attestation signer
+  // key must never equal the executor hot-wallet key. Reusing a single key
+  // collapses the trust separation documented above — a leaked executor key
+  // would then also be able to mint valid sealed-mode attestation signatures.
+  // Until now this was only a comment; enforce it whenever both keys are set.
+  if (targetConfig.privateKey && targetConfig.teeSigner?.privateKey) {
+    try {
+      const execAddr = new Wallet(targetConfig.privateKey).address.toLowerCase();
+      const teeAddr = new Wallet(targetConfig.teeSigner.privateKey).address.toLowerCase();
+      if (execAddr === teeAddr) {
+        errors.push(
+          'TEE_SIGNER_PRIVATE_KEY must differ from PRIVATE_KEY (executor hot wallet) — a shared key collapses attestation trust separation'
+        );
+      }
+    } catch {
+      errors.push('PRIVATE_KEY or TEE_SIGNER_PRIVATE_KEY is not a valid private key');
     }
   }
 

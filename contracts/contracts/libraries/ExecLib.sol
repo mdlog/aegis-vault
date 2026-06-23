@@ -84,7 +84,8 @@ library ExecLib {
         // EIP-712 hash check
         require(computeIntentHash(intent) == intent.intentHash, "hash");
 
-        // Inline essential policy checks (shorter than PolicyLibrary.validateAll)
+        // Inline essential policy checks — trade-shape only (see NatSpec above
+        // for the on-chain vs off-chain enforcement split).
         require(block.timestamp <= intent.expiresAt, "expired");
         require(block.timestamp >= lastExecutionTime + _policy.cooldownSeconds, "cooldown");
         require(intent.confidenceBps >= _policy.confidenceThresholdBps, "conf");

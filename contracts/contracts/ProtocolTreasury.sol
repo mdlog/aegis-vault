@@ -11,7 +11,10 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  *         Phase 1: Simple multi-sig admin access (governance moves to DAO in Phase 4).
  *
  *         Receives:
- *           - 20% cut of all operator fees (performance, management, entry, exit)
+ *           - 20% protocol cut of ENTRY/EXIT fees, split inline in IOLib on every
+ *             deposit/withdraw. NOTE: performance/management-fee accrual is not
+ *             yet shipped on the live vaults (no accrueFees/claimFees), so the
+ *             perf/mgmt protocol cut does NOT currently reach the treasury.
  *           - Slashing income (Phase 2)
  *           - Listing fees (Phase 2)
  *
