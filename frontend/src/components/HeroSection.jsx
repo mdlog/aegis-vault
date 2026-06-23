@@ -122,7 +122,7 @@ export default function HeroSection() {
               { value: '18', label: 'Contracts on 0G Mainnet', accent: 'text-white' },
               { value: '6', label: '0G Compute AI Models', accent: 'text-emerald-soft' },
               { value: 'EIP-712', label: 'Typed Intent Hashing', accent: 'text-cyan' },
-              { value: 'TEE', label: 'Sealed Mode Attestation', accent: 'text-gold' },
+              { value: 'TEE', label: 'DCAP-verified (opt-in)', accent: 'text-gold' },
             ].map((metric) => (
               <div key={metric.label} className="text-center md:text-left">
                 <div className={`text-2xl lg:text-3xl font-display font-semibold tracking-tight ${metric.accent}`}>

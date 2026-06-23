@@ -479,7 +479,7 @@ function LandingThesis() {
             {
               n: '02',
               q: 'What stopped the agent from rug-pulling?',
-              a: 'Policy bounds enforced in Solidity: caps, allowlists, veto windows, TEE seals.',
+              a: 'Policy bounds enforced in Solidity: caps, allowlists, veto windows, signed commit-reveal. TEE attestation is DCAP-verified off-chain for opted-in vaults.',
             },
             {
               n: '03',
@@ -664,7 +664,7 @@ function LandingHowItWorks() {
 // ────────────── CAPABILITIES ──────────────
 function LandingCapabilities() {
   const caps = [
-    { icon: <Lock size={16} />, t: 'Sealed mode', body: 'Private reasoning, public proof. Model inputs stay encrypted; verification layer still holds.' },
+    { icon: <Lock size={16} />, t: 'Sealed mode', body: 'Private reasoning, public proof. Inference is committed on-chain; for attested vaults the provider TDX quote is DCAP-verified each cycle.' },
     { icon: <Network size={16} />, t: 'Cross-chain via Khalani', body: 'V3 vaults accept solver-fulfilled fills from Ethereum, Arbitrum, Base + native 0G — single-chain wallet, multi-chain liquidity. Per-vault fee cap sealed at create.' },
     { icon: <Vote size={16} />, t: 'Operator marketplace', body: 'Stake-weighted registry of model providers. Reputation is on-chain, bonded, permissionless to join. Slashing enforcement ships in Phase 2.' },
     { icon: <Cpu size={16} />, t: '0G Compute runtime', body: 'Distributed GPU inference with verifiable output. Every action references its compute receipt.' },
@@ -1092,7 +1092,7 @@ function LandingCTA() {
 function LandingFooter() {
   return (
     <footer style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '48px 40px 36px' }}>
-      <div className="max-w-[1320px] mx-auto grid gap-10" style={{ gridTemplateColumns: '1.5fr 1fr 1fr 1fr 1fr' }}>
+      <div className="max-w-[1320px] mx-auto grid gap-10" style={{ gridTemplateColumns: '1.5fr 1fr 1fr 1fr' }}>
         <div>
           <AegisLogo size={24} />
           <p
@@ -1176,13 +1176,6 @@ function LandingFooter() {
             l: [
               { label: 'Trust model', to: '/docs#trust-model' },
               { label: 'Architecture', to: '/docs#architecture' },
-            ],
-          },
-          {
-            t: 'Protocol',
-            l: [
-              { label: 'Whitepaper', to: '/whitepaper' },
-              { label: 'GitHub', href: 'https://github.com/mdlog/aegis-vault' },
             ],
           },
         ].map((c, i) => (
