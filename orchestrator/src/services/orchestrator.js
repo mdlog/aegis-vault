@@ -74,7 +74,8 @@ import {
   recordSubmittedIntent, tryClaimIntent, unclaimIntent, incrementCounters,
 } from './storage.js';
 import { initOGStorage, isOGStorageAvailable, readVaultStateFromOG } from './ogStorage.js';
-import { initOGCompute, getOGComputeStatus } from './ogCompute.js';
+import { initOGCompute, getOGComputeStatus, getBroker, getProviderService } from './ogCompute.js';
+import { isTeeAttestationRequired, attestInference, evaluateTeeGate } from './teeAttestation.js';
 import { evaluateApprovalTier } from './approvalTier.js';
 import { startIndexer, getVaultsByExecutor, getExecutorVaultCounts } from './vaultIndexer.js';
 import { startVaultEventListener } from './vaultEventListener.js';
@@ -127,6 +128,14 @@ function buildDefaultPositionState() {
     last_action: 'HOLD_FLAT',
     daily_pnl_pct: 0,
     rolling_drawdown_pct: 0,
+    // NAV baselines for real PnL / drawdown (P0-3). daily_open_nav resets each
+    // UTC day; peak_nav is the high-water mark; last_total_deposited lets us
+    // rebase both when a deposit/withdrawal moves NAV so the metrics track
+    // trading performance, not capital flows. null = not yet observed.
+    daily_open_nav: null,
+    daily_open_date: null,
+    peak_nav: null,
+    last_total_deposited: null,
     consecutive_losses: 0,
     actions_last_60m: 0,
     last_actions_timestamps: [],
@@ -186,6 +195,93 @@ function syncPositionStateFromHoldings(positionState, vaultState) {
   positionState.position_cost_basis_usd = costBasis;
 
   return positionState;
+}
+
+// P0-3: derive real daily PnL % and rolling drawdown % from the vault's NAV and
+// persist the baselines on positionState across cycles. These were previously
+// hardcoded to 0, which made the off-chain drawdown / daily-loss veto
+// (riskVeto.js checks #6/#7, policyCheck.checkDailyLoss) vacuous — it could
+// never fire. A deposit/withdrawal (detected via the totalDeposited delta)
+// SHIFTS the baselines by the flow amount, preserving the trading drawdown / PnL
+// signal across the flow. (Rebasing them to NAV instead would zero a genuine
+// drawdown mid-loss and disarm the halt — AUDIT_MONEY_PATH.md Bug #2.)
+export function updatePnlMetrics(positionState, vaultState) {
+  const nav = Number(vaultState.nav);
+  const totalDeposited = Number(vaultState.totalDeposited);
+
+  // NAV unavailable / non-positive: cannot derive metrics — leave neutral.
+  if (!Number.isFinite(nav) || nav <= 0) {
+    positionState.daily_pnl_pct = 0;
+    positionState.rolling_drawdown_pct = 0;
+    vaultState.currentDailyLossPct = 0;
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10); // UTC YYYY-MM-DD
+  const firstObservation =
+    positionState.daily_open_nav === null || positionState.peak_nav === null;
+  const flowDelta =
+    !firstObservation &&
+    Number.isFinite(totalDeposited) &&
+    positionState.last_total_deposited !== null
+      ? totalDeposited - positionState.last_total_deposited
+      : 0;
+
+  if (firstObservation) {
+    // First observation: seed both baselines at the current NAV.
+    positionState.daily_open_nav = nav;
+    positionState.daily_open_date = today;
+    positionState.peak_nav = nav;
+  } else {
+    if (Math.abs(flowDelta) > 1e-9) {
+      // Capital flowed in/out. NAV moved by the flow amount, NOT by trading, so
+      // SHIFT both baselines by that same delta rather than rebasing them to the
+      // current NAV. Rebasing to NAV would collapse a genuine drawdown to ~0 and
+      // silently disarm the daily-loss / drawdown halt exactly when a depositor
+      // tops up an underwater vault. Shifting preserves the trading-loss signal.
+      // (The base asset is ~USD-pegged, so the totalDeposited delta and NAV share
+      // a unit; a deposit of D raises both NAV and totalDeposited by ~D.)
+      positionState.daily_open_nav += flowDelta;
+      positionState.peak_nav += flowDelta;
+      // A large withdrawal could drive a baseline non-positive — fall back to NAV.
+      if (!(positionState.daily_open_nav > 0)) positionState.daily_open_nav = nav;
+      if (!(positionState.peak_nav > 0)) positionState.peak_nav = nav;
+    }
+    if (positionState.daily_open_date !== today) {
+      // New UTC day: reset the daily baseline (the peak / HWM carries over).
+      positionState.daily_open_nav = nav;
+      positionState.daily_open_date = today;
+    }
+  }
+
+  if (nav > positionState.peak_nav) positionState.peak_nav = nav;
+  if (Number.isFinite(totalDeposited)) positionState.last_total_deposited = totalDeposited;
+
+  const openNav = positionState.daily_open_nav;
+  const peakNav = positionState.peak_nav;
+  const dailyPnlPct = openNav > 0 ? ((nav - openNav) / openNav) * 100 : 0;
+  const drawdownPct = peakNav > 0 ? Math.max(0, ((peakNav - nav) / peakNav) * 100) : 0;
+
+  positionState.daily_pnl_pct = dailyPnlPct;        // signed (negative = loss)
+  positionState.rolling_drawdown_pct = drawdownPct; // positive magnitude
+  // policyCheck.checkDailyLoss reads currentDailyLossPct as a positive loss %.
+  vaultState.currentDailyLossPct = Math.max(0, -dailyPnlPct);
+}
+
+/**
+ * Derive the next consecutive-loss streak from a settled trade. The streak feeds the
+ * riskVeto loss-streak breaker (consecutive_losses_exceeded), the decisionEngine BUY
+ * gate (losses_ok), and signal scoring. It was previously only ever reset to 0 and never
+ * incremented, leaving the breaker permanently inert (ORCHESTRATOR_REVIEW.md M1).
+ * @param {number} current   existing streak
+ * @param {{action:string, pnlUsd6:bigint, costBasisKnown:boolean}} trade
+ */
+export function nextConsecutiveLosses(current, { action, pnlUsd6, costBasisKnown }) {
+  const c = current || 0;
+  if (action === 'buy') return 0;     // opening fresh risk resets the streak
+  if (action !== 'sell') return c;    // hold / non-settling action: unchanged
+  if (!costBasisKnown) return c;      // cannot judge a close with no known cost basis
+  return pnlUsd6 < 0n ? c + 1 : 0;    // realized loss increments; win/break-even resets
 }
 
 export function resolveExecutorAddresses() {
@@ -368,6 +464,7 @@ async function runVaultCycle(vaultAddress, marketSummary) {
     // Merge position tracking
     const now = Math.floor(Date.now() / 1000);
     syncPositionStateFromHoldings(positionState, vaultState);
+    updatePnlMetrics(positionState, vaultState); // P0-3: real PnL/drawdown for the off-chain risk veto
     positionState.actions_last_60m = positionState.last_actions_timestamps.filter(t => now - t < 3600).length;
     Object.assign(vaultState, positionState);
 
@@ -583,6 +680,27 @@ async function runVaultCycle(vaultAddress, marketSummary) {
       return vaultResult;
     }
 
+    // Real TEE attestation gate (off-chain DCAP). Opt-in per vault via the
+    // manifest's execution.requireTeeAttestation (integrity-anchored by the
+    // on-chain acceptedManifestHash). When required and not satisfied, skip
+    // the cycle — fail-closed, no trade. Vaults without the flag are
+    // unaffected.
+    let teeAttestation = null;
+    if (isTeeAttestationRequired(vaultState)) {
+      teeAttestation = await attestInference(
+        getBroker(), getProviderService(), decision._computeResponse?.chatId,
+      );
+      const gate = evaluateTeeGate(vaultState, teeAttestation);
+      if (!gate.proceed) {
+        logger.warn(`    TEE attestation required but not satisfied (${gate.reason}) — skipping submission.`);
+        vaultResult.status = gate.status;
+        vaultResult.teeReason = gate.reason;
+        updateKVState({ lastSignal: decision, totalCycles: cycleCount, positionState: vaultPositions });
+        return vaultResult;
+      }
+      decision._teeAttestation = teeAttestation;
+    }
+
     // Build + submit intent. CoinGecko (the marketSummary source) doesn't
     // list 0G yet, so its `oraclePrices` map is missing 0G. Pyth carries it
     // — merge Pyth into the price map so SELL 0G / BUY 0G can derive a
@@ -680,6 +798,7 @@ async function runVaultCycle(vaultAddress, marketSummary) {
       // trade that already settled.
       let volumeUsd6 = 0n;
       let pnlUsd6 = 0n;
+      let costBasisKnown = false;
       if (decision.action === 'buy') {
         volumeUsd6 = BigInt(intent.amountIn);
       } else if (decision.action === 'sell') {
@@ -699,6 +818,7 @@ async function runVaultCycle(vaultAddress, marketSummary) {
         if (costBasisFullUsd6 > 0n) {
           const costBasisSoldUsd6 = (costBasisFullUsd6 * sellFractionBps) / 10000n;
           pnlUsd6 = volumeUsd6 - costBasisSoldUsd6;
+          costBasisKnown = true;
         }
       }
       recordExecutionToReputation(vaultState.executor, volumeUsd6, pnlUsd6, true).catch((err) => {
@@ -712,7 +832,6 @@ async function runVaultCycle(vaultAddress, marketSummary) {
         positionState.current_position_notional_usd = (decision.size_bps / 10000) * vaultState.nav;
         positionState.position_cost_basis_usd = positionState.current_position_notional_usd;
         positionState.current_position_pnl_pct = 0;
-        positionState.consecutive_losses = 0;
       } else if (decision.action === 'sell') {
         // Clamp to [0, 10000] up front so a stale decision with sellFraction
         // > 10000 (off-by-one from the engine) cannot turn fractionRemaining
@@ -737,6 +856,13 @@ async function runVaultCycle(vaultAddress, marketSummary) {
             : 0;
         }
       }
+      // M1: update the loss-streak breaker from the settled trade's realized PnL
+      // (previously only ever reset to 0, so the breaker never fired).
+      positionState.consecutive_losses = nextConsecutiveLosses(positionState.consecutive_losses, {
+        action: decision.action,
+        pnlUsd6,
+        costBasisKnown,
+      });
       positionState.last_action = decision.v1_action || decision.action.toUpperCase();
       positionState.last_actions_timestamps.push(now);
       const cutoff = now - 3600;
