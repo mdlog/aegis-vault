@@ -107,6 +107,40 @@ function setLastBlock(blockNumber) {
   lastIndexedBlock = blockNumber;
 }
 
+// Lazily-built interface for decoding vault events. Built on first use (not at
+// module load) so pure helpers below stay importable in tests without needing a
+// live ABI/provider.
+let _vaultIface = null;
+function vaultIface() {
+  if (!_vaultIface) _vaultIface = new ethers.Interface(ABIs.AegisVault);
+  return _vaultIface;
+}
+
+/**
+ * Pure: reduce decoded ExecutorUpdated events into the executor reassignments to
+ * apply. Filters to vaults the indexer already knows (knownKeys, lowercased) and
+ * keeps the latest executor per vault, ordered by (blockNumber, logIndex).
+ * Exported for unit testing — this is the core of operator-switch re-routing.
+ *
+ * @param {{vault:string,newExecutor:string,blockNumber:number,logIndex:number}[]} decoded
+ * @param {Set<string>} knownKeys lowercased vault addresses present in the index
+ * @returns {{address:string,executor:string}[]}
+ */
+export function buildExecutorUpdates(decoded, knownKeys) {
+  const latest = new Map(); // key -> { executor, blockNumber, logIndex }
+  for (const d of decoded || []) {
+    const key = (d.vault || '').toLowerCase();
+    if (!knownKeys.has(key)) continue;
+    const prev = latest.get(key);
+    const isNewer =
+      !prev ||
+      d.blockNumber > prev.blockNumber ||
+      (d.blockNumber === prev.blockNumber && d.logIndex >= prev.logIndex);
+    if (isNewer) latest.set(key, { executor: d.newExecutor, blockNumber: d.blockNumber, logIndex: d.logIndex });
+  }
+  return Array.from(latest.entries()).map(([address, v]) => ({ address, executor: v.executor }));
+}
+
 /**
  * Backfill: full scan of factory.allVaults() into SQLite.
  * Idempotent — INSERT OR REPLACE means safe to re-run.
@@ -125,13 +159,22 @@ async function backfill() {
   for (let i = 0; i < total; i++) {
     const address = await factory.getVaultAt(i);
     const cached = vaults.get(address.toLowerCase());
-    // Skip only when the cached entry already has the executor populated.
-    // A stale cache without `executor` (e.g. ingested via an event whose ABI
-    // didn't decode the field) gets re-read so the executor index can route.
-    if (cached && cached.executor) continue;
-
-    // Read on-chain metadata
     const vault = new ethers.Contract(address, ABIs.AegisVault, getProvider());
+
+    // Heal path: a vault already cached with an executor only needs its executor
+    // re-read (1 RPC) so a setExecutor() that happened while the orchestrator was
+    // DOWN is reflected and re-routed on next start (cold-start complement to the
+    // live ExecutorUpdated poll).
+    if (cached && cached.executor) {
+      const executor = await vault.executor().catch(() => null);
+      if (executor && executor.toLowerCase() !== cached.executor.toLowerCase()) {
+        upsertVault({ ...cached, executor });
+        healed++;
+      }
+      continue;
+    }
+
+    // New (or missing-executor) vault: read full metadata.
     const [owner, executor, baseAsset] = await Promise.all([
       vault.owner().catch(() => ethers.ZeroAddress),
       vault.executor().catch(() => ethers.ZeroAddress),
@@ -150,9 +193,9 @@ async function backfill() {
     if (cached) healed++; else added++;
   }
 
-  if (healed > 0) logger.info(`Indexer backfill: healed ${healed} vault(s) with missing executor`);
+  if (healed > 0) logger.info(`Indexer backfill: healed ${healed} vault(s) (missing/changed executor)`);
 
-  if (added > 0) persist();
+  if (added > 0 || healed > 0) persist();
   logger.info(`Indexer backfill: ${added}/${total} vaults added`);
   return added;
 }
@@ -202,10 +245,63 @@ async function pollForNewVaults() {
       persist();
     }
 
+    // Re-route vaults whose executor changed (owner called setExecutor →
+    // ExecutorUpdated) so a switched vault is handed to the new executor's
+    // orchestrator next cycle and the old one drops it.
+    await pollExecutorChanges(fromBlock, currentBlock);
+
     setLastBlock(currentBlock);
   } catch (err) {
     logger.warn(`Indexer poll failed: ${err.message?.substring(0, 120)}`);
   }
+}
+
+/**
+ * Poll ExecutorUpdated logs and re-route any KNOWN vault whose executor changed.
+ * ExecutorUpdated is emitted from vault addresses (not the factory), so this is a
+ * topic-only getLogs across the block range; same-signature logs from non-vault
+ * contracts are dropped by the known-vault filter in buildExecutorUpdates.
+ * Re-uses upsertVault, which moves the vault between executor-index buckets — so
+ * getVaultsByExecutor (the cycle's discovery path) is immediately correct.
+ */
+async function pollExecutorChanges(fromBlock, currentBlock) {
+  if (vaults.size === 0) return 0; // nothing indexed yet → nothing to re-route
+  const provider = getProvider();
+  const topic = vaultIface().getEvent('ExecutorUpdated').topicHash;
+  const RPC_LOG_RANGE = 999;
+  const decoded = [];
+  for (let from = fromBlock; from <= currentBlock; from += RPC_LOG_RANGE) {
+    const to = Math.min(from + RPC_LOG_RANGE - 1, currentBlock);
+    const logs = await provider.getLogs({ topics: [topic], fromBlock: from, toBlock: to });
+    for (const log of logs) {
+      try {
+        const parsed = vaultIface().parseLog(log);
+        decoded.push({
+          vault: parsed.args.vault,
+          newExecutor: parsed.args.newExecutor,
+          blockNumber: log.blockNumber,
+          logIndex: log.index ?? log.logIndex ?? 0,
+        });
+      } catch {
+        // not an AegisVault ExecutorUpdated (event-signature collision) — skip
+      }
+    }
+  }
+
+  const updates = buildExecutorUpdates(decoded, new Set(vaults.keys()));
+  let changed = 0;
+  for (const u of updates) {
+    const existing = vaults.get(u.address);
+    if (!existing) continue;
+    if ((existing.executor || '').toLowerCase() === (u.executor || '').toLowerCase()) continue;
+    upsertVault({ ...existing, executor: u.executor });
+    changed++;
+  }
+  if (changed > 0) {
+    logger.info(`Indexer: re-routed ${changed} vault(s) via ExecutorUpdated`);
+    persist();
+  }
+  return changed;
 }
 
 /**
